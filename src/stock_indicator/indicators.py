@@ -4,7 +4,7 @@ import numpy as np
 import time
 from datetime import datetime, timedelta
 import datetime
-from typing import Sequence
+from typing import Sequence, Tuple, Union
 
 from .utils import load_stock_history
 
@@ -130,53 +130,106 @@ def _volume_check(df: pd.DataFrame) -> pd.DataFrame:
 	return df
 
 
-def pbb(symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
-	df_stock = load_stock_history(symbol, INTERVAL)
+def pbb(
+        symbol: str,
+        buy_mark_day: int,
+        price_above: float,
+        volumn_above: float,
+        INTERVAL: str,
+        debug: bool,
+) -> Union[pd.DataFrame, bool]:
+        """Evaluate the PBB indicator for a given symbol.
 
-	if df_stock.empty:
-		return False
-	elif df_stock["Close"].iloc[-1] < price_above:
-		return False
-	elif df_stock["Volume"].iloc[-1] < volumn_above:
-		return False
-	elif len(df_stock.index) < 10:
-		return False
-	else:
-		start_time = time.time()
+        Args:
+        - symbol: Stock ticker to analyse.
+        - buy_mark_day: Number of recent days to look back for a buy signal.
+        - price_above: Minimum allowed closing price for the latest day.
+        - volumn_above: Minimum allowed trading volume for the latest day.
+        - INTERVAL: Data interval passed to ``load_stock_history``.
+        - debug: When ``True`` return the full DataFrame of calculated values
+          instead of a boolean result.
 
-		df_stock = _moving_average_checks(df_stock)
-		df_stock = _rsi_check(df_stock)
-		df_stock = _volume_check(df_stock)
+        Returns:
+        - A DataFrame with all computed columns when ``debug`` is ``True``.
+        - Otherwise, a boolean indicating whether the indicator signalled a
+          buy within the last ``buy_mark_day`` days.
 
-		df_stock["UP_CHECK"] = df_stock["Close"] > df_stock["Close"].shift(1).fillna(df_stock["Close"])
-		df_stock["UP20_CHECK"] = df_stock["Close"] > df_stock["Close"].shift(20).fillna(df_stock["Close"])
-		df_stock["TODAY_RAISE_CHECK"] = df_stock["Close"] > df_stock["Open"]
-		df_stock["YESTERDAY_DROP_CHECK"] = (
-			df_stock["Open"].shift(1).fillna(df_stock["Open"]) >
-			df_stock["Close"].shift(1).fillna(df_stock["Close"])
-		)
+        Side Effects:
+        - Downloads data via :func:`load_stock_history`.
+        - Prints progress and execution time to stdout.
+        """
+        df_stock = load_stock_history(symbol, INTERVAL)
 
-		df_stock["STATE"] = (
-			df_stock["MA_CHECK"]
-			& df_stock["HIGHESTCLOSE_200_CHECK"]
-			& df_stock["RSI6_CHECK"]
-			& df_stock["VOL_CHECK"]
-			& df_stock["UP_CHECK"]
-			& df_stock["UP20_CHECK"]
-			& df_stock["TODAY_RAISE_CHECK"]
-			& df_stock["YESTERDAY_DROP_CHECK"]
-		)
+        if df_stock.empty:
+                return False
+        elif df_stock["Close"].iloc[-1] < price_above:
+                return False
+        elif df_stock["Volume"].iloc[-1] < volumn_above:
+                return False
+        elif len(df_stock.index) < 10:
+                return False
+        else:
+                start_time = time.time()
 
-		end_time = time.time()
-		print(symbol, "DONE", end_time - start_time)
+                df_stock = _moving_average_checks(df_stock)
+                df_stock = _rsi_check(df_stock)
+                df_stock = _volume_check(df_stock)
 
-		if debug:
-			return df_stock.copy()
-		else:
-			return df_stock["STATE"].tail(buy_mark_day).any()
+                df_stock["UP_CHECK"] = df_stock["Close"] > df_stock["Close"].shift(1).fillna(df_stock["Close"])
+                df_stock["UP20_CHECK"] = df_stock["Close"] > df_stock["Close"].shift(20).fillna(df_stock["Close"])
+                df_stock["TODAY_RAISE_CHECK"] = df_stock["Close"] > df_stock["Open"]
+                df_stock["YESTERDAY_DROP_CHECK"] = (
+                        df_stock["Open"].shift(1).fillna(df_stock["Open"]) >
+                        df_stock["Close"].shift(1).fillna(df_stock["Close"])
+                )
 
-def ftd (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
-	df_stock = load_stock_history(symbol, INTERVAL)
+                df_stock["STATE"] = (
+                        df_stock["MA_CHECK"]
+                        & df_stock["HIGHESTCLOSE_200_CHECK"]
+                        & df_stock["RSI6_CHECK"]
+                        & df_stock["VOL_CHECK"]
+                        & df_stock["UP_CHECK"]
+                        & df_stock["UP20_CHECK"]
+                        & df_stock["TODAY_RAISE_CHECK"]
+                        & df_stock["YESTERDAY_DROP_CHECK"]
+                )
+
+                end_time = time.time()
+                print(symbol, "DONE", end_time - start_time)
+
+                if debug:
+                        return df_stock.copy()
+                else:
+                        return df_stock["STATE"].tail(buy_mark_day).any()
+
+def ftd(
+        symbol: str,
+        buy_mark_day: int,
+        price_above: float,
+        volumn_above: float,
+        INTERVAL: str,
+        debug: bool,
+) -> Tuple[Union[pd.DataFrame, bool], float]:
+        """Check for the FTD (failure to deliver) indicator and rating.
+
+        Args:
+        - symbol: Stock ticker to analyse.
+        - buy_mark_day: Number of recent days to look back for a signal.
+        - price_above: Minimum allowed closing price for the latest day.
+        - volumn_above: Minimum allowed trading volume for the latest day.
+        - INTERVAL: Data interval passed to ``load_stock_history``.
+        - debug: When ``True`` return the full DataFrame of calculated values.
+
+        Returns:
+        - Tuple of ``(data, rating)`` where ``data`` is either the full
+          DataFrame (when ``debug`` is ``True``) or a boolean indicating if a
+          signal was found, and ``rating`` is the computed buy rating.
+
+        Side Effects:
+        - Downloads data via :func:`load_stock_history`.
+        - Prints progress and execution time to stdout.
+        """
+        df_stock = load_stock_history(symbol, INTERVAL)
 
 	if df_stock.empty:
 		return False, 0.0
@@ -334,8 +387,35 @@ def ftd (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
 
 		return output, rating
 
-def K1 (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
-	df_stock = load_stock_history(symbol, INTERVAL)
+def K1(
+        symbol: str,
+        buy_mark_day: int,
+        price_above: float,
+        volumn_above: float,
+        INTERVAL: str,
+        debug: bool,
+) -> Union[pd.DataFrame, bool]:
+        """Evaluate the K1 indicator for a given symbol.
+
+        Args:
+        - symbol: Stock ticker to analyse.
+        - buy_mark_day: Number of recent days to look back for buy/sell marks.
+        - price_above: Minimum allowed closing price for the latest day.
+        - volumn_above: Minimum allowed trading volume for the latest day.
+        - INTERVAL: Data interval passed to ``load_stock_history``.
+        - debug: When ``True`` return the full DataFrame of calculated values.
+
+        Returns:
+        - DataFrame with all computed columns when ``debug`` is ``True``.
+        - Otherwise, boolean indicating whether the most recent buy signal
+          occurred after the most recent sell signal within the last
+          ``buy_mark_day`` days.
+
+        Side Effects:
+        - Downloads data via :func:`load_stock_history`.
+        - Prints progress and execution time to stdout.
+        """
+        df_stock = load_stock_history(symbol, INTERVAL)
 
 	if df_stock.empty:
 		return False
@@ -668,8 +748,34 @@ def K1 (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
 
 		return output
 
-def buyRating (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
-	df_stock = load_stock_history(symbol, INTERVAL, decimals=7)
+def buyRating(
+        symbol: str,
+        buy_mark_day: int,
+        price_above: float,
+        volumn_above: float,
+        INTERVAL: str,
+        debug: bool,
+) -> Union[pd.DataFrame, bool]:
+        """Evaluate the buy rating indicator for a given symbol.
+
+        Args:
+        - symbol: Stock ticker to analyse.
+        - buy_mark_day: Number of recent days to look back for a buy signal.
+        - price_above: Minimum allowed closing price for the latest day.
+        - volumn_above: Minimum allowed trading volume for the latest day.
+        - INTERVAL: Data interval passed to ``load_stock_history``.
+        - debug: When ``True`` return the full DataFrame of calculated values.
+
+        Returns:
+        - DataFrame with all computed columns when ``debug`` is ``True``.
+        - Otherwise, boolean indicating whether a recent buy signal met the
+          rating criteria within the last ``buy_mark_day`` days.
+
+        Side Effects:
+        - Downloads data via :func:`load_stock_history`.
+        - Prints progress and execution time to stdout.
+        """
+        df_stock = load_stock_history(symbol, INTERVAL, decimals=7)
 
 	if df_stock.empty:
 		return False
