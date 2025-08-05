@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
-from stock_indicator import indicators
+from stock_indicator import indicators, utils
 
 
-def test_get_stock_data(monkeypatch):
+def test_load_stock_history(monkeypatch):
     sample = pd.DataFrame(
         {
             "Open": [1.0, 2.0],
@@ -19,8 +19,8 @@ def test_get_stock_data(monkeypatch):
     def fake_download(symbol, start, end, interval):
         return sample
 
-    monkeypatch.setattr(indicators.yf, "download", fake_download)
-    df = indicators._get_stock_data("TEST", "1d")
+    monkeypatch.setattr(utils.yf, "download", fake_download)
+    df = utils.load_stock_history("TEST", "1d")
     assert list(df.columns) == ["Date", "Open", "High", "Low", "Close", "Adj Close", "Volume"]
     assert df["Close"].iloc[0] == 1.0
     assert df.index.tolist() == [0, 1]
