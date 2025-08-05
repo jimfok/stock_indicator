@@ -11,15 +11,15 @@ from .utils import load_stock_history
 """Collection of technical indicator calculations and screeners."""
 
 __all__ = [
-        "ema",
-        "sma",
-        "rsi",
-        "pbb",
-        "ftd",
-        "K1",
-        "buyRating",
-        "vol_up",
-        "mm_stage2",
+	"ema",
+	"sma",
+	"rsi",
+	"pbb",
+	"ftd",
+	"K1",
+	"buyRating",
+	"vol_up",
+	"mm_stage2",
 ]
 
 # yfinance dataFrame columns:
@@ -210,26 +210,26 @@ def ftd(
         INTERVAL: str,
         debug: bool,
 ) -> Tuple[Union[pd.DataFrame, bool], float]:
-        """Check for the FTD (failure to deliver) indicator and rating.
+	"""Check for the FTD (failure to deliver) indicator and rating.
 
-        Args:
-        - symbol: Stock ticker to analyse.
-        - buy_mark_day: Number of recent days to look back for a signal.
-        - price_above: Minimum allowed closing price for the latest day.
-        - volumn_above: Minimum allowed trading volume for the latest day.
-        - INTERVAL: Data interval passed to ``load_stock_history``.
-        - debug: When ``True`` return the full DataFrame of calculated values.
+	Args:
+	- symbol: Stock ticker to analyse.
+	- buy_mark_day: Number of recent days to look back for a signal.
+	- price_above: Minimum allowed closing price for the latest day.
+	- volumn_above: Minimum allowed trading volume for the latest day.
+	- INTERVAL: Data interval passed to ``load_stock_history``.
+	- debug: When ``True`` return the full DataFrame of calculated values.
 
-        Returns:
-        - Tuple of ``(data, rating)`` where ``data`` is either the full
-          DataFrame (when ``debug`` is ``True``) or a boolean indicating if a
-          signal was found, and ``rating`` is the computed buy rating.
+	Returns:
+	- Tuple of ``(data, rating)`` where ``data`` is either the full
+		DataFrame (when ``debug`` is ``True``) or a boolean indicating if a
+		signal was found, and ``rating`` is the computed buy rating.
 
-        Side Effects:
-        - Downloads data via :func:`load_stock_history`.
-        - Prints progress and execution time to stdout.
-        """
-        df_stock = load_stock_history(symbol, INTERVAL)
+	Side Effects:
+	- Downloads data via :func:`load_stock_history`.
+	- Prints progress and execution time to stdout.
+	"""
+	df_stock = load_stock_history(symbol, INTERVAL)
 
 	if df_stock.empty:
 		return False, 0.0
@@ -395,27 +395,27 @@ def K1(
         INTERVAL: str,
         debug: bool,
 ) -> Union[pd.DataFrame, bool]:
-        """Evaluate the K1 indicator for a given symbol.
+	"""Evaluate the K1 indicator for a given symbol.
 
-        Args:
-        - symbol: Stock ticker to analyse.
-        - buy_mark_day: Number of recent days to look back for buy/sell marks.
-        - price_above: Minimum allowed closing price for the latest day.
-        - volumn_above: Minimum allowed trading volume for the latest day.
-        - INTERVAL: Data interval passed to ``load_stock_history``.
-        - debug: When ``True`` return the full DataFrame of calculated values.
+	Args:
+	- symbol: Stock ticker to analyse.
+	- buy_mark_day: Number of recent days to look back for buy/sell marks.
+	- price_above: Minimum allowed closing price for the latest day.
+	- volumn_above: Minimum allowed trading volume for the latest day.
+	- INTERVAL: Data interval passed to ``load_stock_history``.
+	- debug: When ``True`` return the full DataFrame of calculated values.
 
-        Returns:
-        - DataFrame with all computed columns when ``debug`` is ``True``.
-        - Otherwise, boolean indicating whether the most recent buy signal
-          occurred after the most recent sell signal within the last
-          ``buy_mark_day`` days.
+	Returns:
+	- DataFrame with all computed columns when ``debug`` is ``True``.
+	- Otherwise, boolean indicating whether the most recent buy signal
+		occurred after the most recent sell signal within the last
+		``buy_mark_day`` days.
 
-        Side Effects:
-        - Downloads data via :func:`load_stock_history`.
-        - Prints progress and execution time to stdout.
-        """
-        df_stock = load_stock_history(symbol, INTERVAL)
+	Side Effects:
+	- Downloads data via :func:`load_stock_history`.
+	- Prints progress and execution time to stdout.
+	"""
+	df_stock = load_stock_history(symbol, INTERVAL)
 
 	if df_stock.empty:
 		return False
@@ -756,26 +756,26 @@ def buyRating(
         INTERVAL: str,
         debug: bool,
 ) -> Union[pd.DataFrame, bool]:
-        """Evaluate the buy rating indicator for a given symbol.
+	"""Evaluate the buy rating indicator for a given symbol.
 
-        Args:
-        - symbol: Stock ticker to analyse.
-        - buy_mark_day: Number of recent days to look back for a buy signal.
-        - price_above: Minimum allowed closing price for the latest day.
-        - volumn_above: Minimum allowed trading volume for the latest day.
-        - INTERVAL: Data interval passed to ``load_stock_history``.
-        - debug: When ``True`` return the full DataFrame of calculated values.
+	Args:
+	- symbol: Stock ticker to analyse.
+	- buy_mark_day: Number of recent days to look back for a buy signal.
+	- price_above: Minimum allowed closing price for the latest day.
+	- volumn_above: Minimum allowed trading volume for the latest day.
+	- INTERVAL: Data interval passed to ``load_stock_history``.
+	- debug: When ``True`` return the full DataFrame of calculated values.
 
-        Returns:
-        - DataFrame with all computed columns when ``debug`` is ``True``.
-        - Otherwise, boolean indicating whether a recent buy signal met the
-          rating criteria within the last ``buy_mark_day`` days.
+	Returns:
+	- DataFrame with all computed columns when ``debug`` is ``True``.
+	- Otherwise, boolean indicating whether a recent buy signal met the
+		rating criteria within the last ``buy_mark_day`` days.
 
-        Side Effects:
-        - Downloads data via :func:`load_stock_history`.
-        - Prints progress and execution time to stdout.
-        """
-        df_stock = load_stock_history(symbol, INTERVAL, decimals=7)
+	Side Effects:
+	- Downloads data via :func:`load_stock_history`.
+	- Prints progress and execution time to stdout.
+	"""
+	df_stock = load_stock_history(symbol, INTERVAL, decimals=7)
 
 	if df_stock.empty:
 		return False

@@ -7,7 +7,7 @@ INTERVAL = '1d'				# Valid intervals: [1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5
 PRICE_ABOVE = 12			# included PRICE_ABOVE
 VOLUMN_ABOVE = 0			# included VOLUMN_ABOVE, suggest 0 or 500000
 
-DEBUG = False				# debug flag
+DEBUG = True				# debug flag
 DEBUG_SYMBOL = 'SMCI'		# debug symbol
 
 parameter = [SCAN_TYPE,PERIOD,INTERVAL,PRICE_ABOVE,VOLUMN_ABOVE]

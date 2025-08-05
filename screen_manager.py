@@ -31,7 +31,7 @@ def screen(parameter, debug_parameter):
     logger.setLevel(logging.INFO)
 
     # Create a file handler
-    handler = logging.FileHandler(f'./log.nosync/log_{date_string}.txt')
+    handler = logging.FileHandler(f'./log/log_{date_string}.txt')
     handler.setLevel(logging.INFO)
 
     # Create a logging format
@@ -62,20 +62,20 @@ def screen(parameter, debug_parameter):
 
     if DEBUG:
         if SCAN_TYPE == 'K1':
-            indicators.K1(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output.nosync/{SCAN_TYPE}_"+DEBUG_SYMBOL+".csv", index=False, header=True)
+            indicators.K1(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output/{SCAN_TYPE}_"+DEBUG_SYMBOL+".csv", index=False, header=True)
         elif SCAN_TYPE == 'FTD':
-            indicators.ftd(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output.nosync/{SCAN_TYPE}_"+DEBUG_SYMBOL+".csv", index=False, header=True)
+            indicators.ftd(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output/{SCAN_TYPE}_"+DEBUG_SYMBOL+".csv", index=False, header=True)
         elif SCAN_TYPE == 'PBB':
-            indicators.pbb(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output.nosync/{SCAN_TYPE}_"+DEBUG_SYMBOL+".csv", index=False, header=True)
+            indicators.pbb(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output/{SCAN_TYPE}_"+DEBUG_SYMBOL+".csv", index=False, header=True)
         elif SCAN_TYPE == 'BuyRating':
-            indicators.buyRating(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output.nosync/{SCAN_TYPE}_"+DEBUG_SYMBOL+".csv", index=False, header=True)
+            indicators.buyRating(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output/{SCAN_TYPE}_"+DEBUG_SYMBOL+".csv", index=False, header=True)
         elif SCAN_TYPE == 'vol_up':
-            indicators.vol_up(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output.nosync/{SCAN_TYPE}_"+DEBUG_SYMBOL+".csv", index=False, header=True)
+            indicators.vol_up(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output/{SCAN_TYPE}_"+DEBUG_SYMBOL+".csv", index=False, header=True)
         elif SCAN_TYPE == 'mm_stage2':
-            indicators.mm_stage2(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output.nosync/{SCAN_TYPE}_"+DEBUG_SYMBOL+".csv", index=False, header=True)
+            indicators.mm_stage2(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output/{SCAN_TYPE}_"+DEBUG_SYMBOL+".csv", index=False, header=True)
         elif SCAN_TYPE == 'BOTH':
-            indicators.K1(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output.nosync/K1_"+DEBUG_SYMBOL+".csv", index=False, header=True)
-            indicators.ftd(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output.nosync/FTD_"+DEBUG_SYMBOL+".csv", index=False, header=True)
+            indicators.K1(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output/K1_"+DEBUG_SYMBOL+".csv", index=False, header=True)
+            indicators.ftd(DEBUG_SYMBOL, 1, 0, 0, INTERVAL, DEBUG).to_csv(f"./stock_output/FTD_"+DEBUG_SYMBOL+".csv", index=False, header=True)
     else:
         buy_mark_list = []
         process_count = 0
@@ -112,7 +112,7 @@ def screen(parameter, debug_parameter):
         # convert to futu name
             df_buy_mark[0] = df_buy_mark[0].replace(r'[\/]', '-', regex=True)
             df_buy_mark[0] = df_buy_mark[0].replace(r'[\^]', '-', regex=True)
-        df_buy_mark.to_csv(f"./result_output.nosync/watch_list_{date_string}_{SCAN_TYPE}.txt", index=False, header=False)
+        df_buy_mark.to_csv(f"./result_output/watch_list_{date_string}_{SCAN_TYPE}.txt", index=False, header=False)
 
     end_time = time.time()
     print('full list completed: ', end_time - start_time)
