@@ -131,7 +131,7 @@ def _volume_check(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def pbb(symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
-        df_stock = load_stock_history(symbol, INTERVAL)
+	df_stock = load_stock_history(symbol, INTERVAL)
 
 	if df_stock.empty:
 		return False
@@ -176,10 +176,10 @@ def pbb(symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
 			return df_stock["STATE"].tail(buy_mark_day).any()
 
 def ftd (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
-        df_stock = load_stock_history(symbol, INTERVAL)
+	df_stock = load_stock_history(symbol, INTERVAL)
 
-        if df_stock.empty:
-                return False, 0.0
+	if df_stock.empty:
+		return False, 0.0
 	elif df_stock['Close'].iloc[-1] < price_above:		# check price higher than requirement
 		return False, 0.0
 	elif df_stock['Volume'].iloc[-1] < volumn_above:	# check price higher than requirement
@@ -187,14 +187,14 @@ def ftd (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
 	elif len(df_stock.index) < 10:						# new stock within 10 trading day, SKIP
 		return False, 0.0
 	else:
-                start_time = time.time()
-                MAX_INDEX = len(df_stock.index)
+		start_time = time.time()
+		MAX_INDEX = len(df_stock.index)
 
-                LIST_LOW = df_stock['Low'].copy().to_list()
-                LIST_HIGH = df_stock['High'].copy().to_list()
-                LIST_CLOSE = df_stock['Close'].copy().to_list()
-                LIST_OPEN = df_stock['Open'].copy().to_list()
-                LIST_VOL = df_stock['Volume'].copy().to_list()
+		LIST_LOW = df_stock['Low'].copy().to_list()
+		LIST_HIGH = df_stock['High'].copy().to_list()
+		LIST_CLOSE = df_stock['Close'].copy().to_list()
+		LIST_OPEN = df_stock['Open'].copy().to_list()
+		LIST_VOL = df_stock['Volume'].copy().to_list()
 
 		# MA_CHECK := REF(C,3) < REF(MA(C,50),3)
 		LIST_MA_50 = []
@@ -335,10 +335,10 @@ def ftd (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
 		return output, rating
 
 def K1 (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
-        df_stock = load_stock_history(symbol, INTERVAL)
+	df_stock = load_stock_history(symbol, INTERVAL)
 
-        if df_stock.empty:
-                return False
+	if df_stock.empty:
+		return False
 	elif df_stock['Close'].iloc[-1] < price_above:		# check price higher than requirement
 		return False
 	elif df_stock['Volume'].iloc[-1] < volumn_above:	# check price higher than requirement
@@ -346,14 +346,14 @@ def K1 (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
 	elif len(df_stock.index) < 10:						# new stock within 10 trading day, SKIP
 		return False
 	else:
-                start_time = time.time()
-                MAX_INDEX = len(df_stock.index)
+		start_time = time.time()
+		MAX_INDEX = len(df_stock.index)
 
-                df_stock.loc[:, 'HLC'] = round((df_stock['High'] + df_stock['Low'] + df_stock['Close']) / 3, 3)
-                LIST_HIGH = df_stock['High'].copy().to_list()
-                LIST_LOW = df_stock['Low'].copy().to_list()
-                LIST_CLOSE = df_stock['Close'].copy().to_list()
-                LIST_HLC = df_stock['HLC'].copy().to_list()
+		df_stock.loc[:, 'HLC'] = round((df_stock['High'] + df_stock['Low'] + df_stock['Close']) / 3, 3)
+		LIST_HIGH = df_stock['High'].copy().to_list()
+		LIST_LOW = df_stock['Low'].copy().to_list()
+		LIST_CLOSE = df_stock['Close'].copy().to_list()
+		LIST_HLC = df_stock['HLC'].copy().to_list()
 
 		LIST_HD = []
 		LIST_LD = []
@@ -669,10 +669,10 @@ def K1 (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
 		return output
 
 def buyRating (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
-        df_stock = load_stock_history(symbol, INTERVAL, decimals=7)
+	df_stock = load_stock_history(symbol, INTERVAL, decimals=7)
 
-        if df_stock.empty:
-                return False
+	if df_stock.empty:
+		return False
 	elif df_stock['Close'].iloc[-1] < price_above:		# check price higher than requirement
 		return False
 	elif df_stock['Volume'].iloc[-1] < volumn_above:	# check price higher than requirement
@@ -680,14 +680,14 @@ def buyRating (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug)
 	elif len(df_stock.index) < 60:						# new stock within 60 trading day, SKIP
 		return False
 	else:
-                start_time = time.time()
-                MAX_INDEX = len(df_stock.index)
+		start_time = time.time()
+		MAX_INDEX = len(df_stock.index)
 
-                df_stock.loc[:, 'HLC'] = round((df_stock['High'] + df_stock['Low'] + df_stock['Close']) / 3, 7)
-                LIST_HIGH = df_stock['High'].copy().to_list()
-                LIST_LOW = df_stock['Low'].copy().to_list()
-                LIST_CLOSE = df_stock['Close'].copy().to_list()
-                LIST_HLC = df_stock['HLC'].copy().to_list()
+		df_stock.loc[:, 'HLC'] = round((df_stock['High'] + df_stock['Low'] + df_stock['Close']) / 3, 7)
+		LIST_HIGH = df_stock['High'].copy().to_list()
+		LIST_LOW = df_stock['Low'].copy().to_list()
+		LIST_CLOSE = df_stock['Close'].copy().to_list()
+		LIST_HLC = df_stock['HLC'].copy().to_list()
 
 		LIST_HD = []
 		LIST_LD = []
