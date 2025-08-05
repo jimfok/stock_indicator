@@ -229,11 +229,11 @@ def ftd(
         - Downloads data via :func:`load_stock_history`.
         - Prints progress and execution time to stdout.
         """
-        # Ensure numeric comparisons operate on plain floats
-        price_above = float(price_above)
-        volumn_above = float(volumn_above)
+	# Ensure numeric comparisons operate on plain floats
+	price_above = float(price_above)
+	volumn_above = float(volumn_above)
 
-        df_stock = load_stock_history(symbol, INTERVAL)
+	df_stock = load_stock_history(symbol, INTERVAL)
 
 	if df_stock.empty:
 		return False, 0.0
