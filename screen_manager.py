@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent / "src"))
 from stock_indicator import indicators
 
-def screen(parameter, debug_parameter):
+def screen(parameter, debug_parameter, symbols_dir: Path | str = Path("US-Stock-Symbols")):
     SCAN_TYPE = parameter[0]                # Scan marks for: K1 or FTD or or PBB or BuyRating or BOTH  ( K1 sell mark has bug, BOTH=K1+FTD )
     PERIOD = parameter[1]                   # scan for marks within n days
     INTERVAL = parameter[2]                 # Valid intervals: [1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo]
@@ -44,10 +44,12 @@ def screen(parameter, debug_parameter):
 
     start_time = time.time()
 
+    symbols_dir = Path(symbols_dir)
+
     # Read JSON files
-    amex_df = pd.read_json('./US-Stock-Symbols-main/amex/amex_tickers.json')
-    nasdaq_df = pd.read_json('./US-Stock-Symbols-main/nasdaq/nasdaq_tickers.json')
-    nyse_df = pd.read_json('./US-Stock-Symbols-main/nyse/nyse_tickers.json')
+    amex_df = pd.read_json(symbols_dir / "amex" / "amex_tickers.json")
+    nasdaq_df = pd.read_json(symbols_dir / "nasdaq" / "nasdaq_tickers.json")
+    nyse_df = pd.read_json(symbols_dir / "nyse" / "nyse_tickers.json")
 
     # Concatenate DataFrames
     combined_df = pd.concat([amex_df, nasdaq_df, nyse_df], ignore_index=True)
