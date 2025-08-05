@@ -65,123 +65,124 @@ def linear_regression_trend(ma_values: list) -> list:
 
 
 def ema(prices: Sequence[float], period: int = 12):
-        """Compute the Exponential Moving Average (EMA) for a price series."""
-        series = pd.Series(prices, dtype="float64")
-        return series.ewm(span=period, adjust=False).mean().to_list()
+	"""Compute the Exponential Moving Average (EMA) for a price series."""
+	series = pd.Series(prices, dtype="float64")
+	return series.ewm(span=period, adjust=False).mean().to_list()
 
 
 def sma(prices: Sequence[float], period: int = 14):
-        """Compute the Simple Moving Average (SMA) for a price series."""
-        series = pd.Series(prices, dtype="float64")
-        return series.rolling(window=period, min_periods=1).mean().to_list()
+	"""Compute the Simple Moving Average (SMA) for a price series."""
+	series = pd.Series(prices, dtype="float64")
+	return series.rolling(window=period, min_periods=1).mean().to_list()
 
 
 def rsi(prices: Sequence[float], period: int = 14):
-        """Compute the Relative Strength Index (RSI)."""
-        series = pd.Series(prices, dtype="float64")
-        delta = series.diff()
-        up = delta.clip(lower=0)
-        down = -delta.clip(upper=0)
-        roll_up = up.ewm(alpha=1 / period, adjust=False).mean()
-        roll_down = down.ewm(alpha=1 / period, adjust=False).mean()
-        rs = roll_up / roll_down
-        rsi_series = 100 - (100 / (1 + rs))
-        return rsi_series.fillna(0).to_list()
+	"""Compute the Relative Strength Index (RSI)."""
+	series = pd.Series(prices, dtype="float64")
+	delta = series.diff()
+	up = delta.clip(lower=0)
+	down = -delta.clip(upper=0)
+	roll_up = up.ewm(alpha=1 / period, adjust=False).mean()
+	roll_down = down.ewm(alpha=1 / period, adjust=False).mean()
+	rs = roll_up / roll_down
+	rsi_series = 100 - (100 / (1 + rs))
+	return rsi_series.fillna(0).to_list()
 
 
 def _get_stock_data(symbol: str, interval: str) -> pd.DataFrame:
-        """Retrieve stock data for the past 100 years and round values."""
-        end_date = datetime.date.today()
-        start_date = end_date - datetime.timedelta(days=365 * 100)
-        df_stock = yf.download(symbol, start=start_date, end=end_date, interval=interval)
-        if df_stock.empty:
-                return df_stock
-        df_stock = df_stock.round({"Low": 3, "High": 3, "Close": 3, "Open": 3})
-        df_stock.reset_index(inplace=True)
-        return df_stock
+	"""Retrieve stock data for the past 100 years and round values."""
+	end_date = datetime.date.today()
+	start_date = end_date - datetime.timedelta(days=365 * 100)
+	df_stock = yf.download(symbol, start=start_date, end=end_date, interval=interval)
+	if df_stock.empty:
+			return df_stock
+	df_stock = df_stock.round({"Low": 3, "High": 3, "Close": 3, "Open": 3})
+	df_stock.reset_index(inplace=True)
+	return df_stock
 
 
 def _moving_average_checks(df: pd.DataFrame) -> pd.DataFrame:
-        """Add moving average related columns and checks."""
-        df = df.copy()
-        df["EMA_50"] = df["Close"].ewm(span=50, adjust=False).mean()
-        df["MA_CHECK"] = df["Close"] >= df["EMA_50"]
-        df["HIGHESTCLOSE_200"] = df["Close"].rolling(window=200, min_periods=1).max()
-        df["HIGHESTCLOSE_200_CHECK"] = df["Close"] >= df["HIGHESTCLOSE_200"] * 0.8
-        return df
+	"""Add moving average related columns and checks."""
+	df = df.copy()
+	df["EMA_50"] = df["Close"].ewm(span=50, adjust=False).mean()
+	df["MA_CHECK"] = df["Close"] >= df["EMA_50"]
+	df["HIGHESTCLOSE_200"] = df["Close"].rolling(window=200, min_periods=1).max()
+	df["HIGHESTCLOSE_200_CHECK"] = df["Close"] >= df["HIGHESTCLOSE_200"] * 0.8
+	return df
 
 
 def _rsi_check(df: pd.DataFrame) -> pd.DataFrame:
-        """Add RSI6 column and check if RSI is rising."""
-        df = df.copy()
-        period = 6
-        delta = df["Close"].diff()
-        up = delta.clip(lower=0)
-        down = -delta.clip(upper=0)
-        roll_up = up.ewm(alpha=1 / period, adjust=False).mean()
-        roll_down = down.ewm(alpha=1 / period, adjust=False).mean()
-        rs = roll_up / roll_down
-        df["RSI6"] = 100 - (100 / (1 + rs))
-        df["RSI6_CHECK"] = df["RSI6"] > df["RSI6"].shift(1)
-        return df
+	"""Add RSI6 column and check if RSI is rising."""
+	df = df.copy()
+	period = 6
+	delta = df["Close"].diff()
+	up = delta.clip(lower=0)
+	down = -delta.clip(upper=0)
+	roll_up = up.ewm(alpha=1 / period, adjust=False).mean()
+	roll_down = down.ewm(alpha=1 / period, adjust=False).mean()
+	rs = roll_up / roll_down
+	df["RSI6"] = 100 - (100 / (1 + rs))
+	df["RSI6_CHECK"] = df["RSI6"] > df["RSI6"].shift(1)
+	return df
 
 
 def _volume_check(df: pd.DataFrame) -> pd.DataFrame:
-        """Add volume related moving averages and checks."""
-        df = df.copy()
-        df["MA_VOL50"] = df["Volume"].ewm(span=50, adjust=False).mean()
-        df["HIGHESTVOL_10"] = df["Volume"].rolling(window=10, min_periods=1).max()
-        df["VOL_CHECK"] = (
-                (df["Volume"] <= df["HIGHESTVOL_10"] * 0.5)
-                & (df["Volume"] <= df["MA_VOL50"])
-        )
-        return df
+	"""Add volume related moving averages and checks."""
+	df = df.copy()
+	df["MA_VOL50"] = df["Volume"].ewm(span=50, adjust=False).mean()
+	df["HIGHESTVOL_10"] = df["Volume"].rolling(window=10, min_periods=1).max()
+	df["VOL_CHECK"] = (
+		(df["Volume"] <= df["HIGHESTVOL_10"] * 0.5)
+		& (df["Volume"] <= df["MA_VOL50"])
+	)
+	return df
 
 
 def pbb(symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
-        df_stock = _get_stock_data(symbol, INTERVAL)
+	df_stock = _get_stock_data(symbol, INTERVAL)
 
-        if df_stock.empty:
-                return False
-        elif df_stock["Close"].iloc[-1] < price_above:
-                return False
-        elif df_stock["Volume"].iloc[-1] < volumn_above:
-                return False
-        elif len(df_stock.index) < 10:
-                return False
-        else:
-                start_time = time.time()
+	if df_stock.empty:
+		return False
+	elif df_stock["Close"].iloc[-1] < price_above:
+		return False
+	elif df_stock["Volume"].iloc[-1] < volumn_above:
+		return False
+	elif len(df_stock.index) < 10:
+		return False
+	else:
+		start_time = time.time()
 
-                df_stock = _moving_average_checks(df_stock)
-                df_stock = _rsi_check(df_stock)
-                df_stock = _volume_check(df_stock)
+		df_stock = _moving_average_checks(df_stock)
+		df_stock = _rsi_check(df_stock)
+		df_stock = _volume_check(df_stock)
 
-                df_stock["UP_CHECK"] = df_stock["Close"] > df_stock["Close"].shift(1).fillna(df_stock["Close"])
-                df_stock["UP20_CHECK"] = df_stock["Close"] > df_stock["Close"].shift(20).fillna(df_stock["Close"])
-                df_stock["TODAY_RAISE_CHECK"] = df_stock["Close"] > df_stock["Open"]
-                df_stock["YESTERDAY_DROP_CHECK"] = (
-                        df_stock["Open"].shift(1).fillna(df_stock["Open"]) >
-                        df_stock["Close"].shift(1).fillna(df_stock["Close"])
-                )
+		df_stock["UP_CHECK"] = df_stock["Close"] > df_stock["Close"].shift(1).fillna(df_stock["Close"])
+		df_stock["UP20_CHECK"] = df_stock["Close"] > df_stock["Close"].shift(20).fillna(df_stock["Close"])
+		df_stock["TODAY_RAISE_CHECK"] = df_stock["Close"] > df_stock["Open"]
+		df_stock["YESTERDAY_DROP_CHECK"] = (
+			df_stock["Open"].shift(1).fillna(df_stock["Open"]) >
+			df_stock["Close"].shift(1).fillna(df_stock["Close"])
+		)
 
-                df_stock["STATE"] = (
-                        df_stock["MA_CHECK"]
-                        & df_stock["HIGHESTCLOSE_200_CHECK"]
-                        & df_stock["RSI6_CHECK"]
-                        & df_stock["VOL_CHECK"]
-                        & df_stock["UP_CHECK"]
-                        & df_stock["UP20_CHECK"]
-                        & df_stock["TODAY_RAISE_CHECK"]
-                        & df_stock["YESTERDAY_DROP_CHECK"]
-                )
+		df_stock["STATE"] = (
+			df_stock["MA_CHECK"]
+			& df_stock["HIGHESTCLOSE_200_CHECK"]
+			& df_stock["RSI6_CHECK"]
+			& df_stock["VOL_CHECK"]
+			& df_stock["UP_CHECK"]
+			& df_stock["UP20_CHECK"]
+			& df_stock["TODAY_RAISE_CHECK"]
+			& df_stock["YESTERDAY_DROP_CHECK"]
+		)
 
-                end_time = time.time()
-                print(symbol, "DONE", end_time - start_time)
+		end_time = time.time()
+		print(symbol, "DONE", end_time - start_time)
 
-                if debug:
-                        return df_stock.copy()
-                else:
-                        return df_stock["STATE"].tail(buy_mark_day).any()
+		if debug:
+			return df_stock.copy()
+		else:
+			return df_stock["STATE"].tail(buy_mark_day).any()
+
 def ftd (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
 	# Get today's date
 	end_date = datetime.date.today()
