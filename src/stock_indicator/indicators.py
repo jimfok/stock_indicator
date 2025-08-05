@@ -88,196 +88,100 @@ def rsi(prices: Sequence[float], period: int = 14):
         rsi_series = 100 - (100 / (1 + rs))
         return rsi_series.fillna(0).to_list()
 
-def pbb (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
-	# Get today's date
-	end_date = datetime.date.today()
-	# Subtract 100 years from today's date
-	start_date = end_date - datetime.timedelta(days=365*100)
-	# Now, download the stock data within this range
-	df_stock = yf.download(symbol, start=start_date, end=end_date, interval=INTERVAL)
 
-	if df_stock.empty:
-		return False
-	elif df_stock['Close'].iloc[-1] < price_above:		# check price higher than requirement
-		return False
-	elif df_stock['Volume'].iloc[-1] < volumn_above:	# check price higher than requirement
-		return False
-	elif len(df_stock.index) < 10:						# new stock within 10 trading day, SKIP
-		return False
-	else:
-		start_time = time.time()
-		# Step 2: Store data in a Pandas DataFrame
-		df_stock.reset_index(inplace = True)
+def _get_stock_data(symbol: str, interval: str) -> pd.DataFrame:
+        """Retrieve stock data for the past 100 years and round values."""
+        end_date = datetime.date.today()
+        start_date = end_date - datetime.timedelta(days=365 * 100)
+        df_stock = yf.download(symbol, start=start_date, end=end_date, interval=interval)
+        if df_stock.empty:
+                return df_stock
+        df_stock = df_stock.round({"Low": 3, "High": 3, "Close": 3, "Open": 3})
+        df_stock.reset_index(inplace=True)
+        return df_stock
 
-		MAX_INDEX = len(df_stock.index)
 
-		#df_stock.insert(len(df_stock.columns), 'Open', 0.0)
-		df_stock['Low'] = df_stock['Low'].round(3)
-		df_stock['High'] = df_stock['High'].round(3)
-		df_stock['Close'] = df_stock['Close'].round(3)
-		df_stock['Open'] = df_stock['Open'].round(3)
+def _moving_average_checks(df: pd.DataFrame) -> pd.DataFrame:
+        """Add moving average related columns and checks."""
+        df = df.copy()
+        df["EMA_50"] = df["Close"].ewm(span=50, adjust=False).mean()
+        df["MA_CHECK"] = df["Close"] >= df["EMA_50"]
+        df["HIGHESTCLOSE_200"] = df["Close"].rolling(window=200, min_periods=1).max()
+        df["HIGHESTCLOSE_200_CHECK"] = df["Close"] >= df["HIGHESTCLOSE_200"] * 0.8
+        return df
 
-		LIST_LOW = df_stock['Low'].copy().to_list()
-		LIST_HIGH = df_stock['High'].copy().to_list()
-		LIST_CLOSE = df_stock['Close'].copy().to_list()
-		LIST_OPEN = df_stock['Open'].copy().to_list()
-		LIST_VOL = df_stock['Volume'].copy().to_list()
 
-		# 1) 今日 close 高於 vol ma 30
-		LIST_MA_30 = []
-		_last_futu_SMA_30 = LIST_CLOSE[0]
-		LIST_MA_CHECK = []
-		# 2) 今日 close 高於 200 days highest close 的 80%
-		HIGHESTCLOSE_200 = []
-		FIX_PERCENTAGE = 0.8
-		LIST_HIGHESTCLOSE_200_CHECK = []
-		# 3) 今日 6 days RSI 高過昨日 6 days RSI
-		LIST_RSI6 = []							# RSI
-		LIST_RSI6_CHECK = []
-		# 4）今日 VOL 低於 10 天內最高 VOL 的 50% ，且低於 MA_VOL 50
-		LIST_VOL_CHECK = []
-		LIST_MA_VOL50 = []
-		_last_futu_SMA_VOL50 = LIST_VOL[0]
-		HIGHESTVOL_10 = []
-		VOL_PERCENTAGE = 0.5
-		# 5）今日收高過琴日
-		LIST_UP_CHECK = []
-		# 6）今日收高過 20 日前
-		LIST_UP20_CHECK = []
-		# 7）今日必須是陽燭
-		LIST_TODAY_RAISE_CHECK = []
-		# 8）昨日必須是陰燭
-		LIST_YESTERDAY_DROP_CHECK = []
+def _rsi_check(df: pd.DataFrame) -> pd.DataFrame:
+        """Add RSI6 column and check if RSI is rising."""
+        df = df.copy()
+        period = 6
+        delta = df["Close"].diff()
+        up = delta.clip(lower=0)
+        down = -delta.clip(upper=0)
+        roll_up = up.ewm(alpha=1 / period, adjust=False).mean()
+        roll_down = down.ewm(alpha=1 / period, adjust=False).mean()
+        rs = roll_up / roll_down
+        df["RSI6"] = 100 - (100 / (1 + rs))
+        df["RSI6_CHECK"] = df["RSI6"] > df["RSI6"].shift(1)
+        return df
 
-		# first for loop
-		for i in range(0, MAX_INDEX):
-			# 今日高於 ma 30
-			_futu_SMA_30 = futu_ema(LIST_CLOSE[i], 50, _last_futu_SMA_30)
-			_last_futu_SMA_30 = _futu_SMA_30
-			LIST_MA_30.append(_futu_SMA_30)
 
-			# 今日 close 高於 52 week highest close 的 80%
-			_close = LIST_CLOSE[i]
-			PERIOD = 199
-			if i > 0 and i < PERIOD:
-				_temp_close = HIGHESTCLOSE_200[-1]
-				if _temp_close < _close:
-					_close = _temp_close
-			elif i != 0:
-				extra_one = i - PERIOD - 1
-				if LIST_CLOSE[extra_one] > HIGHESTCLOSE_200[-1]:
-					_close = HIGHESTCLOSE_200[-1]
-				else:
-					for j in range(0-PERIOD, 0):
-						_temp_close = LIST_CLOSE[0] if i+j<0 else LIST_CLOSE[i+j]
-						if _temp_close < _close:
-							_close = _temp_close
-			HIGHESTCLOSE_200.append(_close)
+def _volume_check(df: pd.DataFrame) -> pd.DataFrame:
+        """Add volume related moving averages and checks."""
+        df = df.copy()
+        df["MA_VOL50"] = df["Volume"].ewm(span=50, adjust=False).mean()
+        df["HIGHESTVOL_10"] = df["Volume"].rolling(window=10, min_periods=1).max()
+        df["VOL_CHECK"] = (
+                (df["Volume"] <= df["HIGHESTVOL_10"] * 0.5)
+                & (df["Volume"] <= df["MA_VOL50"])
+        )
+        return df
 
-			# 今日 6 days RSI 高過昨日 6 days RSI
-			RSI_PERIOD = 6
-			if i > 0:
-				_rsi_temp1 = max(LIST_CLOSE[i] - LIST_CLOSE[i-1], 0)
-				_rsi_temp2 = 1 if abs(LIST_CLOSE[i] - LIST_CLOSE[i-1])==0 else abs(LIST_CLOSE[i] - LIST_CLOSE[i-1])
-			else:
-				_rsi_temp1 = 0
-				_rsi_temp2 = 1
-				_last_rsi_temp1_sma = 0
-				_last_rsi_temp2_sma = 1
-			_rsi_temp1_sma = futu_sma(_rsi_temp1, 1, RSI_PERIOD, _last_rsi_temp1_sma)
-			_rsi_temp2_sma = futu_sma(_rsi_temp2, 1, RSI_PERIOD, _last_rsi_temp2_sma)
-			_last_rsi_temp1_sma = _rsi_temp1_sma
-			_last_rsi_temp2_sma = _rsi_temp2_sma
-			LIST_RSI6.append(_rsi_temp1_sma / _rsi_temp2_sma * 100)
 
-			# 今日 VOL 低於 10 天內最高 VOL 的 50%
-			_vol = LIST_VOL[i]
-			PERIOD = 9
-			if i > 0 and i < PERIOD:
-				_temp_vol = HIGHESTVOL_10[-1]
-				if _temp_vol > _vol:
-					_vol = _temp_vol
-			elif i != 0:
-				extra_one = i - PERIOD - 1
-				if LIST_VOL[extra_one] > HIGHESTVOL_10[-1]:
-					_vol = HIGHESTVOL_10[-1]
-				else:
-					for j in range(0-PERIOD, 0):
-						_temp_vol = LIST_VOL[0] if i+j<0 else LIST_VOL[i+j]
-						if _temp_vol > _vol:
-							_vol = _temp_vol
-			HIGHESTVOL_10.append(_vol)
-			# 且低於 MA_VOL 50
-			_futu_SMA_VOL50 = futu_ema(LIST_VOL[i], 50, _last_futu_SMA_VOL50)
-			_last_futu_SMA_VOL50 = _futu_SMA_VOL50
-			LIST_MA_VOL50.append(_futu_SMA_VOL50)
+def pbb(symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
+        df_stock = _get_stock_data(symbol, INTERVAL)
 
-		# second for loop
-		for i in range(0, MAX_INDEX):
-			LIST_MA_CHECK.append(LIST_MA_30[i] <= LIST_CLOSE[i])
+        if df_stock.empty:
+                return False
+        elif df_stock["Close"].iloc[-1] < price_above:
+                return False
+        elif df_stock["Volume"].iloc[-1] < volumn_above:
+                return False
+        elif len(df_stock.index) < 10:
+                return False
+        else:
+                start_time = time.time()
 
-			LIST_HIGHESTCLOSE_200_CHECK.append(HIGHESTCLOSE_200[i]*FIX_PERCENTAGE <= LIST_CLOSE[i])
+                df_stock = _moving_average_checks(df_stock)
+                df_stock = _rsi_check(df_stock)
+                df_stock = _volume_check(df_stock)
 
-			_temp_Check = LIST_RSI6[i] > (LIST_RSI6[i] if i==0 else LIST_RSI6[i-1])
-			LIST_RSI6_CHECK.append(_temp_Check)
+                df_stock["UP_CHECK"] = df_stock["Close"] > df_stock["Close"].shift(1).fillna(df_stock["Close"])
+                df_stock["UP20_CHECK"] = df_stock["Close"] > df_stock["Close"].shift(20).fillna(df_stock["Close"])
+                df_stock["TODAY_RAISE_CHECK"] = df_stock["Close"] > df_stock["Open"]
+                df_stock["YESTERDAY_DROP_CHECK"] = (
+                        df_stock["Open"].shift(1).fillna(df_stock["Open"]) >
+                        df_stock["Close"].shift(1).fillna(df_stock["Close"])
+                )
 
-			_temp_check1 = LIST_VOL[i] <= HIGHESTVOL_10[i]*VOL_PERCENTAGE
-			_temp_check2 = LIST_VOL[i] <= LIST_MA_VOL50[i]
-			LIST_VOL_CHECK.append(_temp_check1 and _temp_check2)
+                df_stock["STATE"] = (
+                        df_stock["MA_CHECK"]
+                        & df_stock["HIGHESTCLOSE_200_CHECK"]
+                        & df_stock["RSI6_CHECK"]
+                        & df_stock["VOL_CHECK"]
+                        & df_stock["UP_CHECK"]
+                        & df_stock["UP20_CHECK"]
+                        & df_stock["TODAY_RAISE_CHECK"]
+                        & df_stock["YESTERDAY_DROP_CHECK"]
+                )
 
-			_temp_1 = LIST_CLOSE[i]
-			_temp_2 = LIST_CLOSE[i] if i==0 else LIST_CLOSE[i-1]
-			LIST_UP_CHECK.append(_temp_1 > _temp_2)
+                end_time = time.time()
+                print(symbol, "DONE", end_time - start_time)
 
-			_temp_1 = LIST_CLOSE[i]
-			_temp_2 = LIST_CLOSE[i] if i<20 else LIST_CLOSE[i-20]
-			LIST_UP20_CHECK.append(_temp_1 > _temp_2)
-
-			_temp_1 = LIST_CLOSE[i]
-			_temp_2 = LIST_OPEN[i]
-			LIST_TODAY_RAISE_CHECK.append(_temp_1 > _temp_2)
-
-			_temp_1 = LIST_OPEN[i] if i==0 else LIST_OPEN[i-1]
-			_temp_2 = LIST_CLOSE[i] if i==0 else LIST_CLOSE[i-1]
-			LIST_YESTERDAY_DROP_CHECK.append(_temp_1 > _temp_2)
-
-		LIST_STATE = []
-		for i in range(0, MAX_INDEX):
-			_temp_state = (LIST_MA_CHECK[i] and
-				LIST_HIGHESTCLOSE_200_CHECK[i] and 
-				LIST_RSI6_CHECK[i] and 
-				LIST_VOL_CHECK[i] and 
-				LIST_UP_CHECK[i] and 
-				LIST_UP20_CHECK[i] and 
-				LIST_TODAY_RAISE_CHECK[i] and 
-				LIST_YESTERDAY_DROP_CHECK[i])
-
-			LIST_STATE.append(_temp_state)
-
-		end_time = time.time()
-		print(symbol, 'DONE', end_time - start_time)
-
-		if debug:
-			# return the full df_stock
-			df_stock.loc[:, 'STATE'] = LIST_STATE
-			df_stock.loc[:, 'MA_CHECK'] = LIST_MA_CHECK
-			df_stock.loc[:, 'HIGHESTCLOSE_200_CHECK'] = LIST_HIGHESTCLOSE_200_CHECK
-			df_stock.loc[:, 'RSI6_CHECK'] = LIST_RSI6_CHECK
-			df_stock.loc[:, 'VOL_CHECK'] = LIST_VOL_CHECK
-			df_stock.loc[:, 'UP_CHECK'] = LIST_UP_CHECK
-			df_stock.loc[:, 'UP20_CHECK'] = LIST_UP20_CHECK
-			df_stock.loc[:, 'TODAY_RAISE_CHECK'] = LIST_TODAY_RAISE_CHECK
-			df_stock.loc[:, 'YESTERDAY_DROP_CHECK'] = LIST_YESTERDAY_DROP_CHECK
-			output = df_stock.copy()
-		else:
-			# return a boolean for TRUE
-			output = False
-			for i in range(-1*buy_mark_day, 0):
-				if LIST_STATE[i]:
-					output = True
-
-		return output
-
+                if debug:
+                        return df_stock.copy()
+                else:
+                        return df_stock["STATE"].tail(buy_mark_day).any()
 def ftd (symbol, buy_mark_day, price_above, volumn_above, INTERVAL, debug):
 	# Get today's date
 	end_date = datetime.date.today()
