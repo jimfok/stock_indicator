@@ -59,19 +59,24 @@ def run_cli(argument_list: Optional[List[str]] = None) -> None:
     ).rename(columns=str.lower)
 
     if parsed_arguments.strategy == "sma":
-        price_data_frame["indicator"] = indicators.sma(
+        indicator_series = indicators.sma(
             price_data_frame["close"], window_size=20
         )
+        price_data_frame["indicator"] = indicator_series
 
         def entry_rule(current_row: pandas.Series) -> bool:
-            indicator_value = current_row["indicator"]
-            return current_row["close"] > indicator_value
+            """Determine whether to open a trade for the given row."""
+            row_label = current_row.name
+            indicator_at_label = indicator_series.loc[row_label]
+            return current_row["close"] > indicator_at_label
 
         def exit_rule(
             current_row: pandas.Series, entry_row: pandas.Series
         ) -> bool:
-            indicator_value = current_row["indicator"]
-            return current_row["close"] < indicator_value
+            """Determine whether to close the current trade."""
+            row_label = current_row.name
+            indicator_at_label = indicator_series.loc[row_label]
+            return current_row["close"] < indicator_at_label
 
     else:
         raise ValueError(f"Unsupported strategy: {parsed_arguments.strategy}")
