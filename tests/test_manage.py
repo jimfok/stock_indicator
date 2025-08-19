@@ -43,7 +43,9 @@ def test_update_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         recorded_arguments["symbol"] = symbol
         recorded_arguments["start"] = start
         recorded_arguments["end"] = end
-        return pandas.DataFrame({"close": [1.0]})
+        return pandas.DataFrame(
+            {"close": [1.0]}, index=pandas.to_datetime(["2023-01-01"])
+        ).rename_axis("Date")
 
     monkeypatch.setattr(
         manage_module.data_loader, "download_history", fake_download_history
@@ -54,6 +56,8 @@ def test_update_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     shell.onecmd("update_data TEST 2023-01-01 2023-01-02")
     output_file = tmp_path / "TEST.csv"
     assert output_file.exists()
+    csv_contents = pandas.read_csv(output_file)
+    assert "Date" in csv_contents.columns
     assert recorded_arguments == {
         "symbol": "TEST",
         "start": "2023-01-01",
@@ -74,7 +78,9 @@ def test_update_all_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
     def fake_download_history(symbol: str, start: str, end: str) -> pandas.DataFrame:
         download_calls.append(symbol)
-        return pandas.DataFrame({"close": [1.0]})
+        return pandas.DataFrame(
+            {"close": [1.0]}, index=pandas.to_datetime(["2023-01-01"])
+        ).rename_axis("Date")
 
     monkeypatch.setattr(manage_module.symbols, "load_symbols", fake_load_symbols)
     monkeypatch.setattr(
@@ -86,5 +92,8 @@ def test_update_all_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     shell.onecmd("update_all_data 2023-01-01 2023-01-02")
 
     for symbol in symbol_list:
-        assert (tmp_path / f"{symbol}.csv").exists()
+        csv_path = tmp_path / f"{symbol}.csv"
+        assert csv_path.exists()
+        csv_contents = pandas.read_csv(csv_path)
+        assert "Date" in csv_contents.columns
     assert download_calls == symbol_list

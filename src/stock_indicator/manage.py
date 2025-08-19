@@ -39,9 +39,12 @@ class StockShell(cmd.Cmd):
         data_frame: DataFrame = data_loader.download_history(
             symbol_name, start_date, end_date
         )
+        data_frame_with_date: DataFrame = (
+            data_frame.reset_index().rename(columns={"index": "Date"})
+        )
         DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
         output_path = DATA_DIRECTORY / f"{symbol_name}.csv"
-        data_frame.to_csv(output_path, index=False)
+        data_frame_with_date.to_csv(output_path, index=False)
         self.stdout.write(f"Data written to {output_path}\n")
 
     def do_update_all_data(self, argument_line: str) -> None:  # noqa: D401
@@ -56,9 +59,12 @@ class StockShell(cmd.Cmd):
             data_frame: DataFrame = data_loader.download_history(
                 symbol_name, start_date, end_date
             )
+            data_frame_with_date: DataFrame = (
+                data_frame.reset_index().rename(columns={"index": "Date"})
+            )
             DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
             output_path = DATA_DIRECTORY / f"{symbol_name}.csv"
-            data_frame.to_csv(output_path, index=False)
+            data_frame_with_date.to_csv(output_path, index=False)
             self.stdout.write(f"Data written to {output_path}\n")
 
     def do_exit(self, argument_line: str) -> bool:  # noqa: D401
