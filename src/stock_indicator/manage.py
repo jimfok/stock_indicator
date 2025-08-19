@@ -16,6 +16,7 @@ from . import data_loader, symbols
 LOGGER = logging.getLogger(__name__)
 
 DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "data"
+SP500_SYMBOL = "^GSPC"  # TODO: review
 
 
 class StockShell(cmd.Cmd):
@@ -55,6 +56,8 @@ class StockShell(cmd.Cmd):
             return
         start_date, end_date = argument_parts
         symbol_list = symbols.load_symbols()
+        if SP500_SYMBOL not in symbol_list:
+            symbol_list.append(SP500_SYMBOL)
         for symbol_name in symbol_list:
             data_frame: DataFrame = data_loader.download_history(
                 symbol_name, start_date, end_date

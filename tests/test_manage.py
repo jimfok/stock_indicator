@@ -88,12 +88,12 @@ def test_update_all_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     )
     monkeypatch.setattr(manage_module, "DATA_DIRECTORY", tmp_path)
 
+    expected_symbols = symbol_list + [manage_module.SP500_SYMBOL]
     shell = manage_module.StockShell(stdout=io.StringIO())
     shell.onecmd("update_all_data 2023-01-01 2023-01-02")
-
-    for symbol in symbol_list:
+    for symbol in expected_symbols:
         csv_path = tmp_path / f"{symbol}.csv"
         assert csv_path.exists()
         csv_contents = pandas.read_csv(csv_path)
         assert "Date" in csv_contents.columns
-    assert download_calls == symbol_list
+    assert download_calls == expected_symbols
