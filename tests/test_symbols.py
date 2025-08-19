@@ -15,7 +15,7 @@ from stock_indicator.symbols import load_symbols
 def test_load_symbols_fetches_and_reads(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The loader should retrieve symbols and cache them locally."""
 
-    csv_text = "Symbol,Name\nAAA,Alpha Inc.\nBBB,Beta LLC"
+    symbol_text = "AAA\nBBB"
 
     class DummyResponse:
         def __init__(self, text: str) -> None:
@@ -25,10 +25,10 @@ def test_load_symbols_fetches_and_reads(monkeypatch: pytest.MonkeyPatch, tmp_pat
             return None
 
     def fake_get(request_url: str, request_timeout: int) -> DummyResponse:  # noqa: ARG001
-        return DummyResponse(csv_text)
+        return DummyResponse(symbol_text)
 
     monkeypatch.setattr("stock_indicator.symbols.requests.get", fake_get)
-    cache_path = tmp_path / "symbols.csv"
+    cache_path = tmp_path / "symbols.txt"
     monkeypatch.setattr("stock_indicator.symbols.SYMBOL_CACHE_PATH", cache_path)
 
     symbol_list = load_symbols()
