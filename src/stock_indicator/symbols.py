@@ -1,46 +1,43 @@
-"""Utility functions for retrieving stock symbols."""
+"""Utilities for maintaining a local cache of stock symbols."""
 # TODO: review
 
 from __future__ import annotations
 
 import csv
-import json
+import logging
 from pathlib import Path
 
 import requests
 
-SYMBOLS_URL = (
-    "https://raw.githubusercontent.com/datasets/"
-    "us-stock-symbols/master/data/nyse-listed.csv"
+LOGGER = logging.getLogger(__name__)
+
+SYMBOL_SOURCE_URL = (
+    "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/main/all/all_stocks.csv"
 )
-SYMBOLS_CACHE_PATH = Path(__file__).with_name("us_symbols.json")
+SYMBOL_CACHE_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "data" / "symbols.csv"
+)
 
 
-def fetch_us_symbols() -> list[str]:
-    """Fetch a list of U.S. stock ticker symbols.
-
-    The function downloads symbol data from a public GitHub dataset and caches
-    it locally to avoid repeated network requests.
-
-    Returns
-    -------
-    list[str]
-        List of stock ticker symbols.
-
-    Raises
-    ------
-    requests.RequestException
-        If the remote request fails.
-    """
-    if SYMBOLS_CACHE_PATH.exists():
-        with SYMBOLS_CACHE_PATH.open("r", encoding="utf-8") as cache_file:
-            return json.load(cache_file)
-
-    response = requests.get(SYMBOLS_URL, timeout=30)
+def update_symbol_cache() -> None:
+    """Download the latest symbol list and store it locally."""
+    response = requests.get(SYMBOL_SOURCE_URL, timeout=30)
     response.raise_for_status()
-    csv_text = response.text
-    csv_reader = csv.DictReader(csv_text.splitlines())
-    symbol_list = [row["Symbol"].strip() for row in csv_reader if row.get("Symbol")]
-    with SYMBOLS_CACHE_PATH.open("w", encoding="utf-8") as cache_file:
-        json.dump(symbol_list, cache_file)
+    SYMBOL_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SYMBOL_CACHE_PATH.write_text(response.text, encoding="utf-8")
+    LOGGER.info("Symbol cache written to %s", SYMBOL_CACHE_PATH)
+
+
+def load_symbols() -> list[str]:
+    """Return the list of symbols from the local cache."""
+    if not SYMBOL_CACHE_PATH.exists():
+        update_symbol_cache()
+    with SYMBOL_CACHE_PATH.open("r", encoding="utf-8") as symbol_file:
+        reader = csv.DictReader(symbol_file)
+        symbol_list: list[str] = []
+        for row in reader:
+            symbol_value = row.get("Symbol") or row.get("symbol")
+            if symbol_value:
+                symbol_list.append(symbol_value.strip())
     return symbol_list
+

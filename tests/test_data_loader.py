@@ -34,6 +34,7 @@ def test_download_history_returns_dataframe(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(
         "stock_indicator.data_loader.yfinance.download", stubbed_download
     )
+    monkeypatch.setattr("stock_indicator.data_loader.load_symbols", lambda: ["TEST"])
     result_dataframe = download_history("TEST", "2021-01-01", "2021-01-02")
     pandas.testing.assert_frame_equal(result_dataframe, expected_dataframe)
 
@@ -59,6 +60,7 @@ def test_download_history_retries_on_failure(
     monkeypatch.setattr(
         "stock_indicator.data_loader.yfinance.download", flaky_download
     )
+    monkeypatch.setattr("stock_indicator.data_loader.load_symbols", lambda: ["TEST"])
     with caplog.at_level(logging.WARNING):
         result_dataframe = download_history("TEST", "2021-01-01", "2021-01-02")
 
@@ -83,6 +85,7 @@ def test_download_history_raises_after_max_attempts(
     monkeypatch.setattr(
         "stock_indicator.data_loader.yfinance.download", failing_download
     )
+    monkeypatch.setattr("stock_indicator.data_loader.load_symbols", lambda: ["TEST"])
     with caplog.at_level(logging.ERROR):
         with pytest.raises(ValueError):
             download_history("TEST", "2021-01-01", "2021-01-02")

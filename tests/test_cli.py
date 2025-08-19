@@ -40,7 +40,7 @@ def test_run_cli_invokes_components(
 ) -> None:
     """The CLI should call underlying modules and log the result."""
 
-    def fake_fetch_us_symbols() -> list[str]:
+    def fake_load_symbols() -> list[str]:
         return ["AAA"]
 
     def fake_download_history(symbol: str, start: str, end: str) -> pandas.DataFrame:
@@ -59,7 +59,7 @@ def test_run_cli_invokes_components(
     ) -> SimulationResult:
         return SimulationResult(trades=[], total_profit=5.0)
 
-    monkeypatch.setattr(cli.symbols, "fetch_us_symbols", fake_fetch_us_symbols)
+    monkeypatch.setattr(cli.symbols, "load_symbols", fake_load_symbols)
     monkeypatch.setattr(cli.data_loader, "download_history", fake_download_history)
     monkeypatch.setattr(cli.indicators, "sma", fake_sma)
     monkeypatch.setattr(cli.simulator, "simulate_trades", fake_simulate_trades)
