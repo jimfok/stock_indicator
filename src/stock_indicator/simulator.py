@@ -13,8 +13,8 @@ import pandas
 class Trade:
     """Record details for a completed trade."""
 
-    entry_index: int
-    exit_index: int
+    entry_date: pandas.Timestamp
+    exit_date: pandas.Timestamp
     entry_price: float
     exit_price: float
     profit: float
@@ -53,16 +53,16 @@ def simulate_trades(
     trades: List[Trade] = []
     in_position = False
     entry_row: pandas.Series | None = None
-    entry_index: int | None = None
+    entry_row_index: int | None = None
     for row_index in range(len(data)):
         current_row = data.iloc[row_index]
         if not in_position:
             if entry_rule(current_row):
                 in_position = True
                 entry_row = current_row
-                entry_index = row_index
+                entry_row_index = row_index
         else:
-            if entry_row is None or entry_index is None:
+            if entry_row is None or entry_row_index is None:
                 continue
             if exit_rule(current_row, entry_row):
                 entry_price = float(entry_row["close"])
@@ -70,8 +70,8 @@ def simulate_trades(
                 profit_value = exit_price - entry_price
                 trades.append(
                     Trade(
-                        entry_index=entry_index,
-                        exit_index=row_index,
+                        entry_date=data.index[entry_row_index],
+                        exit_date=data.index[row_index],
                         entry_price=entry_price,
                         exit_price=exit_price,
                         profit=profit_value,
@@ -79,6 +79,6 @@ def simulate_trades(
                 )
                 in_position = False
                 entry_row = None
-                entry_index = None
+                entry_row_index = None
     total_profit = sum(completed_trade.profit for completed_trade in trades)
     return SimulationResult(trades=trades, total_profit=total_profit)
