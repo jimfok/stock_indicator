@@ -27,6 +27,19 @@ prices["RSI_14"] = rsi(prices["Close"], window=14)
 print(prices[["Close", "RSI_14"]].tail())
 ```
 
+### Command Line Example
+Stock Indicator also includes a command line interface for generating trade signals from historical price data.
+
+```bash
+python -m stock_indicator.cli --symbol AAPL --start 2023-01-01 --end 2023-06-01 --strategy sma --output trades.csv
+```
+
+* `--symbol` — ticker symbol of the stock to analyze.
+* `--start` — start date for the price history in `YYYY-MM-DD` format.
+* `--end` — end date for the price history in `YYYY-MM-DD` format.
+* `--strategy` — indicator or strategy to apply, such as `sma` for simple moving average.
+* `--output` — file path for saving generated trades as a CSV file.
+
 ## Contribution Guidelines
 1. Fork the repository and create a new branch for each feature or bug fix.
 2. Ensure your code passes all tests by running `pytest` before submitting.
