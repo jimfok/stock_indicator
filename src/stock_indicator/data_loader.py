@@ -5,15 +5,22 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 import pandas
 import yfinance
+
 from .symbols import load_symbols
 
 LOGGER = logging.getLogger(__name__)
 
 
-def download_history(symbol: str, start: str, end: str) -> pandas.DataFrame:
+def download_history(
+    symbol: str,
+    start: str,
+    end: str,
+    **download_options: Any,
+) -> pandas.DataFrame:
     """Download historical price data for a stock symbol.
 
     Parameters
@@ -24,6 +31,9 @@ def download_history(symbol: str, start: str, end: str) -> pandas.DataFrame:
         Start date in ISO format (``YYYY-MM-DD``).
     end: str
         End date in ISO format (``YYYY-MM-DD``).
+    **download_options
+        Additional keyword arguments forwarded to :func:`yfinance.download`, such
+        as ``actions``, ``auto_adjust``, or ``interval``.
 
     Returns
     -------
@@ -49,6 +59,7 @@ def download_history(symbol: str, start: str, end: str) -> pandas.DataFrame:
                 start=start,
                 end=end,
                 progress=False,
+                **download_options,
             )
             return downloaded_frame
         except Exception as download_error:  # noqa: BLE001
