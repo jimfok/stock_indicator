@@ -4,59 +4,54 @@
 import json
 import os
 import sys
+import types
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+)
 
-from stock_indicator.symbols import load_symbols
 
+def test_load_symbols_fetches_and_caches_json(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The loader should retrieve symbols, cache them, and return the parsed list."""
 
-def test_load_symbols_fetches_and_reads(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The loader should retrieve symbols and cache them locally."""
-
-    symbol_text = "AAA\nBBB"
+    mock_symbol_list = ["AAA", "BBB"]
+    json_text = json.dumps(mock_symbol_list)
 
     class DummyResponse:
+        """Simple container for mocked text responses."""
+
         def __init__(self, text: str) -> None:
             self.text = text
 
         def raise_for_status(self) -> None:
             return None
 
-    def fake_get(request_url: str, request_timeout: int) -> DummyResponse:  # noqa: ARG001
-        return DummyResponse(symbol_text)
+    request_call_count = {"count": 0}
 
-    monkeypatch.setattr("stock_indicator.symbols.requests.get", fake_get)
+    def fake_get(request_url: str, timeout: int) -> DummyResponse:  # noqa: ARG001
+        """Return a dummy response and track request invocations."""
+
+        request_call_count["count"] += 1
+        return DummyResponse(json_text)
+
+    requests_stub = types.ModuleType("requests")
+    requests_stub.get = fake_get
+    monkeypatch.setitem(sys.modules, "requests", requests_stub)
+
+    import stock_indicator.symbols as symbols_module
     cache_path = tmp_path / "symbols.txt"
-    monkeypatch.setattr("stock_indicator.symbols.SYMBOL_CACHE_PATH", cache_path)
+    monkeypatch.setattr(symbols_module, "SYMBOL_CACHE_PATH", cache_path)
 
-    symbol_list = load_symbols()
-    assert "AAA" in symbol_list
-    assert "BBB" in symbol_list
+    symbol_list = symbols_module.load_symbols()
+    assert symbol_list == mock_symbol_list
     assert cache_path.exists()
 
+    symbol_list_second = symbols_module.load_symbols()
+    assert symbol_list_second == mock_symbol_list
+    assert request_call_count["count"] == 1
 
-def test_load_symbols_reads_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The loader should handle a JSON list of symbols."""
-
-    symbol_sequence = ["AAA", "BBB"]
-
-    class DummyResponse:
-        def __init__(self, text: str) -> None:
-            self.text = text
-
-        def raise_for_status(self) -> None:
-            return None
-
-    def fake_get(request_url: str, request_timeout: int) -> DummyResponse:  # noqa: ARG001
-        return DummyResponse(json.dumps(symbol_sequence))
-
-    monkeypatch.setattr("stock_indicator.symbols.requests.get", fake_get)
-    cache_path = tmp_path / "symbols.txt"
-    monkeypatch.setattr("stock_indicator.symbols.SYMBOL_CACHE_PATH", cache_path)
-
-    symbol_list = load_symbols()
-    assert symbol_list == symbol_sequence
-    assert cache_path.exists()
