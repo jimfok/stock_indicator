@@ -88,8 +88,8 @@ def run_cli(argument_list: Optional[List[str]] = None) -> None:
     if parsed_arguments.output:
         trade_record_list = [
             {
-                "entry_index": trade.entry_index,
-                "exit_index": trade.exit_index,
+                "entry_date": trade.entry_date,
+                "exit_date": trade.exit_date,
                 "entry_price": trade.entry_price,
                 "exit_price": trade.exit_price,
                 "profit": trade.profit,

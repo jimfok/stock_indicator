@@ -27,8 +27,10 @@ def test_simulate_trades_executes_trade_flow() -> None:
     assert isinstance(result, SimulationResult)
     assert len(result.trades) == 1
     completed_trade = result.trades[0]
-    assert completed_trade.entry_index == 1
-    assert completed_trade.exit_index == 4
+    expected_entry_date = data.index[1]
+    expected_exit_date = data.index[4]
+    assert completed_trade.entry_date == expected_entry_date
+    assert completed_trade.exit_date == expected_exit_date
     assert completed_trade.entry_price == 102.0
     assert completed_trade.exit_price == 106.0
     assert completed_trade.profit == 4.0
@@ -69,8 +71,10 @@ def test_simulate_trades_with_sma_strategy_uses_aligned_labels() -> None:
     assert isinstance(result, SimulationResult)
     assert len(result.trades) == 1
     completed_trade = result.trades[0]
-    assert completed_trade.entry_index == 1
-    assert completed_trade.exit_index == 3
+    expected_entry_date = price_data_frame.index[1]
+    expected_exit_date = price_data_frame.index[3]
+    assert completed_trade.entry_date == expected_entry_date
+    assert completed_trade.exit_date == expected_exit_date
     assert completed_trade.entry_price == 102.0
     assert completed_trade.exit_price == 103.0
     assert completed_trade.profit == 1.0
