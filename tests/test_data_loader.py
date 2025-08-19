@@ -90,3 +90,27 @@ def test_download_history_raises_after_max_attempts(
         with pytest.raises(ValueError):
             download_history("TEST", "2021-01-01", "2021-01-02")
     assert "Failed to download data for TEST after" in caplog.text
+
+
+def test_download_history_forwards_optional_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The function should forward optional keyword arguments to yfinance."""
+    captured_arguments: dict[str, str] = {}
+
+    def stubbed_download(
+        symbol: str,
+        start: str,
+        end: str,
+        progress: bool = False,
+        **options: str,
+    ) -> pandas.DataFrame:
+        captured_arguments.update(options)
+        return pandas.DataFrame()
+
+    monkeypatch.setattr(
+        "stock_indicator.data_loader.yfinance.download", stubbed_download
+    )
+    monkeypatch.setattr("stock_indicator.data_loader.load_symbols", lambda: ["TEST"])
+    download_history("TEST", "2021-01-01", "2021-01-02", interval="1h")
+    assert captured_arguments["interval"] == "1h"
