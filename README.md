@@ -40,6 +40,25 @@ python -m stock_indicator.cli --symbol AAPL --start 2023-01-01 --end 2023-06-01 
 * `--strategy` — indicator or strategy to apply, such as `sma` for simple moving average.
 * `--output` — file path for saving generated trades as a CSV file.
 
+### Management Shell
+
+The package provides an interactive shell for updating the symbol cache and
+downloading historical price data.
+
+```bash
+python -m stock_indicator.manage
+
+(stock-indicator) update_symbols
+(stock-indicator) update_data AAPL 2024-01-01 2024-02-01
+(stock-indicator) update_all_data 2024-01-01 2024-02-01
+(stock-indicator) exit
+```
+
+* `update_symbols` downloads the latest list of available ticker symbols.
+* `update_data SYMBOL START END` saves historical data for the given symbol to
+  `data/<SYMBOL>.csv`.
+* `update_all_data START END` performs the download for every cached symbol.
+
 ## Contribution Guidelines
 1. Fork the repository and create a new branch for each feature or bug fix.
 2. Ensure your code passes all tests by running `pytest` before submitting.
