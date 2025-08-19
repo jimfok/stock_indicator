@@ -1,7 +1,6 @@
-"""Tests for the fetch_us_symbols utility."""
+"""Tests for symbol cache utilities."""
 # TODO: review
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -10,12 +9,13 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from stock_indicator.symbols import fetch_us_symbols
+from stock_indicator.symbols import load_symbols
 
 
-def test_fetch_us_symbols_parses_symbols(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The function should return a list of symbols parsed from CSV data."""
-    csv_text = "Symbol,Name\nAAPL,Apple Inc.\nMSFT,Microsoft Corp."
+def test_load_symbols_fetches_and_reads(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The loader should retrieve symbols and cache them locally."""
+
+    csv_text = "Symbol,Name\nAAA,Alpha Inc.\nBBB,Beta LLC"
 
     class DummyResponse:
         def __init__(self, text: str) -> None:
@@ -24,17 +24,14 @@ def test_fetch_us_symbols_parses_symbols(monkeypatch: pytest.MonkeyPatch, tmp_pa
         def raise_for_status(self) -> None:
             return None
 
-    def fake_get(url: str, timeout: int) -> DummyResponse:
+    def fake_get(request_url: str, request_timeout: int) -> DummyResponse:  # noqa: ARG001
         return DummyResponse(csv_text)
 
     monkeypatch.setattr("stock_indicator.symbols.requests.get", fake_get)
-    cache_path = tmp_path / "symbols.json"
-    monkeypatch.setattr("stock_indicator.symbols.SYMBOLS_CACHE_PATH", cache_path)
+    cache_path = tmp_path / "symbols.csv"
+    monkeypatch.setattr("stock_indicator.symbols.SYMBOL_CACHE_PATH", cache_path)
 
-    symbol_list = fetch_us_symbols()
-    assert "AAPL" in symbol_list
-    assert "MSFT" in symbol_list
+    symbol_list = load_symbols()
+    assert "AAA" in symbol_list
+    assert "BBB" in symbol_list
     assert cache_path.exists()
-    with cache_path.open("r", encoding="utf-8") as cache_file:
-        cached_list = json.load(cache_file)
-    assert cached_list == symbol_list

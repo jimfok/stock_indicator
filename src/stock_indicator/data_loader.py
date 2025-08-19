@@ -8,6 +8,7 @@ import time
 
 import pandas
 import yfinance
+from .symbols import load_symbols
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,9 +32,15 @@ def download_history(symbol: str, start: str, end: str) -> pandas.DataFrame:
 
     Raises
     ------
+    ValueError
+        If the provided symbol is not known.
     Exception
         Propagates the last error if downloading repeatedly fails.
     """
+    available_symbol_list = load_symbols()
+    if available_symbol_list and symbol not in available_symbol_list:
+        raise ValueError(f"Unknown symbol: {symbol}")
+
     maximum_attempts = 3
     for attempt_number in range(1, maximum_attempts + 1):
         try:

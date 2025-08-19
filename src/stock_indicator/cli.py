@@ -45,7 +45,7 @@ def run_cli(argument_list: Optional[List[str]] = None) -> None:
     parsed_arguments = parser.parse_args(argument_list)
 
     try:
-        available_symbol_list = symbols.fetch_us_symbols()
+        available_symbol_list = symbols.load_symbols()
         if (
             available_symbol_list
             and parsed_arguments.symbol not in available_symbol_list
