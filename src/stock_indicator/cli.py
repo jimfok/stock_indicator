@@ -1,7 +1,7 @@
 """Command line interface for running stock simulations.
 
-The interface now supports selecting the price column via the
-``--price-column`` option, which defaults to ``adj_close``.
+The interface allows selecting the price column via the ``--price-column``
+option, which defaults to ``close``.
 """
 # TODO: review
 
@@ -23,7 +23,7 @@ def create_parser() -> argparse.ArgumentParser:
 
     The parser includes an optional ``--price-column`` argument that chooses
     which column from the price data is used for indicator calculations and
-    trading rules. If not provided, ``adj_close`` is used.
+    trading rules. If not provided, ``close`` is used.
     """
     parser = argparse.ArgumentParser(
         description="Run indicator calculations and trade simulations."
@@ -43,10 +43,10 @@ def create_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--price-column",
-        default="adj_close",
+        default="close",
         help=(
             "Column in the price data to use for indicator calculations and "
-            "trading rules. Defaults to 'adj_close'."
+            "trading rules. Defaults to 'close'."
         ),
     )
     parser.add_argument(

@@ -33,7 +33,7 @@ def test_parser_handles_arguments() -> None:
     assert parsed_arguments.start == "2022-01-01"
     assert parsed_arguments.end == "2022-02-01"
     assert parsed_arguments.strategy == "sma"
-    assert parsed_arguments.price_column == "adj_close"
+    assert parsed_arguments.price_column == "close"
 
 
 def test_run_cli_invokes_components(
@@ -48,7 +48,7 @@ def test_run_cli_invokes_components(
         assert symbol == "AAA"
         assert start == "2022-01-01"
         assert end == "2022-02-01"
-        return pandas.DataFrame({"Adj Close": [1.0, 2.0, 3.0]})
+        return pandas.DataFrame({"Close": [1.0, 2.0, 3.0]})
 
     def fake_sma(price_series: pandas.Series, window_size: int) -> pandas.Series:
         return pandas.Series([1.0, 1.5, 2.0])
@@ -57,9 +57,9 @@ def test_run_cli_invokes_components(
         data_frame: pandas.DataFrame,
         entry_rule: Callable[[pandas.Series], bool],
         exit_rule: Callable[[pandas.Series, pandas.Series], bool],
-        price_column: str = "adj_close",
+        price_column: str = "close",
     ) -> SimulationResult:
-        assert price_column == "adj_close"
+        assert price_column == "close"
         return SimulationResult(trades=[], total_profit=5.0)
 
     monkeypatch.setattr(cli.symbols, "load_symbols", fake_load_symbols)
@@ -83,10 +83,10 @@ def test_run_cli_invokes_components(
     assert "Total profit: 5.0" in caplog.text
 
 
-def test_run_cli_uses_adj_close_by_default(
+def test_run_cli_uses_close_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The CLI should use the ``adj_close`` column when no option is given."""
+    """The CLI should use the ``close`` column when no option is given."""
 
     def fake_load_symbols() -> list[str]:
         return ["AAA"]
@@ -95,13 +95,11 @@ def test_run_cli_uses_adj_close_by_default(
         assert symbol == "AAA"
         assert start == "2022-01-01"
         assert end == "2022-02-01"
-        return pandas.DataFrame(
-            {"Adj Close": [2.0, 2.0, 2.0], "Close": [-1.0, -1.0, -1.0]}
-        )
+        return pandas.DataFrame({"Close": [2.0, 2.0, 2.0], "Open": [-1.0, -1.0, -1.0]})
 
     def fake_sma(price_series: pandas.Series, window_size: int) -> pandas.Series:
         assert price_series.equals(
-            pandas.Series([2.0, 2.0, 2.0], name="adj_close")
+            pandas.Series([2.0, 2.0, 2.0], name="close")
         )
         return pandas.Series([0.0, 0.0, 0.0])
 
@@ -109,9 +107,9 @@ def test_run_cli_uses_adj_close_by_default(
         data_frame: pandas.DataFrame,
         entry_rule: Callable[[pandas.Series], bool],
         exit_rule: Callable[[pandas.Series, pandas.Series], bool],
-        price_column: str = "adj_close",
+        price_column: str = "close",
     ) -> SimulationResult:
-        assert price_column == "adj_close"
+        assert price_column == "close"
         assert entry_rule(data_frame.iloc[0])
         assert not exit_rule(data_frame.iloc[0], data_frame.iloc[0])
         return SimulationResult(trades=[], total_profit=0.0)
@@ -148,12 +146,12 @@ def test_run_cli_accepts_price_column_argument(
         assert start == "2022-01-01"
         assert end == "2022-02-01"
         return pandas.DataFrame(
-            {"Adj Close": [2.0, 2.0, 2.0], "Close": [-1.0, -1.0, -1.0]}
+            {"Close": [2.0, 2.0, 2.0], "Open": [-1.0, -1.0, -1.0]}
         )
 
     def fake_sma(price_series: pandas.Series, window_size: int) -> pandas.Series:
         assert price_series.equals(
-            pandas.Series([-1.0, -1.0, -1.0], name="close")
+            pandas.Series([-1.0, -1.0, -1.0], name="open")
         )
         return pandas.Series([0.0, 0.0, 0.0])
 
@@ -161,9 +159,9 @@ def test_run_cli_accepts_price_column_argument(
         data_frame: pandas.DataFrame,
         entry_rule: Callable[[pandas.Series], bool],
         exit_rule: Callable[[pandas.Series, pandas.Series], bool],
-        price_column: str = "adj_close",
+        price_column: str = "close",
     ) -> SimulationResult:
-        assert price_column == "close"
+        assert price_column == "open"
         assert not entry_rule(data_frame.iloc[0])
         assert exit_rule(data_frame.iloc[0], data_frame.iloc[0])
         return SimulationResult(trades=[], total_profit=0.0)
@@ -184,6 +182,6 @@ def test_run_cli_accepts_price_column_argument(
             "--strategy",
             "sma",
             "--price-column",
-            "close",
+            "open",
         ]
     )

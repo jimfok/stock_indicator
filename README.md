@@ -27,11 +27,10 @@ prices["rsi_14"] = rsi(prices["close"], window=14)
 print(prices[["close", "rsi_14"]].tail())
 ```
 
-Downloaded data frames use lower-case ``snake_case`` column names. For instance,
-``"Adj Close"`` is exposed as ``"adj_close"``. If the source data lacks an
-adjusted closing price column, the loader derives one from ``"close"`` and
-``"stock_splits"`` and logs a warning indicating that the series was
-synthesized. Downstream code should refer to columns using this standardized
+Downloaded data frames use lower-case ``snake_case`` column names. With
+``yfinance`` version ``0.2.51`` and later, the ``close`` column already reflects
+dividends and stock splits, so no separate adjusted closing price column is
+provided. Downstream code should refer to columns using this standardized
 style.
 
 ### Command Line Example
