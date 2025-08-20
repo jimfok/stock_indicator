@@ -1,0 +1,85 @@
+"""Strategy evaluation utilities."""
+# TODO: review
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import List, Tuple
+
+import pandas
+
+from .indicators import ema, sma
+from .simulator import simulate_trades
+
+
+def evaluate_ema_sma_cross_strategy(
+    data_directory: Path,
+    window_size: int = 15,
+) -> Tuple[int, float]:
+    """Evaluate EMA and SMA cross strategy across all CSV files in a directory.
+
+    The function calculates the win rate of applying an EMA and SMA cross
+    strategy to each CSV file in ``data_directory``. Entry occurs when the
+    exponential moving average crosses above the simple moving average and the
+    position is opened at the next day's opening price. The position is closed
+    when the exponential moving average crosses below the simple moving average,
+    using the next day's adjusted closing price.
+
+    Parameters
+    ----------
+    data_directory: Path
+        Directory containing CSV files with columns ``open`` and ``adj_close``.
+    window_size: int, default 15
+        Number of periods to use for both EMA and SMA calculations.
+
+    Returns
+    -------
+    tuple[int, float]
+        Total number of trades and the win rate as a float between 0 and 1.
+    """
+    trade_profit_list: List[float] = []
+    for csv_path in data_directory.glob("*.csv"):
+        price_data_frame = pandas.read_csv(
+            csv_path, parse_dates=["Date"], index_col="Date"
+        )
+        price_data_frame["ema_value"] = ema(price_data_frame["adj_close"], window_size)
+        price_data_frame["sma_value"] = sma(price_data_frame["adj_close"], window_size)
+        price_data_frame["ema_previous"] = price_data_frame["ema_value"].shift(1)
+        price_data_frame["sma_previous"] = price_data_frame["sma_value"].shift(1)
+        price_data_frame["cross_up"] = (
+            (price_data_frame["ema_previous"] <= price_data_frame["sma_previous"])
+            & (price_data_frame["ema_value"] > price_data_frame["sma_value"])
+        )
+        price_data_frame["cross_down"] = (
+            (price_data_frame["ema_previous"] >= price_data_frame["sma_previous"])
+            & (price_data_frame["ema_value"] < price_data_frame["sma_value"])
+        )
+        price_data_frame["entry_signal"] = price_data_frame["cross_up"].shift(1).fillna(False)
+        price_data_frame["exit_signal"] = price_data_frame["cross_down"].shift(1).fillna(False)
+
+        def entry_rule(current_row: pandas.Series) -> bool:
+            return bool(current_row["entry_signal"])
+
+        def exit_rule(
+            current_row: pandas.Series, entry_row: pandas.Series
+        ) -> bool:
+            return bool(current_row["exit_signal"])
+
+        simulation_result = simulate_trades(
+            data=price_data_frame,
+            entry_rule=entry_rule,
+            exit_rule=exit_rule,
+            entry_price_column="open",
+            exit_price_column="adj_close",
+        )
+        for completed_trade in simulation_result.trades:
+            trade_profit_list.append(completed_trade.profit)
+
+    total_trades = len(trade_profit_list)
+    if total_trades == 0:
+        return 0, 0.0
+    winning_trade_count = sum(
+        1 for profit_amount in trade_profit_list if profit_amount > 0
+    )
+    win_rate = winning_trade_count / total_trades
+    return total_trades, win_rate
