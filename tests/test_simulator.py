@@ -69,7 +69,7 @@ def test_simulate_trades_with_sma_strategy_uses_aligned_labels() -> None:
         return current_row["close"] < indicator_at_label
 
     result = simulate_trades(
-        price_data_frame, entry_rule, exit_rule, price_column="close"
+        price_data_frame, entry_rule, exit_rule, entry_price_column="close"
     )
 
     assert isinstance(result, SimulationResult)
@@ -83,3 +83,35 @@ def test_simulate_trades_with_sma_strategy_uses_aligned_labels() -> None:
     assert completed_trade.exit_price == 103.0
     assert completed_trade.profit == 1.0
     assert result.total_profit == 1.0
+
+
+def test_simulate_trades_handles_distinct_entry_and_exit_price_columns() -> None:
+    price_data_frame = pandas.DataFrame(
+        {"open": [10.0, 12.0], "adj_close": [11.0, 13.0]}
+    )
+
+    def entry_rule(current_row: pandas.Series) -> bool:
+        return current_row["open"] == 10.0
+
+    def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
+        return current_row["adj_close"] >= 13.0
+
+    result = simulate_trades(
+        price_data_frame,
+        entry_rule,
+        exit_rule,
+        entry_price_column="open",
+        exit_price_column="adj_close",
+    )
+
+    assert isinstance(result, SimulationResult)
+    assert len(result.trades) == 1
+    completed_trade = result.trades[0]
+    expected_entry_date = price_data_frame.index[0]
+    expected_exit_date = price_data_frame.index[1]
+    assert completed_trade.entry_date == expected_entry_date
+    assert completed_trade.exit_date == expected_exit_date
+    assert completed_trade.entry_price == 10.0
+    assert completed_trade.exit_price == 13.0
+    assert completed_trade.profit == 3.0
+    assert result.total_profit == 3.0

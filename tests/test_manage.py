@@ -97,3 +97,27 @@ def test_update_all_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
         csv_contents = pandas.read_csv(csv_path)
         assert "Date" in csv_contents.columns
     assert download_calls == expected_symbols
+
+
+def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command should evaluate the EMA/SMA cross strategy."""
+    import stock_indicator.manage as manage_module
+
+    call_record: dict[str, bool] = {"called": False}
+
+    def fake_evaluate(data_directory: Path) -> tuple[int, float]:
+        call_record["called"] = True
+        assert data_directory == manage_module.DATA_DIRECTORY
+        return 3, 0.5
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "evaluate_ema_sma_cross_strategy",
+        fake_evaluate,
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd("start_simulate ema_sma_cross ema_sma_cross")
+    assert call_record["called"] is True
+    assert "Trades: 3, Win rate: 50.00%" in output_buffer.getvalue()

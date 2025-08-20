@@ -11,7 +11,7 @@ from typing import List
 
 from pandas import DataFrame
 
-from . import data_loader, symbols
+from . import data_loader, symbols, strategy
 
 LOGGER = logging.getLogger(__name__)
 
@@ -69,6 +69,29 @@ class StockShell(cmd.Cmd):
             output_path = DATA_DIRECTORY / f"{symbol_name}.csv"
             data_frame_with_date.to_csv(output_path, index=False)
             self.stdout.write(f"Data written to {output_path}\n")
+
+    # TODO: review
+    def do_start_simulate(self, argument_line: str) -> None:  # noqa: D401
+        """start_simulate BUY_STRATEGY SELL_STRATEGY\n        Evaluate trading strategies using cached data."""
+        argument_parts: List[str] = argument_line.split()
+        if len(argument_parts) != 2:
+            self.stdout.write(
+                "usage: start_simulate BUY_STRATEGY SELL_STRATEGY\n"
+            )
+            return
+        buy_strategy_name, sell_strategy_name = argument_parts
+        if (
+            buy_strategy_name != "ema_sma_cross"
+            or sell_strategy_name != "ema_sma_cross"
+        ):
+            self.stdout.write("unsupported strategies\n")
+            return
+        trade_count, win_rate = strategy.evaluate_ema_sma_cross_strategy(
+            DATA_DIRECTORY
+        )
+        self.stdout.write(
+            f"Trades: {trade_count}, Win rate: {win_rate:.2%}\n"
+        )
 
     def do_exit(self, argument_line: str) -> bool:  # noqa: D401
         """exit\n        Exit the shell."""

@@ -32,21 +32,25 @@ def simulate_trades(
     data: pandas.DataFrame,
     entry_rule: Callable[[pandas.Series], bool],
     exit_rule: Callable[[pandas.Series, pandas.Series], bool],
-    price_column: str = "adj_close",
+    entry_price_column: str = "adj_close",
+    exit_price_column: str | None = None,
 ) -> SimulationResult:
     """Simulate trades using supplied entry and exit rules.
 
     Parameters
     ----------
     data: pandas.DataFrame
-        Data frame containing at least the column specified by ``price_column``.
+        Data frame containing the price data.
     entry_rule: Callable[[pandas.Series], bool]
         Function invoked for each row to determine trade entry.
     exit_rule: Callable[[pandas.Series, pandas.Series], bool]
         Function invoked with the current row and the entry row to determine
         when to close the trade.
-    price_column: str, default "adj_close"
-        Column name to use for entry and exit prices.
+    entry_price_column: str, default "adj_close"
+        Column name used for calculating entry price.
+    exit_price_column: str, optional
+        Column name used for calculating exit price. When ``None``,
+        ``entry_price_column`` is used for both entry and exit prices.
 
     Returns
     -------
@@ -68,8 +72,11 @@ def simulate_trades(
             if entry_row is None or entry_row_index is None:
                 continue
             if exit_rule(current_row, entry_row):
-                entry_price = float(entry_row[price_column])
-                exit_price = float(current_row[price_column])
+                entry_price = float(entry_row[entry_price_column])
+                price_column_name = (
+                    exit_price_column if exit_price_column is not None else entry_price_column
+                )
+                exit_price = float(current_row[price_column_name])
                 profit_value = exit_price - entry_price
                 trades.append(
                     Trade(
