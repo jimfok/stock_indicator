@@ -32,7 +32,7 @@ def simulate_trades(
     data: pandas.DataFrame,
     entry_rule: Callable[[pandas.Series], bool],
     exit_rule: Callable[[pandas.Series, pandas.Series], bool],
-    entry_price_column: str = "adj_close",
+    entry_price_column: str = "close",
     exit_price_column: str | None = None,
 ) -> SimulationResult:
     """Simulate trades using supplied entry and exit rules.
@@ -46,7 +46,7 @@ def simulate_trades(
     exit_rule: Callable[[pandas.Series, pandas.Series], bool]
         Function invoked with the current row and the entry row to determine
         when to close the trade.
-    entry_price_column: str, default "adj_close"
+    entry_price_column: str, default "close"
         Column name used for calculating entry price.
     exit_price_column: str, optional
         Column name used for calculating exit price. When ``None``,

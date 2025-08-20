@@ -21,9 +21,7 @@ from stock_indicator.data_loader import download_history
 
 def test_download_history_returns_dataframe(monkeypatch: pytest.MonkeyPatch) -> None:
     """The function should return data provided by yfinance."""
-    raw_dataframe = pandas.DataFrame(
-        {"Close": [1.0, 2.0], "Adj Close": [1.0, 2.0]}
-    )
+    raw_dataframe = pandas.DataFrame({"Close": [1.0, 2.0]})
 
     def stubbed_download(
         symbol: str,
@@ -49,7 +47,7 @@ def test_download_history_retries_on_failure(
 ) -> None:
     """The function should retry and log warnings on temporary failures."""
     call_counter = {"count": 0}
-    raw_dataframe = pandas.DataFrame({"Close": [1.0], "Adj Close": [1.0]})
+    raw_dataframe = pandas.DataFrame({"Close": [1.0]})
 
     def flaky_download(
         symbol: str,
@@ -122,74 +120,3 @@ def test_download_history_forwards_optional_arguments(
     monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: ["TEST"])
     download_history("TEST", "2021-01-01", "2021-01-02", interval="1h")
     assert captured_arguments["interval"] == "1h"
-
-
-def test_download_history_uses_existing_adj_close(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    """The function should use provided 'adj_close' values without warning."""
-    raw_dataframe = pandas.DataFrame(
-        {"Close": [1.0], "Adj Close": [1.0], "Stock Splits": [0.0]}
-    )
-
-    def stubbed_download(
-        symbol: str,
-        start: str,
-        end: str,
-        progress: bool = False,
-    ) -> pandas.DataFrame:
-        return raw_dataframe
-
-    monkeypatch.setattr(
-        "stock_indicator.data_loader.yfinance.download", stubbed_download
-    )
-    monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: ["TEST"])
-    with caplog.at_level(logging.WARNING):
-        result_dataframe = download_history("TEST", "2021-01-01", "2021-01-02")
-
-    expected_dataframe = raw_dataframe.rename(
-        columns=lambda name: name.lower().replace(" ", "_")
-    )
-    pandas.testing.assert_frame_equal(result_dataframe, expected_dataframe)
-    assert "Adjusted close derived" not in caplog.text
-
-
-def test_download_history_computes_adj_close_from_stock_splits(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    """The function should synthesize 'adj_close' using 'stock_splits'."""
-    raw_dataframe = pandas.DataFrame(
-        {"Close": [100.0, 60.0, 30.0], "Stock Splits": [0.0, 2.0, 0.0]}
-    )
-
-    def stubbed_download(
-        symbol: str,
-        start: str,
-        end: str,
-        progress: bool = False,
-    ) -> pandas.DataFrame:
-        return raw_dataframe
-
-    monkeypatch.setattr(
-        "stock_indicator.data_loader.yfinance.download", stubbed_download
-    )
-    monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: ["TEST"])
-    with caplog.at_level(logging.WARNING):
-        result_dataframe = download_history("TEST", "2021-01-01", "2021-01-03")
-
-    expected_dataframe = raw_dataframe.rename(
-        columns=lambda name: name.lower().replace(" ", "_")
-    )
-    split_factor_series = (
-        expected_dataframe["stock_splits"]
-        .replace(0, 1)
-        .iloc[::-1]
-        .cumprod()
-        .shift(1, fill_value=1)
-        .iloc[::-1]
-    )
-    expected_dataframe["adj_close"] = (
-        expected_dataframe["close"] / split_factor_series
-    )
-    pandas.testing.assert_frame_equal(result_dataframe, expected_dataframe)
-    assert "Adjusted close derived" in caplog.text

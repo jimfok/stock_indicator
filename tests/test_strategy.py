@@ -16,7 +16,7 @@ def test_evaluate_ema_sma_cross_strategy_computes_win_rate(tmp_path: Path) -> No
     price_values = [10.0, 10.0, 10.0, 10.0, 20.0, 20.0, 20.0, 10.0, 10.0, 10.0]
     date_index = pandas.date_range("2020-01-01", periods=len(price_values), freq="D")
     price_data_frame = pandas.DataFrame(
-        {"Date": date_index, "open": price_values, "adj_close": price_values}
+        {"Date": date_index, "open": price_values, "close": price_values}
     )
     csv_path = tmp_path / "test.csv"
     price_data_frame.to_csv(csv_path, index=False)

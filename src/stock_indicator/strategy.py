@@ -23,12 +23,12 @@ def evaluate_ema_sma_cross_strategy(
     exponential moving average crosses above the simple moving average and the
     position is opened at the next day's opening price. The position is closed
     when the exponential moving average crosses below the simple moving average,
-    using the next day's adjusted closing price.
+    using the next day's closing price.
 
     Parameters
     ----------
     data_directory: Path
-        Directory containing CSV files with columns ``open`` and ``adj_close``.
+        Directory containing CSV files with columns ``open`` and ``close``.
     window_size: int, default 15
         Number of periods to use for both EMA and SMA calculations.
 
@@ -42,8 +42,8 @@ def evaluate_ema_sma_cross_strategy(
         price_data_frame = pandas.read_csv(
             csv_path, parse_dates=["Date"], index_col="Date"
         )
-        price_data_frame["ema_value"] = ema(price_data_frame["adj_close"], window_size)
-        price_data_frame["sma_value"] = sma(price_data_frame["adj_close"], window_size)
+        price_data_frame["ema_value"] = ema(price_data_frame["close"], window_size)
+        price_data_frame["sma_value"] = sma(price_data_frame["close"], window_size)
         price_data_frame["ema_previous"] = price_data_frame["ema_value"].shift(1)
         price_data_frame["sma_previous"] = price_data_frame["sma_value"].shift(1)
         price_data_frame["cross_up"] = (
@@ -70,7 +70,7 @@ def evaluate_ema_sma_cross_strategy(
             entry_rule=entry_rule,
             exit_rule=exit_rule,
             entry_price_column="open",
-            exit_price_column="adj_close",
+            exit_price_column="close",
         )
         for completed_trade in simulation_result.trades:
             trade_profit_list.append(completed_trade.profit)

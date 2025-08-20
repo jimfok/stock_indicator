@@ -15,14 +15,14 @@ from stock_indicator.simulator import SimulationResult, simulate_trades
 
 def test_simulate_trades_executes_trade_flow_with_default_column() -> None:
     price_data_frame = pandas.DataFrame(
-        {"adj_close": [100.0, 102.0, 104.0, 103.0, 106.0]}
+        {"close": [100.0, 102.0, 104.0, 103.0, 106.0]}
     )
 
     def entry_rule(current_row: pandas.Series) -> bool:
-        return current_row["adj_close"] > 101.0
+        return current_row["close"] > 101.0
 
     def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
-        return current_row["adj_close"] > 105.0
+        return current_row["close"] > 105.0
 
     result = simulate_trades(price_data_frame, entry_rule, exit_rule)
 
@@ -87,21 +87,21 @@ def test_simulate_trades_with_sma_strategy_uses_aligned_labels() -> None:
 
 def test_simulate_trades_handles_distinct_entry_and_exit_price_columns() -> None:
     price_data_frame = pandas.DataFrame(
-        {"open": [10.0, 12.0], "adj_close": [11.0, 13.0]}
+        {"open": [10.0, 12.0], "close": [11.0, 13.0]}
     )
 
     def entry_rule(current_row: pandas.Series) -> bool:
         return current_row["open"] == 10.0
 
     def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
-        return current_row["adj_close"] >= 13.0
+        return current_row["close"] >= 13.0
 
     result = simulate_trades(
         price_data_frame,
         entry_rule,
         exit_rule,
         entry_price_column="open",
-        exit_price_column="adj_close",
+        exit_price_column="close",
     )
 
     assert isinstance(result, SimulationResult)
