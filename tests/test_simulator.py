@@ -13,22 +13,24 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from stock_indicator.simulator import SimulationResult, simulate_trades
 
 
-def test_simulate_trades_executes_trade_flow() -> None:
-    data = pandas.DataFrame({"close": [100.0, 102.0, 104.0, 103.0, 106.0]})
+def test_simulate_trades_executes_trade_flow_with_default_column() -> None:
+    price_data_frame = pandas.DataFrame(
+        {"adj_close": [100.0, 102.0, 104.0, 103.0, 106.0]}
+    )
 
     def entry_rule(current_row: pandas.Series) -> bool:
-        return current_row["close"] > 101.0
+        return current_row["adj_close"] > 101.0
 
     def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
-        return current_row["close"] > 105.0
+        return current_row["adj_close"] > 105.0
 
-    result = simulate_trades(data, entry_rule, exit_rule)
+    result = simulate_trades(price_data_frame, entry_rule, exit_rule)
 
     assert isinstance(result, SimulationResult)
     assert len(result.trades) == 1
     completed_trade = result.trades[0]
-    expected_entry_date = data.index[1]
-    expected_exit_date = data.index[4]
+    expected_entry_date = price_data_frame.index[1]
+    expected_exit_date = price_data_frame.index[4]
     assert completed_trade.entry_date == expected_entry_date
     assert completed_trade.exit_date == expected_exit_date
     assert completed_trade.entry_price == 102.0
@@ -66,7 +68,9 @@ def test_simulate_trades_with_sma_strategy_uses_aligned_labels() -> None:
             return False
         return current_row["close"] < indicator_at_label
 
-    result = simulate_trades(price_data_frame, entry_rule, exit_rule)
+    result = simulate_trades(
+        price_data_frame, entry_rule, exit_rule, price_column="close"
+    )
 
     assert isinstance(result, SimulationResult)
     assert len(result.trades) == 1

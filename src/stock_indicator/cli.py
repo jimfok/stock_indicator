@@ -109,7 +109,7 @@ def run_cli(argument_list: Optional[List[str]] = None) -> None:
         raise ValueError(f"Unsupported strategy: {parsed_arguments.strategy}")
 
     simulation_result = simulator.simulate_trades(
-        price_data_frame, entry_rule, exit_rule
+        price_data_frame, entry_rule, exit_rule, price_column
     )
     LOGGER.info("Total profit: %s", simulation_result.total_profit)
     if parsed_arguments.output:
