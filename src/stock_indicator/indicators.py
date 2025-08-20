@@ -1,4 +1,8 @@
-"""Utility functions for calculating stock market technical indicators."""
+"""Utility functions for calculating stock market technical indicators.
+
+Adjusted closing prices are recommended for all calculations to account for
+corporate actions such as dividends and stock splits.
+"""
 # TODO: review
 
 from __future__ import annotations
@@ -9,10 +13,12 @@ import pandas
 def sma(price_series: pandas.Series, window_size: int) -> pandas.Series:
     """Calculate the Simple Moving Average (SMA).
 
+    Adjusted close prices are the recommended input.
+
     Parameters
     ----------
     price_series: pandas.Series
-        Series of prices.
+        Series of prices, preferably adjusted close values.
     window_size: int
         Number of periods to include in the moving average.
 
@@ -27,10 +33,12 @@ def sma(price_series: pandas.Series, window_size: int) -> pandas.Series:
 def ema(price_series: pandas.Series, window_size: int) -> pandas.Series:
     """Calculate the Exponential Moving Average (EMA).
 
+    Adjusted close prices are the recommended input.
+
     Parameters
     ----------
     price_series: pandas.Series
-        Series of prices.
+        Series of prices, preferably adjusted close values.
     window_size: int
         Number of periods for exponential weighting.
 
@@ -74,10 +82,12 @@ def macd(
 ) -> pandas.DataFrame:
     """Calculate the Moving Average Convergence Divergence (MACD).
 
+    Adjusted close prices are the recommended input.
+
     Parameters
     ----------
     price_series: pandas.Series
-        Series of prices.
+        Series of prices, preferably adjusted close values.
     fast_window: int
         Window length for the fast EMA.
     slow_window: int
@@ -107,10 +117,12 @@ def macd(
 def rsi(price_series: pandas.Series, window_size: int = 14) -> pandas.Series:
     """Calculate the Relative Strength Index (RSI).
 
+    Adjusted close prices are the recommended input.
+
     Parameters
     ----------
     price_series: pandas.Series
-        Series of prices.
+        Series of prices, preferably adjusted close values.
     window_size: int, default 14
         Number of periods to use for the calculation.
 
@@ -136,6 +148,8 @@ def cci(
 ) -> pandas.Series:
     """Calculate the Commodity Channel Index (CCI).
 
+    Adjusted price data, especially adjusted close, is recommended.
+
     Parameters
     ----------
     high_price_series: pandas.Series
@@ -143,7 +157,7 @@ def cci(
     low_price_series: pandas.Series
         Series of low prices.
     close_price_series: pandas.Series
-        Series of closing prices.
+        Series of closing prices, preferably adjusted close values.
     window_size: int, default 20
         Number of periods to use for the calculation.
 
