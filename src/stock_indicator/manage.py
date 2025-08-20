@@ -26,12 +26,23 @@ class StockShell(cmd.Cmd):
     prompt = "(stock-indicator) "
 
     def do_update_symbols(self, argument_line: str) -> None:  # noqa: D401
-        """update_symbols\n        Download the latest list of ticker symbols."""
+        """update_symbols
+        Download the latest list of ticker symbols."""
         symbols.update_symbol_cache()
         self.stdout.write("Symbol cache updated\n")
 
+    # TODO: review
+    def help_update_symbols(self) -> None:
+        """Display help for the update_symbols command."""
+        self.stdout.write(
+            "update_symbols\n"
+            "Download the latest list of ticker symbols.\n"
+            "This command has no parameters.\n"
+        )
+
     def do_update_data(self, argument_line: str) -> None:  # noqa: D401
-        """update_data SYMBOL START END\n        Download data for SYMBOL between START and END and store as CSV."""
+        """update_data SYMBOL START END
+        Download data for SYMBOL between START and END and store as CSV."""
         argument_parts: List[str] = argument_line.split()
         if len(argument_parts) != 3:
             self.stdout.write("usage: update_data SYMBOL START END\n")
@@ -48,8 +59,21 @@ class StockShell(cmd.Cmd):
         data_frame_with_date.to_csv(output_path, index=False)
         self.stdout.write(f"Data written to {output_path}\n")
 
+    # TODO: review
+    def help_update_data(self) -> None:
+        """Display help for the update_data command."""
+        self.stdout.write(
+            "update_data SYMBOL START END\n"
+            "Download data for SYMBOL between START and END and store as CSV.\n"
+            "Parameters:\n"
+            "  SYMBOL: Ticker symbol for the asset.\n"
+            "  START: Start date in YYYY-MM-DD format.\n"
+            "  END: End date in YYYY-MM-DD format.\n"
+        )
+
     def do_update_all_data(self, argument_line: str) -> None:  # noqa: D401
-        """update_all_data START END\n        Download data for all cached symbols."""
+        """update_all_data START END
+        Download data for all cached symbols."""
         argument_parts: List[str] = argument_line.split()
         if len(argument_parts) != 2:
             self.stdout.write("usage: update_all_data START END\n")
@@ -71,8 +95,20 @@ class StockShell(cmd.Cmd):
             self.stdout.write(f"Data written to {output_path}\n")
 
     # TODO: review
+    def help_update_all_data(self) -> None:
+        """Display help for the update_all_data command."""
+        self.stdout.write(
+            "update_all_data START END\n"
+            "Download data for all cached symbols.\n"
+            "Parameters:\n"
+            "  START: Start date in YYYY-MM-DD format.\n"
+            "  END: End date in YYYY-MM-DD format.\n"
+        )
+
+    # TODO: review
     def do_start_simulate(self, argument_line: str) -> None:  # noqa: D401
-        """start_simulate BUY_STRATEGY SELL_STRATEGY\n        Evaluate trading strategies using cached data."""
+        """start_simulate BUY_STRATEGY SELL_STRATEGY
+        Evaluate trading strategies using cached data."""
         argument_parts: List[str] = argument_line.split()
         if len(argument_parts) != 2:
             self.stdout.write(
@@ -93,10 +129,28 @@ class StockShell(cmd.Cmd):
             f"Trades: {trade_count}, Win rate: {win_rate:.2%}\n"
         )
 
+    # TODO: review
+    def help_start_simulate(self) -> None:
+        """Display help for the start_simulate command."""
+        self.stdout.write(
+            "start_simulate BUY_STRATEGY SELL_STRATEGY\n"
+            "Evaluate trading strategies using cached data.\n"
+            "Parameters:\n"
+            "  BUY_STRATEGY: Name of the buying strategy.\n"
+            "  SELL_STRATEGY: Name of the selling strategy.\n"
+            "Currently only 'ema_sma_cross' is supported for both parameters.\n"
+        )
+
     def do_exit(self, argument_line: str) -> bool:  # noqa: D401
-        """exit\n        Exit the shell."""
+        """exit
+        Exit the shell."""
         self.stdout.write("Bye\n")
         return True
+
+    # TODO: review
+    def help_exit(self) -> None:
+        """Display help for the exit command."""
+        self.stdout.write("exit\nExit the shell.\n")
 
 
 if __name__ == "__main__":
