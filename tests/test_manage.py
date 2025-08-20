@@ -69,7 +69,7 @@ def test_update_all_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     """The command should download data for every symbol in the cache."""
     import stock_indicator.manage as manage_module
 
-    symbol_list = ["AAA", "BBB"]
+    symbol_list = ["AAA", "BBB", manage_module.SP500_SYMBOL]
 
     def fake_load_symbols() -> list[str]:
         return symbol_list
@@ -88,7 +88,7 @@ def test_update_all_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     )
     monkeypatch.setattr(manage_module, "DATA_DIRECTORY", tmp_path)
 
-    expected_symbols = symbol_list + [manage_module.SP500_SYMBOL]
+    expected_symbols = symbol_list
     shell = manage_module.StockShell(stdout=io.StringIO())
     shell.onecmd("update_all_data 2023-01-01 2023-01-02")
     for symbol in expected_symbols:
