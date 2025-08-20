@@ -9,7 +9,7 @@ import pandas
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from stock_indicator.indicators import cci, ema, macd, rsi, sma
+from stock_indicator.indicators import cci, ema, macd, relative_strength, rsi, sma
 
 
 def test_sma_calculates_simple_average() -> None:
@@ -47,6 +47,22 @@ def test_rsi_matches_reference_formula() -> None:
     average_loss_series = loss_series.ewm(alpha=1 / 14, adjust=False).mean()
     relative_strength_series = average_gain_series / average_loss_series
     expected_series = 100 - (100 / (1 + relative_strength_series))
+    pandas.testing.assert_series_equal(result_series, expected_series)
+
+
+# TODO: review
+def test_relative_strength_returns_ratio() -> None:
+    symbol_price_series = pandas.Series(
+        [10, 20, 30], index=pandas.date_range("2020-01-01", periods=3, freq="D")
+    )
+    benchmark_price_series = pandas.Series(
+        [5, 10, 15], index=pandas.date_range("2020-01-02", periods=3, freq="D")
+    )
+    result_series = relative_strength(symbol_price_series, benchmark_price_series)
+    aligned_symbol_series, aligned_benchmark_series = symbol_price_series.align(
+        benchmark_price_series, join="inner"
+    )
+    expected_series = aligned_symbol_series.divide(aligned_benchmark_series)
     pandas.testing.assert_series_equal(result_series, expected_series)
 
 

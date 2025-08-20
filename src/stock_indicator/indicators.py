@@ -42,6 +42,30 @@ def ema(price_series: pandas.Series, window_size: int) -> pandas.Series:
     return price_series.ewm(span=window_size, adjust=False).mean()
 
 
+# TODO: review
+def relative_strength(
+    price_series: pandas.Series, benchmark_series: pandas.Series
+) -> pandas.Series:
+    """Calculate relative strength versus a benchmark index.
+
+    Parameters
+    ----------
+    price_series: pandas.Series
+        Series of asset prices.
+    benchmark_series: pandas.Series
+        Series of benchmark index prices.
+
+    Returns
+    -------
+    pandas.Series
+        Ratio of the asset price to the benchmark price with aligned indexes.
+    """
+    aligned_price_series, aligned_benchmark_series = price_series.align(
+        benchmark_series, join="inner"
+    )
+    return aligned_price_series.divide(aligned_benchmark_series)
+
+
 def macd(
     price_series: pandas.Series,
     fast_window: int = 12,
