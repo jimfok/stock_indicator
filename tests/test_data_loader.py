@@ -21,7 +21,9 @@ from stock_indicator.data_loader import download_history
 
 def test_download_history_returns_dataframe(monkeypatch: pytest.MonkeyPatch) -> None:
     """The function should return data provided by yfinance."""
-    expected_dataframe = pandas.DataFrame({"Close": [1.0, 2.0]})
+    raw_dataframe = pandas.DataFrame(
+        {"Close": [1.0, 2.0], "Adj Close": [1.0, 2.0]}
+    )
 
     def stubbed_download(
         symbol: str,
@@ -29,13 +31,16 @@ def test_download_history_returns_dataframe(monkeypatch: pytest.MonkeyPatch) -> 
         end: str,
         progress: bool = False,
     ) -> pandas.DataFrame:
-        return expected_dataframe
+        return raw_dataframe
 
     monkeypatch.setattr(
         "stock_indicator.data_loader.yfinance.download", stubbed_download
     )
-    monkeypatch.setattr("stock_indicator.data_loader.load_symbols", lambda: ["TEST"])
+    monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: ["TEST"])
     result_dataframe = download_history("TEST", "2021-01-01", "2021-01-02")
+    expected_dataframe = raw_dataframe.rename(
+        columns=lambda name: name.lower().replace(" ", "_")
+    )
     pandas.testing.assert_frame_equal(result_dataframe, expected_dataframe)
 
 
@@ -44,7 +49,7 @@ def test_download_history_retries_on_failure(
 ) -> None:
     """The function should retry and log warnings on temporary failures."""
     call_counter = {"count": 0}
-    expected_dataframe = pandas.DataFrame({"Close": [1.0]})
+    raw_dataframe = pandas.DataFrame({"Close": [1.0], "Adj Close": [1.0]})
 
     def flaky_download(
         symbol: str,
@@ -55,16 +60,19 @@ def test_download_history_retries_on_failure(
         call_counter["count"] += 1
         if call_counter["count"] < 3:
             raise ValueError("temporary error")
-        return expected_dataframe
+        return raw_dataframe
 
     monkeypatch.setattr(
         "stock_indicator.data_loader.yfinance.download", flaky_download
     )
-    monkeypatch.setattr("stock_indicator.data_loader.load_symbols", lambda: ["TEST"])
+    monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: ["TEST"])
     with caplog.at_level(logging.WARNING):
         result_dataframe = download_history("TEST", "2021-01-01", "2021-01-02")
 
     assert call_counter["count"] == 3
+    expected_dataframe = raw_dataframe.rename(
+        columns=lambda name: name.lower().replace(" ", "_")
+    )
     pandas.testing.assert_frame_equal(result_dataframe, expected_dataframe)
     assert "Attempt 1 to download data for TEST failed" in caplog.text
 
@@ -85,7 +93,7 @@ def test_download_history_raises_after_max_attempts(
     monkeypatch.setattr(
         "stock_indicator.data_loader.yfinance.download", failing_download
     )
-    monkeypatch.setattr("stock_indicator.data_loader.load_symbols", lambda: ["TEST"])
+    monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: ["TEST"])
     with caplog.at_level(logging.ERROR):
         with pytest.raises(ValueError):
             download_history("TEST", "2021-01-01", "2021-01-02")
@@ -111,6 +119,31 @@ def test_download_history_forwards_optional_arguments(
     monkeypatch.setattr(
         "stock_indicator.data_loader.yfinance.download", stubbed_download
     )
-    monkeypatch.setattr("stock_indicator.data_loader.load_symbols", lambda: ["TEST"])
+    monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: ["TEST"])
     download_history("TEST", "2021-01-01", "2021-01-02", interval="1h")
     assert captured_arguments["interval"] == "1h"
+
+
+def test_download_history_warns_when_adj_close_missing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The function should log a warning when 'adj_close' is absent."""
+    raw_dataframe = pandas.DataFrame({"Close": [1.0]})
+
+    def stubbed_download(
+        symbol: str,
+        start: str,
+        end: str,
+        progress: bool = False,
+    ) -> pandas.DataFrame:
+        return raw_dataframe
+
+    monkeypatch.setattr(
+        "stock_indicator.data_loader.yfinance.download", stubbed_download
+    )
+    monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: ["TEST"])
+    with caplog.at_level(logging.WARNING):
+        result_dataframe = download_history("TEST", "2021-01-01", "2021-01-02")
+
+    assert "missing 'adj_close' column" in caplog.text
+    assert "adj_close" not in result_dataframe.columns

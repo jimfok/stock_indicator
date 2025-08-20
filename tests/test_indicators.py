@@ -32,9 +32,14 @@ def test_macd_returns_expected_components() -> None:
     expected_macd_series = ema(price_series, window_size=12) - ema(price_series, window_size=26)
     expected_signal_series = expected_macd_series.ewm(span=9, adjust=False).mean()
     expected_histogram_series = expected_macd_series - expected_signal_series
+    expected_macd_series.name = "macd"
+    expected_signal_series.name = "signal"
+    expected_histogram_series.name = "histogram"
     pandas.testing.assert_series_equal(result_dataframe["macd"], expected_macd_series)
     pandas.testing.assert_series_equal(result_dataframe["signal"], expected_signal_series)
-    pandas.testing.assert_series_equal(result_dataframe["histogram"], expected_histogram_series)
+    pandas.testing.assert_series_equal(
+        result_dataframe["histogram"], expected_histogram_series
+    )
 
 
 def test_rsi_matches_reference_formula() -> None:

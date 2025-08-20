@@ -7,8 +7,6 @@ import json
 import logging
 from pathlib import Path
 
-import requests
-
 LOGGER = logging.getLogger(__name__)
 
 # Raw text file with one ticker symbol per line.
@@ -27,6 +25,8 @@ def update_symbol_cache() -> None:
     encoded list of ticker symbols. The content is saved verbatim and parsed when
     loaded.
     """
+    import requests
+
     response = requests.get(SYMBOL_SOURCE_TEXT_URL, timeout=30)
     response.raise_for_status()
     SYMBOL_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
