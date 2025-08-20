@@ -17,6 +17,9 @@ SYMBOL_CACHE_PATH = (
     Path(__file__).resolve().parent.parent.parent / "data" / "symbols.txt"
 )
 
+# Symbol representing the S&P 500 index.
+SP500_SYMBOL = "^GSPC"
+
 
 def update_symbol_cache() -> None:
     """Download the latest symbol list and store it locally.
@@ -57,5 +60,7 @@ def load_symbols() -> list[str]:
         ):
             raise ValueError("Symbol cache JSON must be a list of strings.")
         symbol_list = parsed_symbols
+    if SP500_SYMBOL not in symbol_list:
+        symbol_list.append(SP500_SYMBOL)
     return symbol_list
 

@@ -12,11 +12,11 @@ from typing import List
 from pandas import DataFrame
 
 from . import data_loader, symbols, strategy
+from .symbols import SP500_SYMBOL
 
 LOGGER = logging.getLogger(__name__)
 
 DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "data"
-SP500_SYMBOL = "^GSPC"  # TODO: review
 
 
 class StockShell(cmd.Cmd):

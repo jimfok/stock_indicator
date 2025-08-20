@@ -48,10 +48,11 @@ def test_load_symbols_fetches_and_caches_json(
     monkeypatch.setattr(symbols_module, "SYMBOL_CACHE_PATH", cache_path)
 
     symbol_list = symbols_module.load_symbols()
-    assert symbol_list == mock_symbol_list
+    expected_list = mock_symbol_list + [symbols_module.SP500_SYMBOL]
+    assert symbol_list == expected_list
     assert cache_path.exists()
 
     symbol_list_second = symbols_module.load_symbols()
-    assert symbol_list_second == mock_symbol_list
+    assert symbol_list_second == expected_list
     assert request_call_count["count"] == 1
 
