@@ -28,8 +28,11 @@ print(prices[["close", "rsi_14"]].tail())
 ```
 
 Downloaded data frames use lower-case ``snake_case`` column names. For instance,
-``"Adj Close"`` is exposed as ``"adj_close"``. Downstream code should refer to
-columns using this standardized style.
+``"Adj Close"`` is exposed as ``"adj_close"``. If the source data lacks an
+adjusted closing price column, the loader derives one from ``"close"`` and
+``"stock_splits"`` and logs a warning indicating that the series was
+synthesized. Downstream code should refer to columns using this standardized
+style.
 
 ### Command Line Example
 Stock Indicator also includes a command line interface for generating trade signals from historical price data.

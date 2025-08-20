@@ -2,8 +2,9 @@
 
 The :func:`download_history` utility normalizes all column names in the
 returned data frame to ``snake_case``. For example, ``"Adj Close"`` becomes
-``"adj_close"``. A warning is logged if the adjusted closing price column is
-missing from the result.
+``"adj_close"``. If an adjusted closing price column is absent, the function
+derives one from ``"close"`` and ``"stock_splits"`` and logs a warning that the
+series was synthesized.
 """
 # TODO: review
 
@@ -71,10 +72,29 @@ def download_history(
                 str(column_name).lower().replace(" ", "_")
                 for column_name in downloaded_frame.columns
             ]
+            # TODO: review
             if "adj_close" not in downloaded_frame.columns:
-                LOGGER.warning(
-                    "Downloaded data for %s missing 'adj_close' column", symbol
-                )
+                if "stock_splits" in downloaded_frame.columns:
+                    split_factor_series = (
+                        downloaded_frame["stock_splits"]
+                        .replace(0, 1)
+                        .iloc[::-1]
+                        .cumprod()
+                        .shift(1, fill_value=1)
+                        .iloc[::-1]
+                    )
+                    downloaded_frame["adj_close"] = (
+                        downloaded_frame["close"] / split_factor_series
+                    )
+                    LOGGER.warning(
+                        "Adjusted close derived from 'close' and 'stock_splits' for %s",
+                        symbol,
+                    )
+                else:
+                    LOGGER.warning(
+                        "Downloaded data for %s missing 'adj_close' column",
+                        symbol,
+                    )
             return downloaded_frame
         except Exception as download_error:  # noqa: BLE001
             LOGGER.warning(

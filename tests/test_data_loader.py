@@ -124,11 +124,13 @@ def test_download_history_forwards_optional_arguments(
     assert captured_arguments["interval"] == "1h"
 
 
-def test_download_history_warns_when_adj_close_missing(
+def test_download_history_uses_existing_adj_close(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The function should log a warning when 'adj_close' is absent."""
-    raw_dataframe = pandas.DataFrame({"Close": [1.0]})
+    """The function should use provided 'adj_close' values without warning."""
+    raw_dataframe = pandas.DataFrame(
+        {"Close": [1.0], "Adj Close": [1.0], "Stock Splits": [0.0]}
+    )
 
     def stubbed_download(
         symbol: str,
@@ -145,5 +147,49 @@ def test_download_history_warns_when_adj_close_missing(
     with caplog.at_level(logging.WARNING):
         result_dataframe = download_history("TEST", "2021-01-01", "2021-01-02")
 
-    assert "missing 'adj_close' column" in caplog.text
-    assert "adj_close" not in result_dataframe.columns
+    expected_dataframe = raw_dataframe.rename(
+        columns=lambda name: name.lower().replace(" ", "_")
+    )
+    pandas.testing.assert_frame_equal(result_dataframe, expected_dataframe)
+    assert "Adjusted close derived" not in caplog.text
+
+
+def test_download_history_computes_adj_close_from_stock_splits(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The function should synthesize 'adj_close' using 'stock_splits'."""
+    raw_dataframe = pandas.DataFrame(
+        {"Close": [100.0, 60.0, 30.0], "Stock Splits": [0.0, 2.0, 0.0]}
+    )
+
+    def stubbed_download(
+        symbol: str,
+        start: str,
+        end: str,
+        progress: bool = False,
+    ) -> pandas.DataFrame:
+        return raw_dataframe
+
+    monkeypatch.setattr(
+        "stock_indicator.data_loader.yfinance.download", stubbed_download
+    )
+    monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: ["TEST"])
+    with caplog.at_level(logging.WARNING):
+        result_dataframe = download_history("TEST", "2021-01-01", "2021-01-03")
+
+    expected_dataframe = raw_dataframe.rename(
+        columns=lambda name: name.lower().replace(" ", "_")
+    )
+    split_factor_series = (
+        expected_dataframe["stock_splits"]
+        .replace(0, 1)
+        .iloc[::-1]
+        .cumprod()
+        .shift(1, fill_value=1)
+        .iloc[::-1]
+    )
+    expected_dataframe["adj_close"] = (
+        expected_dataframe["close"] / split_factor_series
+    )
+    pandas.testing.assert_frame_equal(result_dataframe, expected_dataframe)
+    assert "Adjusted close derived" in caplog.text
