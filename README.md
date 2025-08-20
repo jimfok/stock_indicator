@@ -19,13 +19,17 @@ pip install pandas numpy yfinance matplotlib
 
 ### Example Usage
 ```python
-import yfinance as yf
+from stock_indicator.data_loader import download_history
 from stock_indicator.indicators import rsi
 
-prices = yf.download("AAPL", period="6mo")
-prices["RSI_14"] = rsi(prices["Close"], window=14)
-print(prices[["Close", "RSI_14"]].tail())
+prices = download_history("AAPL", "2023-01-01", "2023-06-01")
+prices["rsi_14"] = rsi(prices["close"], window=14)
+print(prices[["close", "rsi_14"]].tail())
 ```
+
+Downloaded data frames use lower-case ``snake_case`` column names. For instance,
+``"Adj Close"`` is exposed as ``"adj_close"``. Downstream code should refer to
+columns using this standardized style.
 
 ### Command Line Example
 Stock Indicator also includes a command line interface for generating trade signals from historical price data.
