@@ -57,7 +57,9 @@ def test_run_cli_invokes_components(
         data_frame: pandas.DataFrame,
         entry_rule: Callable[[pandas.Series], bool],
         exit_rule: Callable[[pandas.Series, pandas.Series], bool],
+        price_column: str = "adj_close",
     ) -> SimulationResult:
+        assert price_column == "adj_close"
         return SimulationResult(trades=[], total_profit=5.0)
 
     monkeypatch.setattr(cli.symbols, "load_symbols", fake_load_symbols)
@@ -107,7 +109,9 @@ def test_run_cli_uses_adj_close_by_default(
         data_frame: pandas.DataFrame,
         entry_rule: Callable[[pandas.Series], bool],
         exit_rule: Callable[[pandas.Series, pandas.Series], bool],
+        price_column: str = "adj_close",
     ) -> SimulationResult:
+        assert price_column == "adj_close"
         assert entry_rule(data_frame.iloc[0])
         assert not exit_rule(data_frame.iloc[0], data_frame.iloc[0])
         return SimulationResult(trades=[], total_profit=0.0)
@@ -157,7 +161,9 @@ def test_run_cli_accepts_price_column_argument(
         data_frame: pandas.DataFrame,
         entry_rule: Callable[[pandas.Series], bool],
         exit_rule: Callable[[pandas.Series, pandas.Series], bool],
+        price_column: str = "adj_close",
     ) -> SimulationResult:
+        assert price_column == "close"
         assert not entry_rule(data_frame.iloc[0])
         assert exit_rule(data_frame.iloc[0], data_frame.iloc[0])
         return SimulationResult(trades=[], total_profit=0.0)
