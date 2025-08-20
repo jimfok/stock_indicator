@@ -42,6 +42,22 @@ def evaluate_ema_sma_cross_strategy(
         price_data_frame = pandas.read_csv(
             csv_path, parse_dates=["Date"], index_col="Date"
         )
+        # TODO: review
+        price_data_frame.columns = [
+            column_name.lower().replace(" ", "_")
+            for column_name in price_data_frame.columns
+        ]
+        required_columns = {"open", "close"}
+        missing_column_names = [
+            required_column
+            for required_column in required_columns
+            if required_column not in price_data_frame.columns
+        ]
+        if missing_column_names:
+            missing_columns_string = ", ".join(missing_column_names)
+            raise ValueError(
+                f"Missing required columns: {missing_columns_string} in file {csv_path.name}"
+            )
         price_data_frame["ema_value"] = ema(price_data_frame["close"], window_size)
         price_data_frame["sma_value"] = sma(price_data_frame["close"], window_size)
         price_data_frame["ema_previous"] = price_data_frame["ema_value"].shift(1)
