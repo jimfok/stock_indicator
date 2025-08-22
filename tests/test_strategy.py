@@ -56,3 +56,47 @@ def test_evaluate_ema_sma_cross_strategy_raises_value_error_for_missing_columns(
 
     with pytest.raises(ValueError, match="Missing required columns"):
         evaluate_ema_sma_cross_strategy(tmp_path, window_size=3)
+
+
+def test_evaluate_ema_sma_cross_strategy_handles_multiindex(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    price_value_list = [
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        20.0,
+        20.0,
+        20.0,
+        10.0,
+        10.0,
+        10.0,
+    ]
+    date_index = pandas.date_range("2020-01-01", periods=len(price_value_list), freq="D")
+    price_data_frame = pandas.DataFrame(
+        {
+            ("Date", ""): date_index,
+            ("OPEN", "ignore"): price_value_list,
+            ("CLOSE", "ignore"): price_value_list,
+        }
+    )
+    csv_path = tmp_path / "multi_index.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    original_read_csv = pandas.read_csv
+
+    def patched_read_csv(*args: object, **kwargs: object) -> pandas.DataFrame:
+        return original_read_csv(
+            *args,
+            header=[0, 1],
+            index_col=0,
+            parse_dates=[0],
+            **{key: value for key, value in kwargs.items() if key not in {"header", "index_col", "parse_dates"}},
+        )
+
+    monkeypatch.setattr(pandas, "read_csv", patched_read_csv)
+    total_trades, win_rate = evaluate_ema_sma_cross_strategy(tmp_path, window_size=3)
+
+    assert total_trades == 1
+    assert win_rate == 0.0

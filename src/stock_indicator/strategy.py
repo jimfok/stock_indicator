@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Tuple
 
+import re
 import pandas
 
 from .indicators import ema, sma
@@ -42,9 +43,12 @@ def evaluate_ema_sma_cross_strategy(
         price_data_frame = pandas.read_csv(
             csv_path, parse_dates=["Date"], index_col="Date"
         )
-        # TODO: review
+        if isinstance(price_data_frame.columns, pandas.MultiIndex):
+            price_data_frame.columns = price_data_frame.columns.get_level_values(0)
+        # Normalize column names to handle multi-level headers and varied casing
+        # so required columns can be detected consistently
         price_data_frame.columns = [
-            column_name.lower().replace(" ", "_")
+            re.sub(r"[^a-z0-9]+", "_", str(column_name).strip().lower())
             for column_name in price_data_frame.columns
         ]
         required_columns = {"open", "close"}
