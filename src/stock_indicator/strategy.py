@@ -9,7 +9,7 @@ from typing import List, Tuple
 import re
 import pandas
 
-from .indicators import ema, sma
+from .indicators import ema, rsi, sma
 from .simulator import simulate_trades
 
 
@@ -20,12 +20,14 @@ def evaluate_ema_sma_cross_strategy(
     """Evaluate EMA and SMA cross strategy across all CSV files in a directory.
 
     The function calculates the win rate of applying an EMA and SMA cross
-    strategy to each CSV file in ``data_directory``. Entry occurs when the
-    exponential moving average crosses above the simple moving average and the
-    stock's relative strength rating exceeds 95 (or 0.95 if the rating is scaled
-    from 0 to 1). Positions are opened at the next day's opening price. The
-    position is closed when the exponential moving average crosses below the
-    simple moving average, using the next day's closing price.
+    strategy to each CSV file in ``data_directory``. If a file does not contain
+    a column named ``rs``, the relative strength index is computed from the
+    closing prices and written back to the file before processing. Entry occurs
+    when the exponential moving average crosses above the simple moving average
+    and the stock's relative strength rating exceeds 95 (or 0.95 if the rating
+    is scaled from 0 to 1). Positions are opened at the next day's opening
+    price. The position is closed when the exponential moving average crosses
+    below the simple moving average, using the next day's closing price.
 
     Parameters
     ----------
@@ -52,23 +54,41 @@ def evaluate_ema_sma_cross_strategy(
             re.sub(r"[^a-z0-9]+", "_", str(column_name).strip().lower())
             for column_name in price_data_frame.columns
         ]
-        # Remove trailing ticker identifiers such as "_riv" and the "_" at the first character so that column names
-        # are reduced to plain identifiers like "open" and "close"
+        # Remove trailing ticker identifiers such as "_riv" and any leading
+        # underscores so column names are reduced to identifiers like "open"
+        # and "close"
         price_data_frame.columns = [
-            re.sub(r"_(open|close|high|low|volume)_.*", r"\1", column_name)
+            re.sub(
+                r"^_+",
+                "",
+                re.sub(
+                    r"(?:^|_)(open|close|high|low|volume)_.*",
+                    r"\1",
+                    column_name,
+                ),
+            )
             for column_name in price_data_frame.columns
         ]
-        required_columns = {"open", "close", "rs"}
+        required_columns = {"open", "close"}
         missing_column_names = [
             required_column
             for required_column in required_columns
-                if required_column not in price_data_frame.columns
+            if required_column not in price_data_frame.columns
         ]
         if missing_column_names:
             missing_columns_string = ", ".join(missing_column_names)
             raise ValueError(
                 f"Missing required columns: {missing_columns_string} in file {csv_path.name}"
             )
+
+        if "rs" not in price_data_frame.columns:
+            relative_strength_window = 14
+            relative_strength_series = rsi(
+                price_data_frame["close"], window_size=relative_strength_window
+            )
+            price_data_frame["rs"] = relative_strength_series
+            updated_price_data_frame = price_data_frame.reset_index()
+            updated_price_data_frame.to_csv(csv_path, index=False)
         price_data_frame["ema_value"] = ema(price_data_frame["close"], window_size)
         price_data_frame["sma_value"] = sma(price_data_frame["close"], window_size)
         price_data_frame["ema_previous"] = price_data_frame["ema_value"].shift(1)
@@ -81,8 +101,8 @@ def evaluate_ema_sma_cross_strategy(
             (price_data_frame["ema_previous"] >= price_data_frame["sma_previous"])
             & (price_data_frame["ema_value"] < price_data_frame["sma_value"])
         )
-        price_data_frame["entry_signal"] = price_data_frame["cross_up"].shift(1, fill_value = False)
-        price_data_frame["exit_signal"] = price_data_frame["cross_down"].shift(1, fil_value = False)
+        price_data_frame["entry_signal"] = price_data_frame["cross_up"].shift(1, fill_value=False)
+        price_data_frame["exit_signal"] = price_data_frame["cross_down"].shift(1, fill_value=False)
         price_data_frame["rs_previous"] = price_data_frame["rs"].shift(1)
 
         def entry_rule(current_row: pandas.Series) -> bool:
