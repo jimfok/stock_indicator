@@ -17,7 +17,12 @@ def test_evaluate_ema_sma_cross_strategy_computes_win_rate(tmp_path: Path) -> No
     price_values = [10.0, 10.0, 10.0, 10.0, 20.0, 20.0, 20.0, 10.0, 10.0, 10.0]
     date_index = pandas.date_range("2020-01-01", periods=len(price_values), freq="D")
     price_data_frame = pandas.DataFrame(
-        {"Date": date_index, "open": price_values, "close": price_values}
+        {
+            "Date": date_index,
+            "open": price_values,
+            "close": price_values,
+            "rs": [96.0] * len(price_values),
+        }
     )
     csv_path = tmp_path / "test.csv"
     price_data_frame.to_csv(csv_path, index=False)
@@ -32,7 +37,12 @@ def test_evaluate_ema_sma_cross_strategy_normalizes_headers(tmp_path: Path) -> N
     price_values = [10.0, 10.0, 10.0, 10.0, 20.0, 20.0, 20.0, 10.0, 10.0, 10.0]
     date_index = pandas.date_range("2020-01-01", periods=len(price_values), freq="D")
     price_data_frame = pandas.DataFrame(
-        {"Date": date_index, "OPEN": price_values, "CLOSE": price_values}
+        {
+            "Date": date_index,
+            "OPEN": price_values,
+            "CLOSE": price_values,
+            "RS": [96.0] * len(price_values),
+        }
     )
     csv_path = tmp_path / "test_uppercase.csv"
     price_data_frame.to_csv(csv_path, index=False)
@@ -47,7 +57,12 @@ def test_evaluate_ema_sma_cross_strategy_removes_ticker_suffix(tmp_path: Path) -
     price_value_list = [10.0, 10.0, 10.0, 10.0, 20.0, 20.0, 20.0, 10.0, 10.0, 10.0]
     date_index = pandas.date_range("2020-01-01", periods=len(price_value_list), freq="D")
     price_data_frame = pandas.DataFrame(
-        {"Date": date_index, "Open RIV": price_value_list, "Close RIV": price_value_list}
+        {
+            "Date": date_index,
+            "Open RIV": price_value_list,
+            "Close RIV": price_value_list,
+            "RS": [96.0] * len(price_value_list),
+        }
     )
     csv_path = tmp_path / "ticker_suffix.csv"
     price_data_frame.to_csv(csv_path, index=False)
@@ -94,6 +109,7 @@ def test_evaluate_ema_sma_cross_strategy_handles_multiindex(
             ("Date", ""): date_index,
             ("OPEN", "ignore"): price_value_list,
             ("CLOSE", "ignore"): price_value_list,
+            ("RS", "ignore"): [96.0] * len(price_value_list),
         }
     )
     csv_path = tmp_path / "multi_index.csv"
@@ -114,4 +130,26 @@ def test_evaluate_ema_sma_cross_strategy_handles_multiindex(
     total_trades, win_rate = evaluate_ema_sma_cross_strategy(tmp_path, window_size=3)
 
     assert total_trades == 1
+    assert win_rate == 0.0
+
+
+def test_evaluate_ema_sma_cross_strategy_requires_high_relative_strength(
+    tmp_path: Path,
+) -> None:
+    price_values = [10.0, 10.0, 10.0, 10.0, 20.0, 20.0, 20.0, 10.0, 10.0, 10.0]
+    date_index = pandas.date_range("2020-01-01", periods=len(price_values), freq="D")
+    price_data_frame = pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": price_values,
+            "close": price_values,
+            "rs": [80.0] * len(price_values),
+        }
+    )
+    csv_path = tmp_path / "low_rs.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    total_trades, win_rate = evaluate_ema_sma_cross_strategy(tmp_path, window_size=3)
+
+    assert total_trades == 0
     assert win_rate == 0.0

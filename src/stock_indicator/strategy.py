@@ -22,9 +22,10 @@ def evaluate_ema_sma_cross_strategy(
     The function calculates the win rate of applying an EMA and SMA cross
     strategy to each CSV file in ``data_directory``. Entry occurs when the
     exponential moving average crosses above the simple moving average and the
-    position is opened at the next day's opening price. The position is closed
-    when the exponential moving average crosses below the simple moving average,
-    using the next day's closing price.
+    stock's relative strength rating exceeds 95 (or 0.95 if the rating is scaled
+    from 0 to 1). Positions are opened at the next day's opening price. The
+    position is closed when the exponential moving average crosses below the
+    simple moving average, using the next day's closing price.
 
     Parameters
     ----------
@@ -54,10 +55,10 @@ def evaluate_ema_sma_cross_strategy(
         # Remove trailing ticker identifiers such as "_riv" so that column names
         # are reduced to plain identifiers like "open" and "close"
         price_data_frame.columns = [
-            re.sub(r"_(open|close|high|low|volume)_.*", r"\1", column_name)
+            re.sub(r"(open|close|high|low|volume)_.*", r"\1", column_name)
             for column_name in price_data_frame.columns
         ]
-        required_columns = {"open", "close"}
+        required_columns = {"open", "close", "rs"}
         missing_column_names = [
             required_column
             for required_column in required_columns
@@ -82,9 +83,16 @@ def evaluate_ema_sma_cross_strategy(
         )
         price_data_frame["entry_signal"] = price_data_frame["cross_up"].shift(1).fillna(False)
         price_data_frame["exit_signal"] = price_data_frame["cross_down"].shift(1).fillna(False)
+        price_data_frame["rs_previous"] = price_data_frame["rs"].shift(1)
 
         def entry_rule(current_row: pandas.Series) -> bool:
-            return bool(current_row["entry_signal"])
+            """Determine whether a trade should be entered."""
+            # TODO: review
+            relative_strength_value = current_row.get("rs_previous")
+            if pandas.isna(relative_strength_value):
+                return False
+            strength_threshold = 0.95 if relative_strength_value <= 1 else 95.0
+            return bool(current_row["entry_signal"]) and relative_strength_value > strength_threshold
 
         def exit_rule(
             current_row: pandas.Series, entry_row: pandas.Series
