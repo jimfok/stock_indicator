@@ -51,8 +51,13 @@ def evaluate_ema_sma_cross_strategy(
             re.sub(r"[^a-z0-9]+", "_", str(column_name).strip().lower())
             for column_name in price_data_frame.columns
         ]
+        # Remove trailing ticker identifiers such as "_riv" so that column names
+        # are reduced to plain identifiers like "open" and "close"
+        price_data_frame.columns = [
+            re.sub(r"(open|close|high|low|volume)_.*", r"\1", column_name)
+            for column_name in price_data_frame.columns
+        ]
         required_columns = {"open", "close"}
-        print(price_data_frame.columns)
         missing_column_names = [
             required_column
             for required_column in required_columns
