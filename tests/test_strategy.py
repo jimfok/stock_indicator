@@ -73,6 +73,26 @@ def test_evaluate_ema_sma_cross_strategy_removes_ticker_suffix(tmp_path: Path) -
     assert win_rate == 0.0
 
 
+def test_evaluate_ema_sma_cross_strategy_strips_leading_underscore(tmp_path: Path) -> None:
+    price_value_list = [10.0, 10.0, 10.0, 10.0, 20.0, 20.0, 20.0, 10.0, 10.0, 10.0]
+    date_index = pandas.date_range("2020-01-01", periods=len(price_value_list), freq="D")
+    price_data_frame = pandas.DataFrame(
+        {
+            "Date": date_index,
+            "_Open RIV": price_value_list,
+            "_Close RIV": price_value_list,
+            "RS": [96.0] * len(price_value_list),
+        }
+    )
+    csv_path = tmp_path / "leading_underscore.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    total_trades, win_rate = evaluate_ema_sma_cross_strategy(tmp_path, window_size=3)
+
+    assert total_trades == 1
+    assert win_rate == 0.0
+
+
 def test_evaluate_ema_sma_cross_strategy_raises_value_error_for_missing_columns(
     tmp_path: Path,
 ) -> None:
@@ -153,3 +173,25 @@ def test_evaluate_ema_sma_cross_strategy_requires_high_relative_strength(
 
     assert total_trades == 0
     assert win_rate == 0.0
+
+
+def test_evaluate_ema_sma_cross_strategy_computes_missing_relative_strength(
+    tmp_path: Path,
+) -> None:
+    price_values = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]
+    date_index = pandas.date_range("2020-01-01", periods=len(price_values), freq="D")
+    price_data_frame = pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": price_values,
+            "close": price_values,
+        }
+    )
+    csv_path = tmp_path / "missing_rs.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    total_trades, win_rate = evaluate_ema_sma_cross_strategy(tmp_path, window_size=3)
+
+    assert (total_trades, win_rate) == (0, 0.0)
+    updated_data_frame = pandas.read_csv(csv_path)
+    assert "rs" in updated_data_frame.columns
