@@ -52,10 +52,11 @@ def evaluate_ema_sma_cross_strategy(
             for column_name in price_data_frame.columns
         ]
         required_columns = {"open", "close"}
+        print(price_data_frame.columns)
         missing_column_names = [
             required_column
             for required_column in required_columns
-            if required_column not in price_data_frame.columns
+                if required_column not in price_data_frame.columns
         ]
         if missing_column_names:
             missing_columns_string = ", ".join(missing_column_names)
