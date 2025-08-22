@@ -81,8 +81,8 @@ def evaluate_ema_sma_cross_strategy(
             (price_data_frame["ema_previous"] >= price_data_frame["sma_previous"])
             & (price_data_frame["ema_value"] < price_data_frame["sma_value"])
         )
-        price_data_frame["entry_signal"] = price_data_frame["cross_up"].shift(1).fillna(False)
-        price_data_frame["exit_signal"] = price_data_frame["cross_down"].shift(1).fillna(False)
+        price_data_frame["entry_signal"] = price_data_frame["cross_up"].shift(1, fill_value = False)
+        price_data_frame["exit_signal"] = price_data_frame["cross_down"].shift(1, fil_value = False)
         price_data_frame["rs_previous"] = price_data_frame["rs"].shift(1)
 
         def entry_rule(current_row: pandas.Series) -> bool:
