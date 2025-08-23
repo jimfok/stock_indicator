@@ -73,7 +73,7 @@ def load_price_data(csv_file_path: Path) -> pandas.DataFrame:
 
 
 def attach_ema_sma_cross_signals(
-    price_data_frame: pandas.DataFrame, window_size: int = 15
+    price_data_frame: pandas.DataFrame, window_size: int = 50
 ) -> None:
     """Attach EMA/SMA cross entry and exit signals to ``price_data_frame``."""
     # TODO: review
