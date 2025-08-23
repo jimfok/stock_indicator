@@ -236,12 +236,16 @@ def evaluate_combined_strategy(
 
     for csv_file_path in data_directory.glob("*.csv"):
         price_data_frame = load_price_data(csv_file_path)
+        if price_data_frame.empty:
+            continue
         if minimum_average_dollar_volume is not None:
             if "volume" not in price_data_frame.columns:
                 raise ValueError(
                     "Volume column is required to compute dollar volume filter"
                 )
             dollar_volume_series = price_data_frame["close"] * price_data_frame["volume"]
+            if dollar_volume_series.empty:
+                continue
             recent_average_dollar_volume = (
                 dollar_volume_series.rolling(window=50).mean().iloc[-1] / 1_000_000
             )
