@@ -191,6 +191,54 @@ def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) ->
     assert threshold_record["threshold"] == 0.0
 
 
+def test_start_simulate_supports_rsi_strategy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command should recognize the EMA/SMA cross with RSI strategy."""
+    # TODO: review
+
+    import stock_indicator.manage as manage_module
+
+    call_arguments: dict[str, tuple[str, str]] = {}
+
+    from stock_indicator.strategy import StrategyMetrics
+
+    def fake_evaluate(
+        data_directory: Path,
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        minimum_average_dollar_volume: float,
+    ) -> StrategyMetrics:
+        call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
+        return StrategyMetrics(
+            total_trades=0,
+            win_rate=0.0,
+            mean_profit_percentage=0.0,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.0,
+            loss_percentage_standard_deviation=0.0,
+            mean_holding_period=0.0,
+            holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=0,
+        )
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "evaluate_combined_strategy",
+        fake_evaluate,
+    )
+
+    shell = manage_module.StockShell(stdout=io.StringIO())
+    shell.onecmd(
+        "start_simulate dollar_volume>0 "
+        "ema_sma_cross_and_rsi ema_sma_cross_and_rsi"
+    )
+    assert call_arguments["strategies"] == (
+        "ema_sma_cross_and_rsi",
+        "ema_sma_cross_and_rsi",
+    )
+
+
 def test_start_simulate_unsupported_strategy(monkeypatch: pytest.MonkeyPatch) -> None:
     """The command should report unsupported strategy names."""
     import stock_indicator.manage as manage_module
