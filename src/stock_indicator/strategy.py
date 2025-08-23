@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from statistics import mean, stdev
+from typing import List
 
 import re
 import pandas
@@ -15,10 +17,24 @@ from .simulator import simulate_trades
 
 LONG_TERM_SMA_WINDOW: int = 150
 
+
+@dataclass
+class StrategyMetrics:
+    """Aggregate metrics describing strategy performance."""
+    # TODO: review
+
+    total_trades: int
+    win_rate: float
+    mean_profit_percentage: float
+    profit_percentage_standard_deviation: float
+    mean_loss_percentage: float
+    loss_percentage_standard_deviation: float
+
+
 def evaluate_ema_sma_cross_strategy(
     data_directory: Path,
     window_size: int = 15,
-) -> Tuple[int, float]:
+) -> StrategyMetrics:
     """Evaluate EMA and SMA cross strategy across all CSV files in a directory.
 
     The function calculates the win rate of applying an EMA and SMA cross
@@ -38,10 +54,12 @@ def evaluate_ema_sma_cross_strategy(
 
     Returns
     -------
-    tuple[int, float]
-        Total number of trades and the win rate as a float between 0 and 1.
+    StrategyMetrics
+        Metrics including total trades, win rate, and profit and loss statistics.
     """
     trade_profit_list: List[float] = []
+    profit_percentage_list: List[float] = []
+    loss_percentage_list: List[float] = []
     for csv_path in data_directory.glob("*.csv"):
         price_data_frame = pandas.read_csv(
             csv_path, parse_dates=["Date"], index_col="Date"
@@ -129,12 +147,45 @@ def evaluate_ema_sma_cross_strategy(
         )
         for completed_trade in simulation_result.trades:
             trade_profit_list.append(completed_trade.profit)
+            percentage_change = (
+                completed_trade.profit / completed_trade.entry_price
+            )
+            if percentage_change > 0:
+                profit_percentage_list.append(percentage_change)
+            elif percentage_change < 0:
+                loss_percentage_list.append(abs(percentage_change))
 
     total_trades = len(trade_profit_list)
     if total_trades == 0:
-        return 0, 0.0
+        return StrategyMetrics(
+            total_trades=0,
+            win_rate=0.0,
+            mean_profit_percentage=0.0,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.0,
+            loss_percentage_standard_deviation=0.0,
+        )
+
     winning_trade_count = sum(
         1 for profit_amount in trade_profit_list if profit_amount > 0
     )
     win_rate = winning_trade_count / total_trades
-    return total_trades, win_rate
+
+    def calculate_mean(values: List[float]) -> float:
+        return mean(values) if values else 0.0
+
+    def calculate_standard_deviation(values: List[float]) -> float:
+        return stdev(values) if len(values) > 1 else 0.0
+
+    return StrategyMetrics(
+        total_trades=total_trades,
+        win_rate=win_rate,
+        mean_profit_percentage=calculate_mean(profit_percentage_list),
+        profit_percentage_standard_deviation=calculate_standard_deviation(
+            profit_percentage_list
+        ),
+        mean_loss_percentage=calculate_mean(loss_percentage_list),
+        loss_percentage_standard_deviation=calculate_standard_deviation(
+            loss_percentage_list
+        ),
+    )

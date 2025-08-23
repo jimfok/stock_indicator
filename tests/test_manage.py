@@ -105,10 +105,19 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
 
     call_record: dict[str, bool] = {"called": False}
 
-    def fake_evaluate(data_directory: Path) -> tuple[int, float]:
+    from stock_indicator.strategy import StrategyMetrics
+
+    def fake_evaluate(data_directory: Path) -> StrategyMetrics:
         call_record["called"] = True
         assert data_directory == manage_module.DATA_DIRECTORY
-        return 3, 0.5
+        return StrategyMetrics(
+            total_trades=3,
+            win_rate=0.5,
+            mean_profit_percentage=0.1,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.05,
+            loss_percentage_standard_deviation=0.0,
+        )
 
     monkeypatch.setattr(
         manage_module.strategy,
@@ -120,4 +129,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     shell = manage_module.StockShell(stdout=output_buffer)
     shell.onecmd("start_simulate ema_sma_cross ema_sma_cross")
     assert call_record["called"] is True
-    assert "Trades: 3, Win rate: 50.00%" in output_buffer.getvalue()
+    assert (
+        "Trades: 3, Win rate: 50.00%, Mean profit %: 10.00%, Profit % Std Dev: 0.00%, "
+        "Mean loss %: 5.00%, Loss % Std Dev: 0.00%" in output_buffer.getvalue()
+    )
