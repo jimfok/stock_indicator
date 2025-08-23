@@ -10,7 +10,12 @@ from stock_indicator.indicators import sma
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from stock_indicator.simulator import SimulationResult, simulate_trades
+from stock_indicator.simulator import (
+    SimulationResult,
+    Trade,
+    calculate_maximum_concurrent_positions,
+    simulate_trades,
+)
 
 
 def test_simulate_trades_executes_trade_flow_with_default_column() -> None:
@@ -118,3 +123,70 @@ def test_simulate_trades_handles_distinct_entry_and_exit_price_columns() -> None
     assert completed_trade.profit == 3.0
     assert completed_trade.holding_period == 1
     assert result.total_profit == 3.0
+
+
+def test_calculate_maximum_concurrent_positions_counts_overlaps() -> None:
+    """Count overlapping trades across multiple simulations."""
+    trade_alpha = Trade(
+        entry_date=pandas.Timestamp("2024-01-01"),
+        exit_date=pandas.Timestamp("2024-01-05"),
+        entry_price=1.0,
+        exit_price=1.0,
+        profit=0.0,
+        holding_period=0,
+    )
+    trade_beta = Trade(
+        entry_date=pandas.Timestamp("2024-01-03"),
+        exit_date=pandas.Timestamp("2024-01-04"),
+        entry_price=1.0,
+        exit_price=1.0,
+        profit=0.0,
+        holding_period=0,
+    )
+    trade_gamma = Trade(
+        entry_date=pandas.Timestamp("2024-01-02"),
+        exit_date=pandas.Timestamp("2024-01-06"),
+        entry_price=1.0,
+        exit_price=1.0,
+        profit=0.0,
+        holding_period=0,
+    )
+
+    result_alpha = SimulationResult(trades=[trade_alpha], total_profit=0.0)
+    result_beta = SimulationResult(trades=[trade_beta], total_profit=0.0)
+    result_gamma = SimulationResult(trades=[trade_gamma], total_profit=0.0)
+
+    maximum_positions = calculate_maximum_concurrent_positions(
+        [result_alpha, result_beta, result_gamma]
+    )
+
+    assert maximum_positions == 3
+
+
+def test_calculate_maximum_concurrent_positions_orders_exit_before_entry() -> None:
+    """Process exit events before entry events occurring on the same date."""
+    trade_delta = Trade(
+        entry_date=pandas.Timestamp("2024-01-01"),
+        exit_date=pandas.Timestamp("2024-01-02"),
+        entry_price=1.0,
+        exit_price=1.0,
+        profit=0.0,
+        holding_period=0,
+    )
+    trade_epsilon = Trade(
+        entry_date=pandas.Timestamp("2024-01-02"),
+        exit_date=pandas.Timestamp("2024-01-03"),
+        entry_price=1.0,
+        exit_price=1.0,
+        profit=0.0,
+        holding_period=0,
+    )
+
+    result_delta = SimulationResult(trades=[trade_delta], total_profit=0.0)
+    result_epsilon = SimulationResult(trades=[trade_epsilon], total_profit=0.0)
+
+    maximum_positions = calculate_maximum_concurrent_positions(
+        [result_delta, result_epsilon]
+    )
+
+    assert maximum_positions == 1
