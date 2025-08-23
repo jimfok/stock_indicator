@@ -126,6 +126,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
             loss_percentage_standard_deviation=0.0,
             mean_holding_period=2.0,
             holding_period_standard_deviation=1.0,
+            maximum_concurrent_positions=2,
         )
 
     monkeypatch.setattr(
@@ -142,7 +143,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (
         "Trades: 3, Win rate: 50.00%, Mean profit %: 10.00%, Profit % Std Dev: 0.00%, "
         "Mean loss %: 5.00%, Loss % Std Dev: 0.00%, Mean holding period: 2.00 bars, "
-        "Holding period Std Dev: 1.00 bars" in output_buffer.getvalue()
+        "Holding period Std Dev: 1.00 bars, Max concurrent positions: 2" in output_buffer.getvalue()
     )
 
 
@@ -172,6 +173,7 @@ def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) ->
             loss_percentage_standard_deviation=0.0,
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=0,
         )
 
     monkeypatch.setattr(

@@ -143,7 +143,8 @@ class StockShell(cmd.Cmd):
                 f"Mean loss %: {evaluation_metrics.mean_loss_percentage:.2%}, "
                 f"Loss % Std Dev: {evaluation_metrics.loss_percentage_standard_deviation:.2%}, "
                 f"Mean holding period: {evaluation_metrics.mean_holding_period:.2f} bars, "
-                f"Holding period Std Dev: {evaluation_metrics.holding_period_standard_deviation:.2f} bars\n"
+                f"Holding period Std Dev: {evaluation_metrics.holding_period_standard_deviation:.2f} bars, "
+                f"Max concurrent positions: {evaluation_metrics.maximum_concurrent_positions}\n"
             )
         )
 

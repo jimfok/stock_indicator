@@ -12,7 +12,11 @@ import re
 import pandas
 
 from .indicators import ema, kalman_filter, sma
-from .simulator import simulate_trades
+from .simulator import (
+    calculate_maximum_concurrent_positions,
+    simulate_trades,
+    SimulationResult,
+)
 
 
 LONG_TERM_SMA_WINDOW: int = 150
@@ -31,6 +35,7 @@ class StrategyMetrics:
     loss_percentage_standard_deviation: float
     mean_holding_period: float
     holding_period_standard_deviation: float
+    maximum_concurrent_positions: int
 
 
 def load_price_data(csv_file_path: Path) -> pandas.DataFrame:
@@ -153,6 +158,7 @@ def calculate_metrics(
     profit_percentage_list: List[float],
     loss_percentage_list: List[float],
     holding_period_list: List[int],
+    maximum_concurrent_positions: int = 0,
 ) -> StrategyMetrics:
     """Compute summary metrics for a list of simulated trades."""
     # TODO: review
@@ -168,6 +174,7 @@ def calculate_metrics(
             loss_percentage_standard_deviation=0.0,
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=maximum_concurrent_positions,
         )
 
     winning_trade_count = sum(
@@ -198,6 +205,7 @@ def calculate_metrics(
         holding_period_standard_deviation=calculate_standard_deviation(
             [float(value) for value in holding_period_list]
         ),
+        maximum_concurrent_positions=maximum_concurrent_positions,
     )
 
 
@@ -233,6 +241,7 @@ def evaluate_combined_strategy(
     profit_percentage_list: List[float] = []
     loss_percentage_list: List[float] = []
     holding_period_list: List[int] = []
+    simulation_results: List[SimulationResult] = []
 
     for csv_file_path in data_directory.glob("*.csv"):
         price_data_frame = load_price_data(csv_file_path)
@@ -276,6 +285,7 @@ def evaluate_combined_strategy(
             entry_price_column="open",
             exit_price_column="open",
         )
+        simulation_results.append(simulation_result)
         for completed_trade in simulation_result.trades:
             trade_profit_list.append(completed_trade.profit)
             holding_period_list.append(completed_trade.holding_period)
@@ -287,11 +297,15 @@ def evaluate_combined_strategy(
             elif percentage_change < 0:
                 loss_percentage_list.append(abs(percentage_change))
 
+    maximum_concurrent_positions = calculate_maximum_concurrent_positions(
+        simulation_results
+    )
     return calculate_metrics(
         trade_profit_list,
         profit_percentage_list,
         loss_percentage_list,
         holding_period_list,
+        maximum_concurrent_positions,
     )
 
 
@@ -326,6 +340,7 @@ def evaluate_ema_sma_cross_strategy(
     profit_percentage_list: List[float] = []
     loss_percentage_list: List[float] = []
     holding_period_list: List[int] = []
+    simulation_results: List[SimulationResult] = []
     for csv_path in data_directory.glob("*.csv"):
         price_data_frame = pandas.read_csv(
             csv_path, parse_dates=["Date"], index_col="Date"
@@ -411,6 +426,7 @@ def evaluate_ema_sma_cross_strategy(
             entry_price_column="open",
             exit_price_column="open",
         )
+        simulation_results.append(simulation_result)
         for completed_trade in simulation_result.trades:
             trade_profit_list.append(completed_trade.profit)
             holding_period_list.append(completed_trade.holding_period)
@@ -422,6 +438,9 @@ def evaluate_ema_sma_cross_strategy(
             elif percentage_change < 0:
                 loss_percentage_list.append(abs(percentage_change))
 
+    maximum_concurrent_positions = calculate_maximum_concurrent_positions(
+        simulation_results
+    )
     total_trades = len(trade_profit_list)
     if total_trades == 0:
         return StrategyMetrics(
@@ -433,6 +452,7 @@ def evaluate_ema_sma_cross_strategy(
             loss_percentage_standard_deviation=0.0,
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=maximum_concurrent_positions,
         )
 
     winning_trade_count = sum(
@@ -461,6 +481,7 @@ def evaluate_ema_sma_cross_strategy(
         holding_period_standard_deviation=calculate_standard_deviation(
             [float(value) for value in holding_period_list]
         ),
+        maximum_concurrent_positions=maximum_concurrent_positions,
     )
 
 
@@ -496,6 +517,7 @@ def evaluate_kalman_channel_strategy(
     profit_percentage_list: List[float] = []
     loss_percentage_list: List[float] = []
     holding_period_list: List[int] = []
+    simulation_results: List[SimulationResult] = []
     for csv_path in data_directory.glob("*.csv"):
         price_data_frame = pandas.read_csv(
             csv_path, parse_dates=["Date"], index_col="Date"
@@ -573,6 +595,7 @@ def evaluate_kalman_channel_strategy(
             entry_price_column="open",
             exit_price_column="open",
         )
+        simulation_results.append(simulation_result)
         for completed_trade in simulation_result.trades:
             trade_profit_list.append(completed_trade.profit)
             holding_period_list.append(completed_trade.holding_period)
@@ -584,6 +607,9 @@ def evaluate_kalman_channel_strategy(
             elif percentage_change < 0:
                 loss_percentage_list.append(abs(percentage_change))
 
+    maximum_concurrent_positions = calculate_maximum_concurrent_positions(
+        simulation_results
+    )
     total_trades = len(trade_profit_list)
     if total_trades == 0:
         return StrategyMetrics(
@@ -595,6 +621,7 @@ def evaluate_kalman_channel_strategy(
             loss_percentage_standard_deviation=0.0,
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=maximum_concurrent_positions,
         )
 
     winning_trade_count = sum(
@@ -625,4 +652,5 @@ def evaluate_kalman_channel_strategy(
         holding_period_standard_deviation=calculate_standard_deviation(
             [float(value) for value in holding_period_list]
         ),
+        maximum_concurrent_positions=maximum_concurrent_positions,
     )
