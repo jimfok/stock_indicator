@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import cmd
 import logging
+import re
 from pathlib import Path
 from typing import List
 
@@ -107,15 +108,20 @@ class StockShell(cmd.Cmd):
 
     # TODO: review
     def do_start_simulate(self, argument_line: str) -> None:  # noqa: D401
-        """start_simulate BUY_STRATEGY SELL_STRATEGY
+        """start_simulate DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY
         Evaluate trading strategies using cached data."""
         argument_parts: List[str] = argument_line.split()
-        if len(argument_parts) != 2:
+        if len(argument_parts) != 3:
             self.stdout.write(
-                "usage: start_simulate BUY_STRATEGY SELL_STRATEGY\n"
+                "usage: start_simulate DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY\n"
             )
             return
-        buy_strategy_name, sell_strategy_name = argument_parts
+        volume_filter, buy_strategy_name, sell_strategy_name = argument_parts
+        volume_match = re.fullmatch(r"dollar_volume>(\d+(?:\.\d+)?)", volume_filter)
+        if volume_match is None:
+            self.stdout.write("unsupported filter\n")
+            return
+        minimum_average_dollar_volume = float(volume_match.group(1))
         if (
             buy_strategy_name not in strategy.SUPPORTED_STRATEGIES
             or sell_strategy_name not in strategy.SUPPORTED_STRATEGIES
@@ -123,7 +129,10 @@ class StockShell(cmd.Cmd):
             self.stdout.write("unsupported strategies\n")
             return
         evaluation_metrics = strategy.evaluate_combined_strategy(
-            DATA_DIRECTORY, buy_strategy_name, sell_strategy_name
+            DATA_DIRECTORY,
+            buy_strategy_name,
+            sell_strategy_name,
+            minimum_average_dollar_volume,
         )
         self.stdout.write(
             (
@@ -143,9 +152,10 @@ class StockShell(cmd.Cmd):
         """Display help for the start_simulate command."""
         available_strategies = ", ".join(strategy.SUPPORTED_STRATEGIES.keys())
         self.stdout.write(
-            "start_simulate BUY_STRATEGY SELL_STRATEGY\n"
+            "start_simulate DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY\n"
             "Evaluate trading strategies using cached data.\n"
             "Parameters:\n"
+            "  DOLLAR_VOLUME_FILTER: Format dollar_volume>NUMBER (in millions).\n"
             "  BUY_STRATEGY: Name of the buying strategy.\n"
             "  SELL_STRATEGY: Name of the selling strategy.\n"
             f"Available strategies: {available_strategies}.\n"

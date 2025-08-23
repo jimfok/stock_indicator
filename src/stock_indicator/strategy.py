@@ -205,8 +205,23 @@ def evaluate_combined_strategy(
     data_directory: Path,
     buy_strategy_name: str,
     sell_strategy_name: str,
+    minimum_average_dollar_volume: float | None = None,
 ) -> StrategyMetrics:
-    """Evaluate a combination of strategies for entry and exit signals."""
+    """Evaluate a combination of strategies for entry and exit signals.
+
+    Parameters
+    ----------
+    data_directory: Path
+        Directory containing price data in CSV format.
+    buy_strategy_name: str
+        Strategy name used to generate entry signals.
+    sell_strategy_name: str
+        Strategy name used to generate exit signals.
+    minimum_average_dollar_volume: float | None, optional
+        Minimum 50-day moving average dollar volume, in millions, required for a
+        symbol to be included in the evaluation. When ``None``, no filter is
+        applied.
+    """
     # TODO: review
 
     if buy_strategy_name not in SUPPORTED_STRATEGIES:
@@ -221,6 +236,19 @@ def evaluate_combined_strategy(
 
     for csv_file_path in data_directory.glob("*.csv"):
         price_data_frame = load_price_data(csv_file_path)
+        if minimum_average_dollar_volume is not None:
+            if "volume" not in price_data_frame.columns:
+                raise ValueError(
+                    "Volume column is required to compute dollar volume filter"
+                )
+            dollar_volume_series = price_data_frame["close"] * price_data_frame["volume"]
+            recent_average_dollar_volume = (
+                dollar_volume_series.rolling(window=50).mean().iloc[-1] / 1_000_000
+            )
+            if pandas.isna(recent_average_dollar_volume) or (
+                recent_average_dollar_volume < minimum_average_dollar_volume
+            ):
+                continue
         SUPPORTED_STRATEGIES[buy_strategy_name](price_data_frame)
         if buy_strategy_name != sell_strategy_name:
             SUPPORTED_STRATEGIES[sell_strategy_name](price_data_frame)

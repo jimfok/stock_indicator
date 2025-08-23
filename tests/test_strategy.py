@@ -400,3 +400,49 @@ def test_evaluate_combined_strategy_unsupported_name(tmp_path: Path) -> None:
     """evaluate_combined_strategy should raise for unknown strategies."""
     with pytest.raises(ValueError, match="Unsupported strategy"):
         evaluate_combined_strategy(tmp_path, "unknown", "ema_sma_cross")
+
+
+def test_evaluate_combined_strategy_dollar_volume_filter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The function should skip symbols below the dollar volume threshold."""
+
+    price_values = [10.0] * 60
+    volume_values = [1_000_000] * 60
+    date_index = pandas.date_range("2020-01-01", periods=60, freq="D")
+    price_data_frame = pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": price_values,
+            "close": price_values,
+            "volume": volume_values,
+        }
+    )
+    csv_path = tmp_path / "filtered.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    simulate_called: dict[str, bool] = {"called": False}
+
+    def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
+        simulate_called["called"] = True
+        return SimulationResult(trades=[], total_profit=0.0)
+
+    monkeypatch.setattr(strategy, "simulate_trades", fake_simulate_trades)
+
+    result = evaluate_combined_strategy(
+        tmp_path,
+        "ema_sma_cross",
+        "ema_sma_cross",
+        minimum_average_dollar_volume=20,
+    )
+    assert result.total_trades == 0
+    assert simulate_called["called"] is False
+
+    simulate_called["called"] = False
+    result = evaluate_combined_strategy(
+        tmp_path,
+        "ema_sma_cross",
+        "ema_sma_cross",
+        minimum_average_dollar_volume=5,
+    )
+    assert simulate_called["called"] is True

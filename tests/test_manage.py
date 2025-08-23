@@ -104,13 +104,18 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     import stock_indicator.manage as manage_module
 
     call_record: dict[str, tuple[str, str]] = {}
+    volume_record: dict[str, float] = {}
 
     from stock_indicator.strategy import StrategyMetrics
 
     def fake_evaluate(
-        data_directory: Path, buy_strategy_name: str, sell_strategy_name: str
+        data_directory: Path,
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        minimum_average_dollar_volume: float,
     ) -> StrategyMetrics:
         call_record["strategies"] = (buy_strategy_name, sell_strategy_name)
+        volume_record["threshold"] = minimum_average_dollar_volume
         assert data_directory == manage_module.DATA_DIRECTORY
         return StrategyMetrics(
             total_trades=3,
@@ -131,8 +136,9 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
 
     output_buffer = io.StringIO()
     shell = manage_module.StockShell(stdout=output_buffer)
-    shell.onecmd("start_simulate ema_sma_cross ema_sma_cross")
+    shell.onecmd("start_simulate dollar_volume>500 ema_sma_cross ema_sma_cross")
     assert call_record["strategies"] == ("ema_sma_cross", "ema_sma_cross")
+    assert volume_record["threshold"] == 500.0
     assert (
         "Trades: 3, Win rate: 50.00%, Mean profit %: 10.00%, Profit % Std Dev: 0.00%, "
         "Mean loss %: 5.00%, Loss % Std Dev: 0.00%, Mean holding period: 2.00 bars, "
@@ -145,13 +151,18 @@ def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) ->
     import stock_indicator.manage as manage_module
 
     call_arguments: dict[str, tuple[str, str]] = {}
+    threshold_record: dict[str, float] = {}
 
     from stock_indicator.strategy import StrategyMetrics
 
     def fake_evaluate(
-        data_directory: Path, buy_strategy_name: str, sell_strategy_name: str
+        data_directory: Path,
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        minimum_average_dollar_volume: float,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
+        threshold_record["threshold"] = minimum_average_dollar_volume
         return StrategyMetrics(
             total_trades=0,
             win_rate=0.0,
@@ -170,11 +181,12 @@ def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) ->
     )
 
     shell = manage_module.StockShell(stdout=io.StringIO())
-    shell.onecmd("start_simulate ema_sma_cross kalman_filtering")
+    shell.onecmd("start_simulate dollar_volume>0 ema_sma_cross kalman_filtering")
     assert call_arguments["strategies"] == (
         "ema_sma_cross",
         "kalman_filtering",
     )
+    assert threshold_record["threshold"] == 0.0
 
 
 def test_start_simulate_unsupported_strategy(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -183,5 +195,5 @@ def test_start_simulate_unsupported_strategy(monkeypatch: pytest.MonkeyPatch) ->
 
     output_buffer = io.StringIO()
     shell = manage_module.StockShell(stdout=output_buffer)
-    shell.onecmd("start_simulate unknown ema_sma_cross")
+    shell.onecmd("start_simulate dollar_volume>0 unknown ema_sma_cross")
     assert "unsupported strategies" in output_buffer.getvalue()
