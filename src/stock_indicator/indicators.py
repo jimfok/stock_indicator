@@ -7,6 +7,8 @@ corporate actions such as dividends and stock splits.
 
 from __future__ import annotations
 
+from typing import List
+
 import pandas
 
 
@@ -176,4 +178,56 @@ def cci(
     )
     return (typical_price_series - moving_average_series) / (
         0.015 * mean_deviation_series
+    )
+# TODO: review
+
+def kalman_filter(
+    price_series: pandas.Series,
+    process_variance: float = 1e-5,
+    observation_variance: float = 1.0,
+) -> pandas.DataFrame:
+    """Apply a simple Kalman filter to a price series.
+
+    The function returns the smoothed estimate and one standard deviation
+    bounds around that estimate.
+
+    Parameters
+    ----------
+    price_series: pandas.Series
+        Series of observed prices, typically adjusted closing values.
+    process_variance: float, default 1e-5
+        Expected variance in the underlying process.
+    observation_variance: float, default 1.0
+        Expected variance in the observation noise.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Data frame containing the filtered estimate (``estimate``) and
+        upper and lower bounds (``upper_bound`` and ``lower_bound``).
+    """
+    estimated_price: float = 0.0
+    estimation_error: float = 1.0
+    estimate_list: List[float] = []
+    upper_bound_list: List[float] = []
+    lower_bound_list: List[float] = []
+    for observed_price in price_series:
+        predicted_estimate = estimated_price
+        predicted_error = estimation_error + process_variance
+        kalman_gain = predicted_error / (predicted_error + observation_variance)
+        estimated_price = predicted_estimate + kalman_gain * (
+            observed_price - predicted_estimate
+        )
+        estimation_error = (1 - kalman_gain) * predicted_error
+        standard_deviation = estimation_error ** 0.5
+        estimate_list.append(estimated_price)
+        upper_bound_list.append(estimated_price + standard_deviation)
+        lower_bound_list.append(estimated_price - standard_deviation)
+    return pandas.DataFrame(
+        {
+            "estimate": estimate_list,
+            "upper_bound": upper_bound_list,
+            "lower_bound": lower_bound_list,
+        },
+        index=price_series.index,
     )

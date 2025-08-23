@@ -6,10 +6,19 @@ import sys
 
 import numpy
 import pandas
+from typing import List
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from stock_indicator.indicators import cci, ema, macd, relative_strength, rsi, sma
+from stock_indicator.indicators import (
+    cci,
+    ema,
+    kalman_filter,
+    macd,
+    relative_strength,
+    rsi,
+    sma,
+)
 
 
 def test_sma_calculates_simple_average() -> None:
@@ -93,3 +102,38 @@ def test_cci_matches_manual_calculation() -> None:
         0.015 * mean_deviation_series
     )
     pandas.testing.assert_series_equal(result_series, expected_series)
+
+
+def test_kalman_filter_produces_bounds() -> None:
+    price_series = pandas.Series([1.0, 2.0, 3.0])
+
+    def manual_kalman(price_values: pandas.Series) -> pandas.DataFrame:
+        estimated_price: float = 0.0
+        estimation_error: float = 1.0
+        estimate_list: List[float] = []
+        upper_bound_list: List[float] = []
+        lower_bound_list: List[float] = []
+        for observed_price in price_values:
+            predicted_estimate = estimated_price
+            predicted_error = estimation_error + 1e-5
+            kalman_gain = predicted_error / (predicted_error + 1.0)
+            estimated_price = predicted_estimate + kalman_gain * (
+                observed_price - predicted_estimate
+            )
+            estimation_error = (1 - kalman_gain) * predicted_error
+            standard_deviation = estimation_error ** 0.5
+            estimate_list.append(estimated_price)
+            upper_bound_list.append(estimated_price + standard_deviation)
+            lower_bound_list.append(estimated_price - standard_deviation)
+        return pandas.DataFrame(
+            {
+                "estimate": estimate_list,
+                "upper_bound": upper_bound_list,
+                "lower_bound": lower_bound_list,
+            },
+            index=price_values.index,
+        )
+
+    result_dataframe = kalman_filter(price_series)
+    expected_dataframe = manual_kalman(price_series)
+    pandas.testing.assert_frame_equal(result_dataframe, expected_dataframe)
