@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, List
+from typing import Callable, Iterable, List
 
 import pandas
 
@@ -95,3 +95,34 @@ def simulate_trades(
                 entry_row_index = None
     total_profit = sum(completed_trade.profit for completed_trade in trades)
     return SimulationResult(trades=trades, total_profit=total_profit)
+
+
+# TODO: review
+def calculate_maximum_concurrent_positions(
+    simulation_results: Iterable[SimulationResult],
+) -> int:
+    """Determine the highest number of simultaneous open positions.
+
+    Parameters
+    ----------
+    simulation_results : Iterable[SimulationResult]
+        Collection of simulation outputs containing trades to evaluate.
+
+    Returns
+    -------
+    int
+        Maximum count of concurrent positions across all simulations.
+    """
+    events: List[tuple[pandas.Timestamp, int]] = []
+    for simulation_result in simulation_results:
+        for current_trade in simulation_result.trades:
+            events.append((current_trade.entry_date, 1))
+            events.append((current_trade.exit_date, -1))
+    events.sort(key=lambda event: (event[0], event[1]))
+    open_position_count = 0
+    maximum_open_position_count = 0
+    for _, change in events:
+        open_position_count += change
+        if open_position_count > maximum_open_position_count:
+            maximum_open_position_count = open_position_count
+    return maximum_open_position_count
