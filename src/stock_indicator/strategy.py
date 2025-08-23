@@ -11,7 +11,7 @@ from typing import List
 import re
 import pandas
 
-from .indicators import ema, sma
+from .indicators import ema, kalman_filter, sma
 from .simulator import simulate_trades
 
 
@@ -45,7 +45,7 @@ def evaluate_ema_sma_cross_strategy(
     previous day's closing price is higher than the 150-day simple moving
     average. Positions are opened at the next day's opening price. The position
     is closed when the exponential moving average crosses below the simple
-    moving average, using the next day's closing price.
+    moving average, using the next day's opening price.
 
     Parameters
     ----------
@@ -147,7 +147,7 @@ def evaluate_ema_sma_cross_strategy(
             entry_rule=entry_rule,
             exit_rule=exit_rule,
             entry_price_column="open",
-            exit_price_column="close",
+            exit_price_column="open",
         )
         for completed_trade in simulation_result.trades:
             trade_profit_list.append(completed_trade.profit)
@@ -196,6 +196,170 @@ def evaluate_ema_sma_cross_strategy(
             loss_percentage_list
         ),
         mean_holding_period=calculate_mean([float(value) for value in holding_period_list]),
+        holding_period_standard_deviation=calculate_standard_deviation(
+            [float(value) for value in holding_period_list]
+        ),
+    )
+
+
+# TODO: review
+def evaluate_kalman_channel_strategy(
+    data_directory: Path,
+    process_variance: float = 1e-5,
+    observation_variance: float = 1.0,
+) -> StrategyMetrics:
+    """Evaluate a Kalman channel breakout strategy across CSV files.
+
+    Entry occurs when the closing price crosses above the upper bound of the
+    Kalman filter channel. Positions are opened at the next day's opening
+    price. The position is closed when the closing price crosses below the
+    lower bound of the channel, using the next day's opening price.
+
+    Parameters
+    ----------
+    data_directory: Path
+        Directory containing CSV files with ``open`` and ``close`` columns.
+    process_variance: float, default 1e-5
+        Expected variance in the underlying process used by the filter.
+    observation_variance: float, default 1.0
+        Expected variance in the observation noise.
+
+    Returns
+    -------
+    StrategyMetrics
+        Metrics including total trades, win rate, profit and loss statistics,
+        and holding period analysis.
+    """
+    trade_profit_list: List[float] = []
+    profit_percentage_list: List[float] = []
+    loss_percentage_list: List[float] = []
+    holding_period_list: List[int] = []
+    for csv_path in data_directory.glob("*.csv"):
+        price_data_frame = pandas.read_csv(
+            csv_path, parse_dates=["Date"], index_col="Date"
+        )
+        if isinstance(price_data_frame.columns, pandas.MultiIndex):
+            price_data_frame.columns = price_data_frame.columns.get_level_values(0)
+        price_data_frame.columns = [
+            re.sub(r"[^a-z0-9]+", "_", str(column_name).strip().lower())
+            for column_name in price_data_frame.columns
+        ]
+        price_data_frame.columns = [
+            re.sub(
+                r"^_+",
+                "",
+                re.sub(
+                    r"(?:^|_)(open|close|high|low|volume)_.*",
+                    r"\1",
+                    column_name,
+                ),
+            )
+            for column_name in price_data_frame.columns
+        ]
+        required_columns = {"open", "close"}
+        missing_column_names = [
+            column
+            for column in required_columns
+            if column not in price_data_frame.columns
+        ]
+        if missing_column_names:
+            missing_columns_string = ", ".join(missing_column_names)
+            raise ValueError(
+                f"Missing required columns: {missing_columns_string} in file {csv_path.name}"
+            )
+
+        kalman_data_frame = kalman_filter(
+            price_data_frame["close"], process_variance, observation_variance
+        )
+        price_data_frame["kalman_estimate"] = kalman_data_frame["estimate"]
+        price_data_frame["kalman_upper"] = kalman_data_frame["upper_bound"]
+        price_data_frame["kalman_lower"] = kalman_data_frame["lower_bound"]
+        price_data_frame["close_previous"] = price_data_frame["close"].shift(1)
+        price_data_frame["upper_previous"] = price_data_frame["kalman_upper"].shift(1)
+        price_data_frame["lower_previous"] = price_data_frame["kalman_lower"].shift(1)
+        price_data_frame["breaks_upper"] = (
+            (price_data_frame["close_previous"] <= price_data_frame["upper_previous"])
+            & (price_data_frame["close"] > price_data_frame["kalman_upper"])
+        )
+        price_data_frame["breaks_lower"] = (
+            (price_data_frame["close_previous"] >= price_data_frame["lower_previous"])
+            & (price_data_frame["close"] < price_data_frame["kalman_lower"])
+        )
+        price_data_frame["entry_signal"] = price_data_frame["breaks_upper"].shift(
+            1, fill_value=False
+        )
+        price_data_frame["exit_signal"] = price_data_frame["breaks_lower"].shift(
+            1, fill_value=False
+        )
+
+        def entry_rule(current_row: pandas.Series) -> bool:
+            """Determine whether a trade should be entered."""
+            # TODO: review
+            return bool(current_row["entry_signal"])
+
+        def exit_rule(
+            current_row: pandas.Series, entry_row: pandas.Series
+        ) -> bool:
+            """Determine whether a trade should be exited."""
+            # TODO: review
+            return bool(current_row["exit_signal"])
+
+        simulation_result = simulate_trades(
+            data=price_data_frame,
+            entry_rule=entry_rule,
+            exit_rule=exit_rule,
+            entry_price_column="open",
+            exit_price_column="open",
+        )
+        for completed_trade in simulation_result.trades:
+            trade_profit_list.append(completed_trade.profit)
+            holding_period_list.append(completed_trade.holding_period)
+            percentage_change = (
+                completed_trade.profit / completed_trade.entry_price
+            )
+            if percentage_change > 0:
+                profit_percentage_list.append(percentage_change)
+            elif percentage_change < 0:
+                loss_percentage_list.append(abs(percentage_change))
+
+    total_trades = len(trade_profit_list)
+    if total_trades == 0:
+        return StrategyMetrics(
+            total_trades=0,
+            win_rate=0.0,
+            mean_profit_percentage=0.0,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.0,
+            loss_percentage_standard_deviation=0.0,
+            mean_holding_period=0.0,
+            holding_period_standard_deviation=0.0,
+        )
+
+    winning_trade_count = sum(
+        1 for profit_amount in trade_profit_list if profit_amount > 0
+    )
+    win_rate = winning_trade_count / total_trades
+
+    def calculate_mean(values: List[float]) -> float:
+        return mean(values) if values else 0.0
+
+    def calculate_standard_deviation(values: List[float]) -> float:
+        return stdev(values) if len(values) > 1 else 0.0
+
+    return StrategyMetrics(
+        total_trades=total_trades,
+        win_rate=win_rate,
+        mean_profit_percentage=calculate_mean(profit_percentage_list),
+        profit_percentage_standard_deviation=calculate_standard_deviation(
+            profit_percentage_list
+        ),
+        mean_loss_percentage=calculate_mean(loss_percentage_list),
+        loss_percentage_standard_deviation=calculate_standard_deviation(
+            loss_percentage_list
+        ),
+        mean_holding_period=calculate_mean(
+            [float(value) for value in holding_period_list]
+        ),
         holding_period_standard_deviation=calculate_standard_deviation(
             [float(value) for value in holding_period_list]
         ),

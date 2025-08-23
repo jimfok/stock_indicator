@@ -13,7 +13,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 import stock_indicator.strategy as strategy
 from stock_indicator.simulator import SimulationResult, Trade
 
-from stock_indicator.strategy import evaluate_ema_sma_cross_strategy
+from stock_indicator.strategy import (
+    evaluate_ema_sma_cross_strategy,
+    evaluate_kalman_channel_strategy,
+)
 
 
 def test_evaluate_ema_sma_cross_strategy_computes_win_rate(tmp_path: Path) -> None:
@@ -313,3 +316,31 @@ def test_evaluate_ema_sma_cross_strategy_computes_profit_and_loss_statistics(
     assert result.loss_percentage_standard_deviation == 0.0
     assert result.mean_holding_period == pytest.approx(1.0)
     assert result.holding_period_standard_deviation == 0.0
+
+
+def test_evaluate_kalman_channel_strategy_generates_trade(tmp_path: Path) -> None:
+    initial_price_values = [20.0] * 20
+    pattern_price_values = [
+        10.0,
+        20.0,
+        20.0,
+        20.0,
+        10.0,
+        10.0,
+    ]
+    price_values = initial_price_values + pattern_price_values
+    date_index = pandas.date_range("2020-01-01", periods=len(price_values), freq="D")
+    price_data_frame = pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": price_values,
+            "close": price_values,
+        }
+    )
+    csv_path = tmp_path / "kalman.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    result = evaluate_kalman_channel_strategy(tmp_path)
+
+    assert result.total_trades == 1
+    assert result.win_rate == 0.0
