@@ -5,6 +5,7 @@ import os
 import sys
 
 import pandas
+import pytest
 
 from stock_indicator.indicators import sma
 
@@ -15,6 +16,7 @@ from stock_indicator.simulator import (
     Trade,
     calculate_maximum_concurrent_positions,
     simulate_trades,
+    simulate_portfolio_balance,
 )
 
 
@@ -125,6 +127,25 @@ def test_simulate_trades_handles_distinct_entry_and_exit_price_columns() -> None
     assert result.total_profit == 3.0
 
 
+def test_simulate_trades_closes_open_position_at_end() -> None:
+    """Open positions should close using the final available price."""
+    price_data_frame = pandas.DataFrame({"close": [1.0, 2.0, 3.0]})
+
+    def entry_rule(current_row: pandas.Series) -> bool:
+        return current_row["close"] > 1.5
+
+    def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
+        return False
+
+    result = simulate_trades(price_data_frame, entry_rule, exit_rule)
+
+    assert len(result.trades) == 1
+    final_trade = result.trades[0]
+    assert final_trade.exit_date == price_data_frame.index[-1]
+    assert final_trade.exit_price == 3.0
+    assert final_trade.holding_period == 1
+
+
 def test_calculate_maximum_concurrent_positions_counts_overlaps() -> None:
     """Count overlapping trades across multiple simulations."""
     trade_alpha = Trade(
@@ -190,3 +211,35 @@ def test_calculate_maximum_concurrent_positions_orders_exit_before_entry() -> No
     )
 
     assert maximum_positions == 1
+
+
+def test_simulate_portfolio_balance_allocates_proportional_cash() -> None:
+    """Portfolio simulation should allocate cash across open positions."""
+    trade_alpha = Trade(
+        entry_date=pandas.Timestamp("2024-01-01"),
+        exit_date=pandas.Timestamp("2024-01-05"),
+        entry_price=10.0,
+        exit_price=20.0,
+        profit=10.0,
+        holding_period=4,
+    )
+    trade_beta = Trade(
+        entry_date=pandas.Timestamp("2024-01-02"),
+        exit_date=pandas.Timestamp("2024-01-06"),
+        entry_price=10.0,
+        exit_price=10.0,
+        profit=0.0,
+        holding_period=4,
+    )
+    trade_gamma = Trade(
+        entry_date=pandas.Timestamp("2024-01-03"),
+        exit_date=pandas.Timestamp("2024-01-04"),
+        entry_price=10.0,
+        exit_price=20.0,
+        profit=10.0,
+        holding_period=1,
+    )
+    final_balance = simulate_portfolio_balance(
+        [trade_alpha, trade_beta, trade_gamma], 100.0, 2
+    )
+    assert pytest.approx(final_balance, rel=1e-6) == 150.0

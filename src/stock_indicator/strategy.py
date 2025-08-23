@@ -16,6 +16,8 @@ from .simulator import (
     calculate_maximum_concurrent_positions,
     simulate_trades,
     SimulationResult,
+    simulate_portfolio_balance,
+    Trade,
 )
 
 
@@ -36,6 +38,7 @@ class StrategyMetrics:
     mean_holding_period: float
     holding_period_standard_deviation: float
     maximum_concurrent_positions: int
+    final_balance: float
 
 
 def load_price_data(csv_file_path: Path) -> pandas.DataFrame:
@@ -181,6 +184,7 @@ def calculate_metrics(
     loss_percentage_list: List[float],
     holding_period_list: List[int],
     maximum_concurrent_positions: int = 0,
+    final_balance: float = 0.0,
 ) -> StrategyMetrics:
     """Compute summary metrics for a list of simulated trades."""
     # TODO: review
@@ -197,6 +201,7 @@ def calculate_metrics(
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=maximum_concurrent_positions,
+            final_balance=final_balance,
         )
 
     winning_trade_count = sum(
@@ -228,6 +233,7 @@ def calculate_metrics(
             [float(value) for value in holding_period_list]
         ),
         maximum_concurrent_positions=maximum_concurrent_positions,
+        final_balance=final_balance,
     )
 
 
@@ -236,6 +242,8 @@ def evaluate_combined_strategy(
     buy_strategy_name: str,
     sell_strategy_name: str,
     minimum_average_dollar_volume: float | None = None,
+    starting_cash: float = 10000.0,
+    maximum_positions: int = 5,
 ) -> StrategyMetrics:
     """Evaluate a combination of strategies for entry and exit signals.
 
@@ -251,6 +259,10 @@ def evaluate_combined_strategy(
         Minimum 50-day moving average dollar volume, in millions, required for a
         symbol to be included in the evaluation. When ``None``, no filter is
         applied.
+    starting_cash: float, default 10000.0
+        Initial amount of cash used for portfolio simulation.
+    maximum_positions: int, default 5
+        Maximum number of concurrent positions during simulation.
     """
     # TODO: review
 
@@ -264,6 +276,7 @@ def evaluate_combined_strategy(
     loss_percentage_list: List[float] = []
     holding_period_list: List[int] = []
     simulation_results: List[SimulationResult] = []
+    all_trades: List[Trade] = []
 
     for csv_file_path in data_directory.glob("*.csv"):
         price_data_frame = load_price_data(csv_file_path)
@@ -308,6 +321,7 @@ def evaluate_combined_strategy(
             exit_price_column="open",
         )
         simulation_results.append(simulation_result)
+        all_trades.extend(simulation_result.trades)
         for completed_trade in simulation_result.trades:
             trade_profit_list.append(completed_trade.profit)
             holding_period_list.append(completed_trade.holding_period)
@@ -322,12 +336,16 @@ def evaluate_combined_strategy(
     maximum_concurrent_positions = calculate_maximum_concurrent_positions(
         simulation_results
     )
+    final_balance = simulate_portfolio_balance(
+        all_trades, starting_cash, maximum_positions
+    )
     return calculate_metrics(
         trade_profit_list,
         profit_percentage_list,
         loss_percentage_list,
         holding_period_list,
         maximum_concurrent_positions,
+        final_balance,
     )
 
 
@@ -475,6 +493,7 @@ def evaluate_ema_sma_cross_strategy(
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=maximum_concurrent_positions,
+            final_balance=0.0,
         )
 
     winning_trade_count = sum(
@@ -504,6 +523,7 @@ def evaluate_ema_sma_cross_strategy(
             [float(value) for value in holding_period_list]
         ),
         maximum_concurrent_positions=maximum_concurrent_positions,
+        final_balance=0.0,
     )
 
 
@@ -644,6 +664,7 @@ def evaluate_kalman_channel_strategy(
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=maximum_concurrent_positions,
+            final_balance=0.0,
         )
 
     winning_trade_count = sum(
@@ -675,4 +696,5 @@ def evaluate_kalman_channel_strategy(
             [float(value) for value in holding_period_list]
         ),
         maximum_concurrent_positions=maximum_concurrent_positions,
+        final_balance=0.0,
     )

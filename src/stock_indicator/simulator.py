@@ -9,7 +9,7 @@ from typing import Callable, Iterable, List
 import pandas
 
 
-@dataclass
+@dataclass(frozen=True)
 class Trade:
     """Record details for a completed trade."""
 
@@ -64,7 +64,10 @@ def simulate_trades(
     entry_row_index: int | None = None
     for row_index in range(len(data)):
         current_row = data.iloc[row_index]
+        is_last_row = row_index == len(data) - 1
         if not in_position:
+            if is_last_row:
+                continue
             if entry_rule(current_row):
                 in_position = True
                 entry_row = current_row
@@ -93,6 +96,26 @@ def simulate_trades(
                 in_position = False
                 entry_row = None
                 entry_row_index = None
+    if in_position and entry_row is not None and entry_row_index is not None:
+        # TODO: review
+        price_column_name = (
+            exit_price_column if exit_price_column is not None else entry_price_column
+        )
+        final_row = data.iloc[-1]
+        entry_price = float(entry_row[entry_price_column])
+        exit_price = float(final_row[price_column_name])
+        profit_value = exit_price - entry_price
+        holding_period_value = len(data) - entry_row_index - 1
+        trades.append(
+            Trade(
+                entry_date=data.index[entry_row_index],
+                exit_date=data.index[-1],
+                entry_price=entry_price,
+                exit_price=exit_price,
+                profit=profit_value,
+                holding_period=holding_period_value,
+            )
+        )
     total_profit = sum(completed_trade.profit for completed_trade in trades)
     return SimulationResult(trades=trades, total_profit=total_profit)
 
@@ -126,3 +149,46 @@ def calculate_maximum_concurrent_positions(
         if open_position_count > maximum_open_position_count:
             maximum_open_position_count = open_position_count
     return maximum_open_position_count
+# TODO: review
+def simulate_portfolio_balance(
+    trades: Iterable[Trade],
+    starting_cash: float,
+    maximum_positions: int,
+) -> float:
+    """Simulate capital allocation across multiple trades.
+
+    Parameters
+    ----------
+    trades : Iterable[Trade]
+        Collection of trades containing entry and exit information.
+    starting_cash : float
+        Initial cash available for trading.
+    maximum_positions : int
+        Maximum number of concurrent positions allowed.
+
+    Returns
+    -------
+    float
+        Cash balance after all trades have been executed.
+    """
+    events: List[tuple[pandas.Timestamp, int, Trade]] = []
+    for trade in trades:
+        events.append((trade.entry_date, 1, trade))
+        events.append((trade.exit_date, 0, trade))
+    events.sort(key=lambda event_tuple: (event_tuple[0], event_tuple[1]))
+    cash_balance = starting_cash
+    open_trades: dict[Trade, float] = {}
+    for event_timestamp, event_type, trade in events:
+        if event_type == 0:
+            if trade in open_trades:
+                invested_amount = open_trades.pop(trade)
+                cash_balance += invested_amount * (
+                    trade.exit_price / trade.entry_price
+                )
+        else:
+            if len(open_trades) >= maximum_positions or cash_balance <= 0:
+                continue
+            allocation = cash_balance / (maximum_positions - len(open_trades))
+            open_trades[trade] = allocation
+            cash_balance -= allocation
+    return cash_balance
