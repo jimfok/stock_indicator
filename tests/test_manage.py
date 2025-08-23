@@ -100,15 +100,17 @@ def test_update_all_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
 
 def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The command should evaluate the EMA/SMA cross strategy."""
+    """The command should evaluate strategies and display metrics."""
     import stock_indicator.manage as manage_module
 
-    call_record: dict[str, bool] = {"called": False}
+    call_record: dict[str, tuple[str, str]] = {}
 
     from stock_indicator.strategy import StrategyMetrics
 
-    def fake_evaluate(data_directory: Path) -> StrategyMetrics:
-        call_record["called"] = True
+    def fake_evaluate(
+        data_directory: Path, buy_strategy_name: str, sell_strategy_name: str
+    ) -> StrategyMetrics:
+        call_record["strategies"] = (buy_strategy_name, sell_strategy_name)
         assert data_directory == manage_module.DATA_DIRECTORY
         return StrategyMetrics(
             total_trades=3,
@@ -123,16 +125,63 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(
         manage_module.strategy,
-        "evaluate_ema_sma_cross_strategy",
+        "evaluate_combined_strategy",
         fake_evaluate,
     )
 
     output_buffer = io.StringIO()
     shell = manage_module.StockShell(stdout=output_buffer)
     shell.onecmd("start_simulate ema_sma_cross ema_sma_cross")
-    assert call_record["called"] is True
+    assert call_record["strategies"] == ("ema_sma_cross", "ema_sma_cross")
     assert (
         "Trades: 3, Win rate: 50.00%, Mean profit %: 10.00%, Profit % Std Dev: 0.00%, "
         "Mean loss %: 5.00%, Loss % Std Dev: 0.00%, Mean holding period: 2.00 bars, "
         "Holding period Std Dev: 1.00 bars" in output_buffer.getvalue()
     )
+
+
+def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command should support different buy and sell strategies."""
+    import stock_indicator.manage as manage_module
+
+    call_arguments: dict[str, tuple[str, str]] = {}
+
+    from stock_indicator.strategy import StrategyMetrics
+
+    def fake_evaluate(
+        data_directory: Path, buy_strategy_name: str, sell_strategy_name: str
+    ) -> StrategyMetrics:
+        call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
+        return StrategyMetrics(
+            total_trades=0,
+            win_rate=0.0,
+            mean_profit_percentage=0.0,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.0,
+            loss_percentage_standard_deviation=0.0,
+            mean_holding_period=0.0,
+            holding_period_standard_deviation=0.0,
+        )
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "evaluate_combined_strategy",
+        fake_evaluate,
+    )
+
+    shell = manage_module.StockShell(stdout=io.StringIO())
+    shell.onecmd("start_simulate ema_sma_cross kalman_filtering")
+    assert call_arguments["strategies"] == (
+        "ema_sma_cross",
+        "kalman_filtering",
+    )
+
+
+def test_start_simulate_unsupported_strategy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command should report unsupported strategy names."""
+    import stock_indicator.manage as manage_module
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd("start_simulate unknown ema_sma_cross")
+    assert "unsupported strategies" in output_buffer.getvalue()

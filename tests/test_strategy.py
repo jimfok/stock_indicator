@@ -16,6 +16,7 @@ from stock_indicator.simulator import SimulationResult, Trade
 from stock_indicator.strategy import (
     evaluate_ema_sma_cross_strategy,
     evaluate_kalman_channel_strategy,
+    evaluate_combined_strategy,
 )
 
 
@@ -344,3 +345,58 @@ def test_evaluate_kalman_channel_strategy_generates_trade(tmp_path: Path) -> Non
 
     assert result.total_trades == 1
     assert result.win_rate == 0.0
+
+
+def test_evaluate_combined_strategy_different_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """evaluate_combined_strategy should aggregate results for mixed strategies."""
+    price_values = [10.0] * 160
+    date_index = pandas.date_range("2020-01-01", periods=len(price_values), freq="D")
+    price_data_frame = pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": price_values,
+            "close": price_values,
+        }
+    )
+    csv_path = tmp_path / "combined.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    trades = [
+        Trade(
+            entry_date=date_index[0],
+            exit_date=date_index[1],
+            entry_price=10.0,
+            exit_price=12.0,
+            profit=2.0,
+            holding_period=1,
+        ),
+        Trade(
+            entry_date=date_index[2],
+            exit_date=date_index[3],
+            entry_price=10.0,
+            exit_price=9.0,
+            profit=-1.0,
+            holding_period=1,
+        ),
+    ]
+    simulation_result = SimulationResult(trades=trades, total_profit=1.0)
+
+    def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
+        return simulation_result
+
+    monkeypatch.setattr(strategy, "simulate_trades", fake_simulate_trades)
+
+    result = evaluate_combined_strategy(
+        tmp_path, "ema_sma_cross", "kalman_filtering"
+    )
+
+    assert result.total_trades == 2
+    assert result.win_rate == 0.5
+
+
+def test_evaluate_combined_strategy_unsupported_name(tmp_path: Path) -> None:
+    """evaluate_combined_strategy should raise for unknown strategies."""
+    with pytest.raises(ValueError, match="Unsupported strategy"):
+        evaluate_combined_strategy(tmp_path, "unknown", "ema_sma_cross")
