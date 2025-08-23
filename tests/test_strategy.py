@@ -463,3 +463,60 @@ def test_evaluate_combined_strategy_handles_empty_csv(tmp_path: Path) -> None:
     )
 
     assert result.total_trades == 0
+
+
+def test_evaluate_combined_strategy_reports_maximum_positions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The function should return the highest number of overlapping trades."""
+    import stock_indicator.strategy as strategy_module
+    from stock_indicator.simulator import SimulationResult, Trade
+
+    for symbol_name in ["AAA", "BBB"]:
+        pandas.DataFrame(
+            {
+                "Date": ["2020-01-01"],
+                "open": [1.0],
+                "close": [1.0],
+            }
+        ).to_csv(tmp_path / f"{symbol_name}.csv", index=False)
+
+    monkeypatch.setattr(strategy_module, "SUPPORTED_STRATEGIES", {"noop": lambda df: None})
+
+    simulation_results = [
+        SimulationResult(
+            trades=[
+                Trade(
+                    entry_date=pandas.Timestamp("2020-01-01"),
+                    exit_date=pandas.Timestamp("2020-01-03"),
+                    entry_price=1.0,
+                    exit_price=1.0,
+                    profit=0.0,
+                    holding_period=2,
+                )
+            ],
+            total_profit=0.0,
+        ),
+        SimulationResult(
+            trades=[
+                Trade(
+                    entry_date=pandas.Timestamp("2020-01-02"),
+                    exit_date=pandas.Timestamp("2020-01-04"),
+                    entry_price=1.0,
+                    exit_price=1.0,
+                    profit=0.0,
+                    holding_period=2,
+                )
+            ],
+            total_profit=0.0,
+        ),
+    ]
+    simulation_iterator = iter(simulation_results)
+
+    def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
+        return next(simulation_iterator)
+
+    monkeypatch.setattr(strategy_module, "simulate_trades", fake_simulate_trades)
+
+    result = strategy_module.evaluate_combined_strategy(tmp_path, "noop", "noop")
+    assert result.maximum_concurrent_positions == 2
