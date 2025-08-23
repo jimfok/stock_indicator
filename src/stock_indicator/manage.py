@@ -122,11 +122,18 @@ class StockShell(cmd.Cmd):
         ):
             self.stdout.write("unsupported strategies\n")
             return
-        trade_count, win_rate = strategy.evaluate_ema_sma_cross_strategy(
+        evaluation_metrics = strategy.evaluate_ema_sma_cross_strategy(
             DATA_DIRECTORY
         )
         self.stdout.write(
-            f"Trades: {trade_count}, Win rate: {win_rate:.2%}\n"
+            (
+                f"Trades: {evaluation_metrics.total_trades}, "
+                f"Win rate: {evaluation_metrics.win_rate:.2%}, "
+                f"Mean profit %: {evaluation_metrics.mean_profit_percentage:.2%}, "
+                f"Profit % Std Dev: {evaluation_metrics.profit_percentage_standard_deviation:.2%}, "
+                f"Mean loss %: {evaluation_metrics.mean_loss_percentage:.2%}, "
+                f"Loss % Std Dev: {evaluation_metrics.loss_percentage_standard_deviation:.2%}\n"
+            )
         )
 
     # TODO: review
