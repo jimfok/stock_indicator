@@ -520,3 +520,49 @@ def test_evaluate_combined_strategy_reports_maximum_positions(
 
     result = strategy_module.evaluate_combined_strategy(tmp_path, "noop", "noop")
     assert result.maximum_concurrent_positions == 2
+
+
+def test_attach_ema_sma_cross_and_rsi_signals_filters_by_rsi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The EMA/SMA cross entry signal should require RSI to be 40 or below."""
+    # TODO: review
+
+    import stock_indicator.strategy as strategy_module
+
+    price_data_frame = pandas.DataFrame(
+        {"open": [1.0, 1.0, 1.0], "close": [1.0, 1.0, 1.0]}
+    )
+
+    def fake_attach_ema_sma_cross_signals(
+        data_frame: pandas.DataFrame, window_size: int = 50
+    ) -> None:
+        data_frame["ema_sma_cross_entry_signal"] = pandas.Series(
+            [False, True, True]
+        )
+        data_frame["ema_sma_cross_exit_signal"] = pandas.Series(
+            [False, False, True]
+        )
+
+    def fake_rsi(
+        price_series: pandas.Series, window_size: int = 14
+    ) -> pandas.Series:
+        return pandas.Series([50, 30, 50])
+
+    monkeypatch.setattr(
+        strategy_module, "attach_ema_sma_cross_signals", fake_attach_ema_sma_cross_signals
+    )
+    monkeypatch.setattr(strategy_module, "rsi", fake_rsi)
+
+    strategy_module.attach_ema_sma_cross_and_rsi_signals(price_data_frame)
+
+    assert list(price_data_frame["ema_sma_cross_and_rsi_entry_signal"]) == [
+        False,
+        True,
+        False,
+    ]
+    assert list(price_data_frame["ema_sma_cross_and_rsi_exit_signal"]) == [
+        False,
+        False,
+        True,
+    ]

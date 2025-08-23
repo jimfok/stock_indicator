@@ -11,7 +11,7 @@ from typing import Callable, Dict, List
 import re
 import pandas
 
-from .indicators import ema, kalman_filter, sma
+from .indicators import ema, kalman_filter, sma, rsi
 from .simulator import (
     calculate_maximum_concurrent_positions,
     simulate_trades,
@@ -114,6 +114,27 @@ def attach_ema_sma_cross_signals(
     )
 
 
+def attach_ema_sma_cross_and_rsi_signals(
+    price_data_frame: pandas.DataFrame,
+    window_size: int = 50,
+    rsi_window_size: int = 14,
+) -> None:
+    """Attach EMA/SMA cross signals filtered by RSI to ``price_data_frame``."""
+    # TODO: review
+
+    attach_ema_sma_cross_signals(price_data_frame, window_size)
+    price_data_frame["rsi_value"] = rsi(
+        price_data_frame["close"], rsi_window_size
+    )
+    price_data_frame["ema_sma_cross_and_rsi_entry_signal"] = (
+        price_data_frame["ema_sma_cross_entry_signal"]
+        & (price_data_frame["rsi_value"] <= 40)
+    )
+    price_data_frame["ema_sma_cross_and_rsi_exit_signal"] = price_data_frame[
+        "ema_sma_cross_exit_signal"
+    ]
+
+
 def attach_kalman_filtering_signals(
     price_data_frame: pandas.DataFrame,
     process_variance: float = 1e-5,
@@ -149,6 +170,7 @@ def attach_kalman_filtering_signals(
 
 SUPPORTED_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
     "ema_sma_cross": attach_ema_sma_cross_signals,
+    "ema_sma_cross_and_rsi": attach_ema_sma_cross_and_rsi_signals,
     "kalman_filtering": attach_kalman_filtering_signals,
 }
 
