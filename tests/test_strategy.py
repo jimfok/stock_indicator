@@ -446,3 +446,20 @@ def test_evaluate_combined_strategy_dollar_volume_filter(
         minimum_average_dollar_volume=5,
     )
     assert simulate_called["called"] is True
+
+
+def test_evaluate_combined_strategy_handles_empty_csv(tmp_path: Path) -> None:
+    """evaluate_combined_strategy should skip empty CSV files and return zero trades."""
+    empty_data_frame = pandas.DataFrame(
+        columns=["Date", "open", "close", "volume"]
+    )
+    csv_file_path = tmp_path / "empty.csv"
+    empty_data_frame.to_csv(csv_file_path, index=False)
+
+    result = evaluate_combined_strategy(
+        tmp_path,
+        "ema_sma_cross",
+        "ema_sma_cross",
+    )
+
+    assert result.total_trades == 0
