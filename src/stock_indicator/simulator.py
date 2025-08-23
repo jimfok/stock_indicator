@@ -18,6 +18,7 @@ class Trade:
     entry_price: float
     exit_price: float
     profit: float
+    holding_period: int
 
 
 @dataclass
@@ -78,6 +79,7 @@ def simulate_trades(
                 )
                 exit_price = float(current_row[price_column_name])
                 profit_value = exit_price - entry_price
+                holding_period_value = row_index - entry_row_index
                 trades.append(
                     Trade(
                         entry_date=data.index[entry_row_index],
@@ -85,6 +87,7 @@ def simulate_trades(
                         entry_price=entry_price,
                         exit_price=exit_price,
                         profit=profit_value,
+                        holding_period=holding_period_value,
                     )
                 )
                 in_position = False
