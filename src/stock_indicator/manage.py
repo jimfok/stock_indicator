@@ -117,13 +117,13 @@ class StockShell(cmd.Cmd):
             return
         buy_strategy_name, sell_strategy_name = argument_parts
         if (
-            buy_strategy_name != "ema_sma_cross"
-            or sell_strategy_name != "ema_sma_cross"
+            buy_strategy_name not in strategy.SUPPORTED_STRATEGIES
+            or sell_strategy_name not in strategy.SUPPORTED_STRATEGIES
         ):
             self.stdout.write("unsupported strategies\n")
             return
-        evaluation_metrics = strategy.evaluate_ema_sma_cross_strategy(
-            DATA_DIRECTORY
+        evaluation_metrics = strategy.evaluate_combined_strategy(
+            DATA_DIRECTORY, buy_strategy_name, sell_strategy_name
         )
         self.stdout.write(
             (
@@ -141,13 +141,15 @@ class StockShell(cmd.Cmd):
     # TODO: review
     def help_start_simulate(self) -> None:
         """Display help for the start_simulate command."""
+        available_strategies = ", ".join(strategy.SUPPORTED_STRATEGIES.keys())
         self.stdout.write(
             "start_simulate BUY_STRATEGY SELL_STRATEGY\n"
             "Evaluate trading strategies using cached data.\n"
             "Parameters:\n"
             "  BUY_STRATEGY: Name of the buying strategy.\n"
             "  SELL_STRATEGY: Name of the selling strategy.\n"
-            "Currently only 'ema_sma_cross' is supported for both parameters.\n"
+            f"Available strategies: {available_strategies}.\n"
+            "Buy and sell strategies may differ.\n"
         )
 
     def do_exit(self, argument_line: str) -> bool:  # noqa: D401
