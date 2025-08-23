@@ -36,6 +36,7 @@ def test_simulate_trades_executes_trade_flow_with_default_column() -> None:
     assert completed_trade.entry_price == 102.0
     assert completed_trade.exit_price == 106.0
     assert completed_trade.profit == 4.0
+    assert completed_trade.holding_period == 3
     assert result.total_profit == 4.0
 
 
@@ -82,6 +83,7 @@ def test_simulate_trades_with_sma_strategy_uses_aligned_labels() -> None:
     assert completed_trade.entry_price == 102.0
     assert completed_trade.exit_price == 103.0
     assert completed_trade.profit == 1.0
+    assert completed_trade.holding_period == 2
     assert result.total_profit == 1.0
 
 
@@ -114,4 +116,5 @@ def test_simulate_trades_handles_distinct_entry_and_exit_price_columns() -> None
     assert completed_trade.entry_price == 10.0
     assert completed_trade.exit_price == 13.0
     assert completed_trade.profit == 3.0
+    assert completed_trade.holding_period == 1
     assert result.total_profit == 3.0

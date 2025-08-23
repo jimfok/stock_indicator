@@ -285,6 +285,7 @@ def test_evaluate_ema_sma_cross_strategy_computes_profit_and_loss_statistics(
             entry_price=10.0,
             exit_price=12.0,
             profit=2.0,
+            holding_period=1,
         ),
         Trade(
             entry_date=date_index[2],
@@ -292,6 +293,7 @@ def test_evaluate_ema_sma_cross_strategy_computes_profit_and_loss_statistics(
             entry_price=10.0,
             exit_price=9.0,
             profit=-1.0,
+            holding_period=1,
         ),
     ]
     simulation_result = SimulationResult(trades=trades, total_profit=1.0)
@@ -309,3 +311,5 @@ def test_evaluate_ema_sma_cross_strategy_computes_profit_and_loss_statistics(
     assert result.profit_percentage_standard_deviation == 0.0
     assert result.mean_loss_percentage == pytest.approx(0.1)
     assert result.loss_percentage_standard_deviation == 0.0
+    assert result.mean_holding_period == pytest.approx(1.0)
+    assert result.holding_period_standard_deviation == 0.0

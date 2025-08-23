@@ -29,6 +29,8 @@ class StrategyMetrics:
     profit_percentage_standard_deviation: float
     mean_loss_percentage: float
     loss_percentage_standard_deviation: float
+    mean_holding_period: float
+    holding_period_standard_deviation: float
 
 
 def evaluate_ema_sma_cross_strategy(
@@ -55,11 +57,13 @@ def evaluate_ema_sma_cross_strategy(
     Returns
     -------
     StrategyMetrics
-        Metrics including total trades, win rate, and profit and loss statistics.
+        Metrics including total trades, win rate, profit and loss statistics, and
+        holding period analysis.
     """
     trade_profit_list: List[float] = []
     profit_percentage_list: List[float] = []
     loss_percentage_list: List[float] = []
+    holding_period_list: List[int] = []
     for csv_path in data_directory.glob("*.csv"):
         price_data_frame = pandas.read_csv(
             csv_path, parse_dates=["Date"], index_col="Date"
@@ -147,6 +151,7 @@ def evaluate_ema_sma_cross_strategy(
         )
         for completed_trade in simulation_result.trades:
             trade_profit_list.append(completed_trade.profit)
+            holding_period_list.append(completed_trade.holding_period)
             percentage_change = (
                 completed_trade.profit / completed_trade.entry_price
             )
@@ -164,6 +169,8 @@ def evaluate_ema_sma_cross_strategy(
             profit_percentage_standard_deviation=0.0,
             mean_loss_percentage=0.0,
             loss_percentage_standard_deviation=0.0,
+            mean_holding_period=0.0,
+            holding_period_standard_deviation=0.0,
         )
 
     winning_trade_count = sum(
@@ -182,10 +189,14 @@ def evaluate_ema_sma_cross_strategy(
         win_rate=win_rate,
         mean_profit_percentage=calculate_mean(profit_percentage_list),
         profit_percentage_standard_deviation=calculate_standard_deviation(
-            profit_percentage_list
+        profit_percentage_list
         ),
         mean_loss_percentage=calculate_mean(loss_percentage_list),
         loss_percentage_standard_deviation=calculate_standard_deviation(
             loss_percentage_list
+        ),
+        mean_holding_period=calculate_mean([float(value) for value in holding_period_list]),
+        holding_period_standard_deviation=calculate_standard_deviation(
+            [float(value) for value in holding_period_list]
         ),
     )

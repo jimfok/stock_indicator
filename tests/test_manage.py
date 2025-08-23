@@ -117,6 +117,8 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
             profit_percentage_standard_deviation=0.0,
             mean_loss_percentage=0.05,
             loss_percentage_standard_deviation=0.0,
+            mean_holding_period=2.0,
+            holding_period_standard_deviation=1.0,
         )
 
     monkeypatch.setattr(
@@ -131,5 +133,6 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     assert call_record["called"] is True
     assert (
         "Trades: 3, Win rate: 50.00%, Mean profit %: 10.00%, Profit % Std Dev: 0.00%, "
-        "Mean loss %: 5.00%, Loss % Std Dev: 0.00%" in output_buffer.getvalue()
+        "Mean loss %: 5.00%, Loss % Std Dev: 0.00%, Mean holding period: 2.00 bars, "
+        "Holding period Std Dev: 1.00 bars" in output_buffer.getvalue()
     )
