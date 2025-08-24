@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 import pandas
@@ -24,6 +25,7 @@ def download_history(
     symbol: str,
     start: str,
     end: str,
+    cache_path: Path | None = None,
     **download_options: Any,
 ) -> pandas.DataFrame:
     """Download historical price data for a stock symbol.
@@ -36,6 +38,10 @@ def download_history(
         Start date in ISO format (``YYYY-MM-DD``).
     end: str
         End date in ISO format (``YYYY-MM-DD``).
+    cache_path: Path | None, optional
+        Optional path to a CSV file used as a local cache. When the file exists,
+        only missing rows are requested from the remote source and the merged
+        result is written back to this file.
     **download_options
         Additional keyword arguments forwarded to :func:`yfinance.download`, such
         as ``actions``, ``auto_adjust``, or ``interval``.
@@ -58,6 +64,17 @@ def download_history(
     if available_symbol_list and symbol not in available_symbol_list:
         raise ValueError(f"Unknown symbol: {symbol}")
 
+    cached_frame = pandas.DataFrame()
+    if cache_path is not None and cache_path.exists():
+        cached_frame = pandas.read_csv(cache_path, index_col=0, parse_dates=True)
+        if not cached_frame.empty:
+            next_download_date = cached_frame.index.max() + pandas.Timedelta(days=1)
+            if next_download_date > pandas.Timestamp(end):
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cached_frame.to_csv(cache_path)
+                return cached_frame
+            start = next_download_date.strftime("%Y-%m-%d")
+
     maximum_attempts = 3
     for attempt_number in range(1, maximum_attempts + 1):
         try:
@@ -72,6 +89,11 @@ def download_history(
                 str(column_name).lower().replace(" ", "_")
                 for column_name in downloaded_frame.columns
             ]
+            if not cached_frame.empty:
+                downloaded_frame = pandas.concat([cached_frame, downloaded_frame])
+            if cache_path is not None:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                downloaded_frame.to_csv(cache_path)
             return downloaded_frame
         except Exception as download_error:  # noqa: BLE001
             LOGGER.warning(

@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import types
+import pathlib
 
 import pandas
 import pytest
@@ -120,3 +121,50 @@ def test_download_history_forwards_optional_arguments(
     monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: ["TEST"])
     download_history("TEST", "2021-01-01", "2021-01-02", interval="1h")
     assert captured_arguments["interval"] == "1h"
+
+
+def test_download_history_uses_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    """When cached data is present, only missing rows should be requested."""
+    symbol_name = "TEST"
+    cache_file_path = tmp_path / "TEST.csv"
+    existing_frame = pandas.DataFrame(
+        {"close": [1.0, 2.0]},
+        index=pandas.to_datetime(["2023-01-01", "2023-01-02"]),
+    )
+    existing_frame.to_csv(cache_file_path)
+
+    captured_arguments: dict[str, str] = {}
+    downloaded_raw_frame = pandas.DataFrame(
+        {"Close": [3.0, 4.0]},
+        index=pandas.to_datetime(["2023-01-03", "2023-01-04"]),
+    )
+
+    def stubbed_download(
+        symbol: str,
+        start: str,
+        end: str,
+        progress: bool = False,
+    ) -> pandas.DataFrame:
+        captured_arguments["start"] = start
+        captured_arguments["end"] = end
+        return downloaded_raw_frame
+
+    monkeypatch.setattr(
+        "stock_indicator.data_loader.yfinance.download", stubbed_download
+    )
+    monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: [symbol_name])
+
+    combined_frame = download_history(
+        symbol_name,
+        "2023-01-01",
+        "2023-01-05",
+        cache_path=cache_file_path,
+    )
+
+    assert captured_arguments["start"] == "2023-01-03"
+    assert captured_arguments["end"] == "2023-01-05"
+    assert list(combined_frame.index) == list(
+        pandas.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04"])
+    )
+    saved_frame = pandas.read_csv(cache_file_path, index_col=0, parse_dates=True)
+    pandas.testing.assert_frame_equal(combined_frame, saved_frame)
