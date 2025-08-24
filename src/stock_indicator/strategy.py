@@ -242,7 +242,7 @@ def evaluate_combined_strategy(
     buy_strategy_name: str,
     sell_strategy_name: str,
     minimum_average_dollar_volume: float | None = None,
-    starting_cash: float = 10000.0,
+    starting_cash: float = 1000.0,
     maximum_positions: int = 5,
 ) -> StrategyMetrics:
     """Evaluate a combination of strategies for entry and exit signals.
@@ -259,7 +259,7 @@ def evaluate_combined_strategy(
         Minimum 50-day moving average dollar volume, in millions, required for a
         symbol to be included in the evaluation. When ``None``, no filter is
         applied.
-    starting_cash: float, default 10000.0
+    starting_cash: float, default 1000.0
         Initial amount of cash used for portfolio simulation.
     maximum_positions: int, default 5
         Maximum number of concurrent positions during simulation.
