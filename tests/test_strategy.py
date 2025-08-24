@@ -683,6 +683,62 @@ def test_attach_ema_sma_cross_with_slope_requires_flat_sma(
     ]
 
 
+def test_attach_ema_sma_double_cross_requires_long_term_ema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The double cross entry should require the long-term EMA above the SMA."""
+    # TODO: review
+
+    import stock_indicator.strategy as strategy_module
+
+    price_data_frame = pandas.DataFrame(
+        {"open": [1.0, 1.0, 1.0], "close": [1.0, 1.0, 1.0]}
+    )
+
+    recorded_require_close: bool | None = None
+
+    def fake_attach_ema_sma_cross_signals(
+        data_frame: pandas.DataFrame,
+        window_size: int = 50,
+        require_close_above_long_term_sma: bool = True,
+    ) -> None:
+        nonlocal recorded_require_close
+        recorded_require_close = require_close_above_long_term_sma
+        data_frame["ema_sma_cross_entry_signal"] = pandas.Series(
+            [False, True, True]
+        )
+        data_frame["ema_sma_cross_exit_signal"] = pandas.Series(
+            [False, False, True]
+        )
+        data_frame["long_term_sma_previous"] = pandas.Series([1.0, 1.0, 1.0])
+
+    def fake_ema(
+        price_series: pandas.Series, window_size: int
+    ) -> pandas.Series:
+        if window_size == strategy_module.LONG_TERM_SMA_WINDOW:
+            return pandas.Series([1.0, 2.0, 0.5])
+        return pandas.Series([0.0, 0.0, 0.0])
+
+    monkeypatch.setattr(
+        strategy_module, "attach_ema_sma_cross_signals", fake_attach_ema_sma_cross_signals
+    )
+    monkeypatch.setattr(strategy_module, "ema", fake_ema)
+
+    strategy_module.attach_ema_sma_double_cross_signals(price_data_frame)
+
+    assert recorded_require_close is False
+    assert list(price_data_frame["ema_sma_double_cross_entry_signal"]) == [
+        False,
+        False,
+        True,
+    ]
+    assert list(price_data_frame["ema_sma_double_cross_exit_signal"]) == [
+        False,
+        False,
+        True,
+    ]
+
+
 def test_supported_strategies_includes_ftd_ema_sma_cross() -> None:
     """``SUPPORTED_STRATEGIES`` should expose the FTD/EMA-SMA cross strategy."""
     # TODO: review
@@ -710,4 +766,19 @@ def test_supported_strategies_includes_ema_sma_cross_with_slope() -> None:
     assert (
         SUPPORTED_STRATEGIES["ema_sma_cross_with_slope"]
         is attach_ema_sma_cross_with_slope_signals
+    )
+
+
+def test_supported_strategies_includes_ema_sma_double_cross() -> None:
+    """``SUPPORTED_STRATEGIES`` should expose the EMA/SMA double cross strategy."""
+    # TODO: review
+
+    from stock_indicator.strategy import (
+        SUPPORTED_STRATEGIES,
+        attach_ema_sma_double_cross_signals,
+    )
+
+    assert (
+        SUPPORTED_STRATEGIES["ema_sma_double_cross"]
+        is attach_ema_sma_double_cross_signals
     )

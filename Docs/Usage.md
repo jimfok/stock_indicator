@@ -18,8 +18,9 @@ The `start_simulate` command accepts the following strategies:
 * `ema_sma_cross_and_rsi`
 * `ftd_ema_sma_cross`
 * `ema_sma_cross_with_slope`
+* `ema_sma_double_cross`
 * `kalman_filtering` *(sell only)*
 
-Not every strategy supports both buying and selling. Only the first four
-strategies in the list can be used for buying. All five strategies can be used
+Not every strategy supports both buying and selling. Only the first five
+strategies in the list can be used for buying. All six strategies can be used
 for selling.

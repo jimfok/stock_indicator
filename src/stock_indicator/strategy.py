@@ -214,6 +214,36 @@ def attach_ema_sma_cross_with_slope_signals(
     ]
 
 
+def attach_ema_sma_double_cross_signals(
+    price_data_frame: pandas.DataFrame,
+    window_size: int = 50,
+) -> None:
+    """Attach EMA/SMA cross signals requiring long-term EMA above SMA."""
+    # TODO: review
+
+    attach_ema_sma_cross_signals(
+        price_data_frame,
+        window_size,
+        require_close_above_long_term_sma=False,
+    )
+    price_data_frame["long_term_ema_value"] = ema(
+        price_data_frame["close"], LONG_TERM_SMA_WINDOW
+    )
+    price_data_frame["long_term_ema_previous"] = price_data_frame[
+        "long_term_ema_value"
+    ].shift(1)
+    price_data_frame["ema_sma_double_cross_entry_signal"] = (
+        price_data_frame["ema_sma_cross_entry_signal"]
+        & (
+            price_data_frame["long_term_ema_previous"]
+            > price_data_frame["long_term_sma_previous"]
+        )
+    )
+    price_data_frame["ema_sma_double_cross_exit_signal"] = price_data_frame[
+        "ema_sma_cross_exit_signal"
+    ]
+
+
 def attach_kalman_filtering_signals(
     price_data_frame: pandas.DataFrame,
     process_variance: float = 1e-5,
@@ -252,6 +282,7 @@ BUY_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
     "ema_sma_cross_and_rsi": attach_ema_sma_cross_and_rsi_signals,
     "ftd_ema_sma_cross": attach_ftd_ema_sma_cross_signals,
     "ema_sma_cross_with_slope": attach_ema_sma_cross_with_slope_signals,
+    "ema_sma_double_cross": attach_ema_sma_double_cross_signals,
 }
 
 # TODO: review
