@@ -244,6 +244,7 @@ def evaluate_combined_strategy(
     minimum_average_dollar_volume: float | None = None,
     starting_cash: float = 1000.0,
     maximum_positions: int = 5,
+    stop_loss_percentage: float = 1.0,
 ) -> StrategyMetrics:
     """Evaluate a combination of strategies for entry and exit signals.
 
@@ -263,6 +264,10 @@ def evaluate_combined_strategy(
         Initial amount of cash used for portfolio simulation.
     maximum_positions: int, default 5
         Maximum number of concurrent positions during simulation.
+    stop_loss_percentage: float, default 1.0
+        Fractional loss from the entry price that triggers an exit on the next
+        bar's opening price. Values greater than or equal to ``1.0`` disable
+        the stop-loss mechanism.
     """
     # TODO: review
 
@@ -319,6 +324,7 @@ def evaluate_combined_strategy(
             exit_rule=exit_rule,
             entry_price_column="open",
             exit_price_column="open",
+            stop_loss_percentage=stop_loss_percentage,
         )
         simulation_results.append(simulation_result)
         all_trades.extend(simulation_result.trades)

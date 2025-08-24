@@ -108,15 +108,23 @@ class StockShell(cmd.Cmd):
 
     # TODO: review
     def do_start_simulate(self, argument_line: str) -> None:  # noqa: D401
-        """start_simulate DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY
+        """start_simulate DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]
         Evaluate trading strategies using cached data."""
         argument_parts: List[str] = argument_line.split()
-        if len(argument_parts) != 3:
+        if len(argument_parts) not in (3, 4):
             self.stdout.write(
-                "usage: start_simulate DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY\n"
+                "usage: start_simulate DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]\n"
             )
             return
-        volume_filter, buy_strategy_name, sell_strategy_name = argument_parts
+        volume_filter, buy_strategy_name, sell_strategy_name = argument_parts[:3]
+        if len(argument_parts) == 4:
+            try:
+                stop_loss_percentage = float(argument_parts[3])
+            except ValueError:
+                self.stdout.write("invalid stop loss\n")
+                return
+        else:
+            stop_loss_percentage = 0.075
         volume_match = re.fullmatch(r"dollar_volume>(\d+(?:\.\d+)?)", volume_filter)
         if volume_match is None:
             self.stdout.write("unsupported filter\n")
@@ -133,6 +141,7 @@ class StockShell(cmd.Cmd):
             buy_strategy_name,
             sell_strategy_name,
             minimum_average_dollar_volume,
+            stop_loss_percentage=stop_loss_percentage,
         )
         self.stdout.write(
             (
@@ -154,12 +163,13 @@ class StockShell(cmd.Cmd):
         """Display help for the start_simulate command."""
         available_strategies = ", ".join(strategy.SUPPORTED_STRATEGIES.keys())
         self.stdout.write(
-            "start_simulate DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY\n"
+            "start_simulate DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]\n"
             "Evaluate trading strategies using cached data.\n"
             "Parameters:\n"
             "  DOLLAR_VOLUME_FILTER: Format dollar_volume>NUMBER (in millions).\n"
             "  BUY_STRATEGY: Name of the buying strategy.\n"
             "  SELL_STRATEGY: Name of the selling strategy.\n"
+            "  STOP_LOSS: Fractional loss that triggers an exit on the next day's open.\n"
             f"Available strategies: {available_strategies}.\n"
             "Buy and sell strategies may differ.\n"
         )

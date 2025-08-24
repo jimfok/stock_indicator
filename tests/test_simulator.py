@@ -150,6 +150,40 @@ def test_simulate_trades_closes_open_position_at_end() -> None:
     assert final_trade.holding_period == 1
 
 
+def test_simulate_trades_applies_stop_loss_next_open() -> None:
+    """Trades should close at the next open when the stop loss is reached."""
+    price_data_frame = pandas.DataFrame(
+        {
+            "open": [100.0, 95.0, 96.0],
+            "close": [100.0, 92.0, 97.0],
+        }
+    )
+
+    def entry_rule(current_row: pandas.Series) -> bool:
+        return current_row.name == 0
+
+    def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
+        return False
+
+    result = simulate_trades(
+        price_data_frame,
+        entry_rule,
+        exit_rule,
+        entry_price_column="open",
+        exit_price_column="open",
+        stop_loss_percentage=0.075,
+    )
+
+    assert len(result.trades) == 1
+    completed_trade = result.trades[0]
+    assert completed_trade.entry_price == 100.0
+    assert completed_trade.exit_price == 96.0
+    assert completed_trade.exit_date == price_data_frame.index[2]
+    expected_profit = -4.0 - TRADE_COMMISSION
+    assert completed_trade.profit == expected_profit
+    assert completed_trade.holding_period == 2
+
+
 def test_calculate_maximum_concurrent_positions_counts_overlaps() -> None:
     """Count overlapping trades across multiple simulations."""
     trade_alpha = Trade(
