@@ -566,3 +566,72 @@ def test_attach_ema_sma_cross_and_rsi_signals_filters_by_rsi(
         False,
         True,
     ]
+
+
+def test_attach_ftd_ema_sma_cross_signals_requires_recent_ftd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The FTD/EMA-SMA cross entry signal should require a recent FTD."""
+    # TODO: review
+
+    import stock_indicator.strategy as strategy_module
+
+    price_data_frame = pandas.DataFrame(
+        {"open": [1.0] * 7, "close": [1.0] * 7}
+    )
+
+    def fake_attach_ema_sma_cross_signals(
+        data_frame: pandas.DataFrame, window_size: int = 50
+    ) -> None:
+        data_frame["ema_sma_cross_entry_signal"] = pandas.Series(
+            [False, False, False, False, True, False, True]
+        )
+        data_frame["ema_sma_cross_exit_signal"] = pandas.Series(
+            [False, False, False, False, False, False, False]
+        )
+
+    def fake_ftd(
+        data_frame: pandas.DataFrame, buy_mark_day: int, tolerance: float = 1e-8
+    ) -> bool:
+        return len(data_frame) - 1 == 1
+
+    monkeypatch.setattr(
+        strategy_module, "attach_ema_sma_cross_signals", fake_attach_ema_sma_cross_signals
+    )
+    monkeypatch.setattr(strategy_module, "ftd", fake_ftd)
+
+    strategy_module.attach_ftd_ema_sma_cross_signals(price_data_frame)
+
+    assert list(price_data_frame["ftd_ema_sma_cross_entry_signal"]) == [
+        False,
+        False,
+        False,
+        False,
+        True,
+        False,
+        False,
+    ]
+    assert list(price_data_frame["ftd_ema_sma_cross_exit_signal"]) == [
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+    ]
+
+
+def test_supported_strategies_includes_ftd_ema_sma_cross() -> None:
+    """``SUPPORTED_STRATEGIES`` should expose the FTD/EMA-SMA cross strategy."""
+    # TODO: review
+
+    from stock_indicator.strategy import (
+        SUPPORTED_STRATEGIES,
+        attach_ftd_ema_sma_cross_signals,
+    )
+
+    assert (
+        SUPPORTED_STRATEGIES["ftd_ema_sma_cross"]
+        is attach_ftd_ema_sma_cross_signals
+    )
