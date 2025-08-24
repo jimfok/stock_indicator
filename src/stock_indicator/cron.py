@@ -93,7 +93,10 @@ def run_daily_tasks(
         Dictionary with ``entry_signals`` and ``exit_signals`` listing symbols
         that triggered the respective signals on the latest available data row.
     """
-    update_symbol_cache()
+    try:
+        update_symbol_cache()
+    except Exception as update_error:  # noqa: BLE001
+        LOGGER.warning("Could not update symbol cache: %s", update_error)
     if symbol_list is None:
         symbol_list = load_symbols()
 
