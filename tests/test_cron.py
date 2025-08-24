@@ -53,3 +53,33 @@ def test_parse_daily_task_arguments_returns_expected_values():
     assert buy_strategy_name == "ema_sma_cross"
     assert sell_strategy_name == "ema_sma_cross"
     assert stop_loss_percentage == 1.0
+
+
+def test_run_daily_tasks_skips_symbol_update_errors(monkeypatch):
+    """run_daily_tasks should continue when the symbol cache update fails."""
+
+    def failing_update() -> None:
+        raise RuntimeError("network down")
+
+    def fake_download_history(
+        symbol: str, start: str, end: str
+    ) -> pandas.DataFrame:
+        return pandas.DataFrame({"close": [1.0], "volume": [100.0]})
+
+    def fake_strategy(price_history_frame: pandas.DataFrame) -> None:
+        price_history_frame["fake_strategy_entry_signal"] = [True]
+        price_history_frame["fake_strategy_exit_signal"] = [False]
+
+    monkeypatch.setattr(cron, "update_symbol_cache", failing_update)
+    monkeypatch.setitem(strategy.SUPPORTED_STRATEGIES, "fake_strategy", fake_strategy)
+
+    result = cron.run_daily_tasks(
+        "fake_strategy",
+        "fake_strategy",
+        "2024-01-01",
+        "2024-01-02",
+        symbol_list=["TEST"],
+        data_download_function=fake_download_history,
+    )
+
+    assert result["entry_signals"] == ["TEST"]
