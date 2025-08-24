@@ -133,8 +133,8 @@ class StockShell(cmd.Cmd):
             return
         minimum_average_dollar_volume = float(volume_match.group(1))
         if (
-            buy_strategy_name not in strategy.SUPPORTED_STRATEGIES
-            or sell_strategy_name not in strategy.SUPPORTED_STRATEGIES
+            buy_strategy_name not in strategy.BUY_STRATEGIES
+            or sell_strategy_name not in strategy.SELL_STRATEGIES
         ):
             self.stdout.write("unsupported strategies\n")
             return
@@ -167,7 +167,8 @@ class StockShell(cmd.Cmd):
     # TODO: review
     def help_start_simulate(self) -> None:
         """Display help for the start_simulate command."""
-        available_strategies = ", ".join(strategy.SUPPORTED_STRATEGIES.keys())
+        available_buy = ", ".join(strategy.BUY_STRATEGIES.keys())
+        available_sell = ", ".join(strategy.SELL_STRATEGIES.keys())
         self.stdout.write(
             "start_simulate DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]\n"
             "Evaluate trading strategies using cached data.\n"
@@ -177,8 +178,8 @@ class StockShell(cmd.Cmd):
             "  SELL_STRATEGY: Name of the selling strategy.\n"
             "  STOP_LOSS: Fractional loss that triggers an exit on the next day's open. "
             "Defaults to 1.0.\n"
-            f"Available strategies: {available_strategies}.\n"
-            "Buy and sell strategies may differ.\n"
+            f"Available buy strategies: {available_buy}.\n"
+            f"Available sell strategies: {available_sell}.\n"
         )
 
 

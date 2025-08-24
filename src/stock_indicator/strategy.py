@@ -221,13 +221,23 @@ def attach_kalman_filtering_signals(
         1, fill_value=False
     )
 
-
-SUPPORTED_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
+# TODO: review
+BUY_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
     "ema_sma_cross": attach_ema_sma_cross_signals,
     "ema_sma_cross_and_rsi": attach_ema_sma_cross_and_rsi_signals,
     "ftd_ema_sma_cross": attach_ftd_ema_sma_cross_signals,
     "ema_sma_cross_with_slope": attach_ema_sma_cross_with_slope_signals,
+}
+
+# TODO: review
+SELL_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
+    **BUY_STRATEGIES,
     "kalman_filtering": attach_kalman_filtering_signals,
+}
+
+# TODO: review
+SUPPORTED_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
+    **SELL_STRATEGIES,
 }
 
 
@@ -327,9 +337,9 @@ def evaluate_combined_strategy(
     """
     # TODO: review
 
-    if buy_strategy_name not in SUPPORTED_STRATEGIES:
+    if buy_strategy_name not in BUY_STRATEGIES:
         raise ValueError(f"Unsupported strategy: {buy_strategy_name}")
-    if sell_strategy_name not in SUPPORTED_STRATEGIES:
+    if sell_strategy_name not in SELL_STRATEGIES:
         raise ValueError(f"Unsupported strategy: {sell_strategy_name}")
 
     trade_profit_list: List[float] = []
@@ -358,9 +368,9 @@ def evaluate_combined_strategy(
                 recent_average_dollar_volume < minimum_average_dollar_volume
             ):
                 continue
-        SUPPORTED_STRATEGIES[buy_strategy_name](price_data_frame)
+        BUY_STRATEGIES[buy_strategy_name](price_data_frame)
         if buy_strategy_name != sell_strategy_name:
-            SUPPORTED_STRATEGIES[sell_strategy_name](price_data_frame)
+            SELL_STRATEGIES[sell_strategy_name](price_data_frame)
 
         def entry_rule(current_row: pandas.Series) -> bool:
             return bool(
