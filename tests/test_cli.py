@@ -58,8 +58,10 @@ def test_run_cli_invokes_components(
         entry_rule: Callable[[pandas.Series], bool],
         exit_rule: Callable[[pandas.Series, pandas.Series], bool],
         price_column: str = "close",
+        stop_loss_percentage: float = 1.0,
     ) -> SimulationResult:
         assert price_column == "close"
+        assert stop_loss_percentage == 1.0
         return SimulationResult(trades=[], total_profit=5.0)
 
     monkeypatch.setattr(cli.symbols, "load_symbols", fake_load_symbols)
@@ -108,10 +110,12 @@ def test_run_cli_uses_close_by_default(
         entry_rule: Callable[[pandas.Series], bool],
         exit_rule: Callable[[pandas.Series, pandas.Series], bool],
         price_column: str = "close",
+        stop_loss_percentage: float = 1.0,
     ) -> SimulationResult:
         assert price_column == "close"
         assert entry_rule(data_frame.iloc[0])
         assert not exit_rule(data_frame.iloc[0], data_frame.iloc[0])
+        assert stop_loss_percentage == 1.0
         return SimulationResult(trades=[], total_profit=0.0)
 
     monkeypatch.setattr(cli.symbols, "load_symbols", fake_load_symbols)
@@ -160,10 +164,12 @@ def test_run_cli_accepts_price_column_argument(
         entry_rule: Callable[[pandas.Series], bool],
         exit_rule: Callable[[pandas.Series, pandas.Series], bool],
         price_column: str = "close",
+        stop_loss_percentage: float = 1.0,
     ) -> SimulationResult:
         assert price_column == "open"
         assert not entry_rule(data_frame.iloc[0])
         assert exit_rule(data_frame.iloc[0], data_frame.iloc[0])
+        assert stop_loss_percentage == 1.0
         return SimulationResult(trades=[], total_profit=0.0)
 
     monkeypatch.setattr(cli.symbols, "load_symbols", fake_load_symbols)
