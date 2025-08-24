@@ -162,7 +162,10 @@ class StockShell(cmd.Cmd):
         for year, annual_return in sorted(
             evaluation_metrics.annual_returns.items()
         ):
-            self.stdout.write(f"Year {year}: {annual_return:.2%}\n")
+            trade_count = evaluation_metrics.annual_trade_counts.get(year, 0)
+            self.stdout.write(
+                f"Year {year}: {annual_return:.2%}, trade: {trade_count}\n"
+            )
 
     # TODO: review
     def help_start_simulate(self) -> None:

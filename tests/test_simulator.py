@@ -17,6 +17,7 @@ from stock_indicator.simulator import (
     Trade,
     calculate_maximum_concurrent_positions,
     calculate_annual_returns,
+    calculate_annual_trade_counts,
     simulate_trades,
     simulate_portfolio_balance,
 )
@@ -311,3 +312,34 @@ def test_calculate_annual_returns_computes_yearly_returns() -> None:
     expected_return_2024 = (second_year_end - first_year_end) / first_year_end
     assert pytest.approx(annual_returns[2023], rel=1e-6) == expected_return_2023
     assert pytest.approx(annual_returns[2024], rel=1e-6) == expected_return_2024
+
+
+def test_calculate_annual_trade_counts_counts_trades_per_year() -> None:
+    trade_alpha = Trade(
+        entry_date=pandas.Timestamp("2023-01-01"),
+        exit_date=pandas.Timestamp("2023-02-01"),
+        entry_price=10.0,
+        exit_price=11.0,
+        profit=1.0 - TRADE_COMMISSION,
+        holding_period=1,
+    )
+    trade_beta = Trade(
+        entry_date=pandas.Timestamp("2024-03-01"),
+        exit_date=pandas.Timestamp("2024-04-01"),
+        entry_price=10.0,
+        exit_price=12.0,
+        profit=2.0 - TRADE_COMMISSION,
+        holding_period=1,
+    )
+    trade_gamma = Trade(
+        entry_date=pandas.Timestamp("2024-05-01"),
+        exit_date=pandas.Timestamp("2024-06-01"),
+        entry_price=10.0,
+        exit_price=9.0,
+        profit=-1.0 - TRADE_COMMISSION,
+        holding_period=1,
+    )
+    trade_counts = calculate_annual_trade_counts(
+        [trade_alpha, trade_beta, trade_gamma]
+    )
+    assert trade_counts == {2023: 1, 2024: 2}

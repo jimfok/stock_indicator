@@ -132,6 +132,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
             maximum_concurrent_positions=2,
             final_balance=123.45,
             annual_returns={2023: 0.1, 2024: -0.05},
+            annual_trade_counts={2023: 2, 2024: 1},
         )
 
     monkeypatch.setattr(
@@ -151,8 +152,8 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
         "Mean loss %: 5.00%, Loss % Std Dev: 0.00%, Mean holding period: 2.00 bars, "
         "Holding period Std Dev: 1.00 bars, Max concurrent positions: 2, Final balance: 123.45" in output_buffer.getvalue()
     )
-    assert "Year 2023: 10.00%" in output_buffer.getvalue()
-    assert "Year 2024: -5.00%" in output_buffer.getvalue()
+    assert "Year 2023: 10.00%, trade: 2" in output_buffer.getvalue()
+    assert "Year 2024: -5.00%, trade: 1" in output_buffer.getvalue()
 
 
 def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -187,6 +188,7 @@ def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) ->
             maximum_concurrent_positions=0,
             final_balance=0.0,
             annual_returns={},
+            annual_trade_counts={},
         )
 
     monkeypatch.setattr(
@@ -237,6 +239,7 @@ def test_start_simulate_supports_rsi_strategy(
             maximum_concurrent_positions=0,
             final_balance=0.0,
             annual_returns={},
+            annual_trade_counts={},
         )
 
     monkeypatch.setattr(
@@ -288,6 +291,7 @@ def test_start_simulate_supports_slope_strategy(
             maximum_concurrent_positions=0,
             final_balance=0.0,
             annual_returns={},
+            annual_trade_counts={},
         )
 
     monkeypatch.setattr(
@@ -337,6 +341,7 @@ def test_start_simulate_accepts_stop_loss_argument(
             maximum_concurrent_positions=0,
             final_balance=0.0,
             annual_returns={},
+            annual_trade_counts={},
         )
 
     monkeypatch.setattr(

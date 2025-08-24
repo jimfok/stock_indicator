@@ -315,3 +315,26 @@ def calculate_annual_returns(
             )
 
     return annual_returns
+
+
+def calculate_annual_trade_counts(trades: Iterable[Trade]) -> Dict[int, int]:
+    """Count completed trades for each calendar year.
+
+    Parameters
+    ----------
+    trades:
+        Collection of trades containing exit dates.
+
+    Returns
+    -------
+    Dict[int, int]
+        Mapping of year to number of trades that closed during that year.
+    """
+    trade_counts: Dict[int, int] = {}
+    for completed_trade in trades:
+        year_value = completed_trade.exit_date.year
+        if year_value in trade_counts:
+            trade_counts[year_value] += 1
+        else:
+            trade_counts[year_value] = 1
+    return trade_counts
