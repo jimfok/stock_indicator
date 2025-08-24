@@ -109,8 +109,17 @@ def run_daily_tasks(
         raise ValueError(f"Unknown strategy: {sell_strategy_name}")
 
     for symbol in symbol_list:
+        data_file_path: Path | None = None
+        if data_directory is not None:
+            data_directory.mkdir(parents=True, exist_ok=True)
+            data_file_path = data_directory / f"{symbol}.csv"
         try:
-            price_history_frame = data_download_function(symbol, start_date, end_date)
+            if data_file_path is not None:
+                price_history_frame = data_download_function(
+                    symbol, start_date, end_date, cache_path=data_file_path
+                )
+            else:
+                price_history_frame = data_download_function(symbol, start_date, end_date)
         except Exception as download_error:  # noqa: BLE001
             LOGGER.warning("Failed to download data for %s: %s", symbol, download_error)
             continue
@@ -142,11 +151,6 @@ def run_daily_tasks(
             entry_signal_symbols.append(symbol)
         if exit_column_name in price_history_frame and bool(latest_row[exit_column_name]):
             exit_signal_symbols.append(symbol)
-
-        if data_directory is not None:
-            data_directory.mkdir(parents=True, exist_ok=True)
-            data_file_path = data_directory / f"{symbol}.csv"
-            price_history_frame.to_csv(data_file_path)
 
     return {"entry_signals": entry_signal_symbols, "exit_signals": exit_signal_symbols}
 

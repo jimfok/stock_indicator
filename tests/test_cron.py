@@ -14,8 +14,13 @@ def test_run_daily_tasks_detects_signals(tmp_path, monkeypatch):
     def fake_update_symbol_cache() -> None:
         return None
 
-    def fake_download_history(symbol: str, start: str, end: str) -> pandas.DataFrame:
-        return pandas.DataFrame({"close": [1.0, 2.0, 3.0]})
+    def fake_download_history(
+        symbol: str, start: str, end: str, cache_path: Path | None = None
+    ) -> pandas.DataFrame:
+        frame = pandas.DataFrame({"close": [1.0, 2.0, 3.0]})
+        if cache_path is not None:
+            frame.to_csv(cache_path)
+        return frame
 
     def fake_strategy(price_history_frame: pandas.DataFrame) -> None:
         price_history_frame["fake_strategy_entry_signal"] = [False, False, True]
