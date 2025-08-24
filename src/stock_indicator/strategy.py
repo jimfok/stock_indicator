@@ -188,19 +188,20 @@ def attach_ftd_ema_sma_cross_signals(
 def attach_ema_sma_cross_with_slope_signals(
     price_data_frame: pandas.DataFrame,
     window_size: int = 50,
-    slope_range: tuple[float, float] = (-0.3, 0.3),
+    slope_range: tuple[float, float] = (-0.4, 1.0),
 ) -> None:
     """Attach EMA/SMA cross signals filtered by SMA slope to ``price_data_frame``.
 
-    Unlike :func:`attach_ema_sma_cross_signals`, this variant does not require
-    the closing price to be above the long-term simple moving average.
+    Entry signals are generated only when the previous closing price is greater
+    than the long-term simple moving average and the slope of the simple moving
+    average lies within ``slope_range``.
     """
     # TODO: review
 
     attach_ema_sma_cross_signals(
         price_data_frame,
         window_size,
-        require_close_above_long_term_sma=False,
+        require_close_above_long_term_sma=True,
     )
     price_data_frame["sma_slope"] = (
         price_data_frame["sma_value"] - price_data_frame["sma_previous"]
