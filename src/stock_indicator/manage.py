@@ -159,6 +159,10 @@ class StockShell(cmd.Cmd):
                 f"Final balance: {evaluation_metrics.final_balance:.2f}\n"
             )
         )
+        for year, annual_return in sorted(
+            evaluation_metrics.annual_returns.items()
+        ):
+            self.stdout.write(f"Year {year}: {annual_return:.2%}\n")
 
     # TODO: review
     def help_start_simulate(self) -> None:

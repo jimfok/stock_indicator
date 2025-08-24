@@ -131,7 +131,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
             holding_period_standard_deviation=1.0,
             maximum_concurrent_positions=2,
             final_balance=123.45,
-            annual_returns={},
+            annual_returns={2023: 0.1, 2024: -0.05},
         )
 
     monkeypatch.setattr(
@@ -151,6 +151,8 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
         "Mean loss %: 5.00%, Loss % Std Dev: 0.00%, Mean holding period: 2.00 bars, "
         "Holding period Std Dev: 1.00 bars, Max concurrent positions: 2, Final balance: 123.45" in output_buffer.getvalue()
     )
+    assert "Year 2023: 10.00%" in output_buffer.getvalue()
+    assert "Year 2024: -5.00%" in output_buffer.getvalue()
 
 
 def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) -> None:
