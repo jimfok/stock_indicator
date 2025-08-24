@@ -535,7 +535,9 @@ def test_attach_ema_sma_cross_and_rsi_signals_filters_by_rsi(
     )
 
     def fake_attach_ema_sma_cross_signals(
-        data_frame: pandas.DataFrame, window_size: int = 50
+        data_frame: pandas.DataFrame,
+        window_size: int = 50,
+        require_close_above_long_term_sma: bool = True,
     ) -> None:
         data_frame["ema_sma_cross_entry_signal"] = pandas.Series(
             [False, True, True]
@@ -581,7 +583,9 @@ def test_attach_ftd_ema_sma_cross_signals_requires_recent_ftd(
     )
 
     def fake_attach_ema_sma_cross_signals(
-        data_frame: pandas.DataFrame, window_size: int = 50
+        data_frame: pandas.DataFrame,
+        window_size: int = 50,
+        require_close_above_long_term_sma: bool = True,
     ) -> None:
         data_frame["ema_sma_cross_entry_signal"] = pandas.Series(
             [False, False, False, False, True, False, True]
@@ -625,7 +629,7 @@ def test_attach_ftd_ema_sma_cross_signals_requires_recent_ftd(
 def test_attach_ema_sma_cross_with_slope_requires_flat_sma(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The EMA/SMA cross entry should require a flat SMA slope."""
+    """The EMA/SMA cross entry should require a flat SMA slope and not depend on the long-term SMA."""
     # TODO: review
 
     import stock_indicator.strategy as strategy_module
@@ -634,9 +638,15 @@ def test_attach_ema_sma_cross_with_slope_requires_flat_sma(
         {"open": [1.0, 1.0, 1.0], "close": [1.0, 1.0, 1.0]}
     )
 
+    recorded_require_close: bool | None = None
+
     def fake_attach_ema_sma_cross_signals(
-        data_frame: pandas.DataFrame, window_size: int = 50
+        data_frame: pandas.DataFrame,
+        window_size: int = 50,
+        require_close_above_long_term_sma: bool = True,
     ) -> None:
+        nonlocal recorded_require_close
+        recorded_require_close = require_close_above_long_term_sma
         data_frame["sma_value"] = pandas.Series([1.0, 1.1, 1.5])
         data_frame["sma_previous"] = data_frame["sma_value"].shift(1)
         data_frame["ema_sma_cross_entry_signal"] = pandas.Series(
@@ -652,6 +662,7 @@ def test_attach_ema_sma_cross_with_slope_requires_flat_sma(
 
     strategy_module.attach_ema_sma_cross_with_slope_signals(price_data_frame)
 
+    assert recorded_require_close is False
     assert list(price_data_frame["ema_sma_cross_with_slope_entry_signal"]) == [
         False,
         True,

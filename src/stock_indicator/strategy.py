@@ -83,9 +83,22 @@ def load_price_data(csv_file_path: Path) -> pandas.DataFrame:
 
 
 def attach_ema_sma_cross_signals(
-    price_data_frame: pandas.DataFrame, window_size: int = 50
+    price_data_frame: pandas.DataFrame,
+    window_size: int = 50,
+    require_close_above_long_term_sma: bool = True,
 ) -> None:
-    """Attach EMA/SMA cross entry and exit signals to ``price_data_frame``."""
+    """Attach EMA/SMA cross entry and exit signals to ``price_data_frame``.
+
+    Parameters
+    ----------
+    price_data_frame:
+        DataFrame containing ``open`` and ``close`` price columns.
+    window_size:
+        Number of periods for both EMA and SMA calculations.
+    require_close_above_long_term_sma:
+        When ``True``, entry signals are only generated if the previous day's
+        closing price is greater than the 150-day simple moving average.
+    """
     # TODO: review
 
     price_data_frame["ema_value"] = ema(price_data_frame["close"], window_size)
@@ -107,13 +120,17 @@ def attach_ema_sma_cross_signals(
         (price_data_frame["ema_previous"] >= price_data_frame["sma_previous"])
         & (price_data_frame["ema_value"] < price_data_frame["sma_value"])
     )
-    price_data_frame["ema_sma_cross_entry_signal"] = (
-        ema_cross_up.shift(1, fill_value=False)
-        & (
-            price_data_frame["close_previous"]
-            > price_data_frame["long_term_sma_previous"]
+    base_entry_signal = ema_cross_up.shift(1, fill_value=False)
+    if require_close_above_long_term_sma:
+        price_data_frame["ema_sma_cross_entry_signal"] = (
+            base_entry_signal
+            & (
+                price_data_frame["close_previous"]
+                > price_data_frame["long_term_sma_previous"]
+            )
         )
-    )
+    else:
+        price_data_frame["ema_sma_cross_entry_signal"] = base_entry_signal
     price_data_frame["ema_sma_cross_exit_signal"] = ema_cross_down.shift(
         1, fill_value=False
     )
@@ -171,10 +188,18 @@ def attach_ema_sma_cross_with_slope_signals(
     window_size: int = 50,
     slope_range: tuple[float, float] = (-0.3, 0.3),
 ) -> None:
-    """Attach EMA/SMA cross signals filtered by SMA slope to ``price_data_frame``."""
+    """Attach EMA/SMA cross signals filtered by SMA slope to ``price_data_frame``.
+
+    Unlike :func:`attach_ema_sma_cross_signals`, this variant does not require
+    the closing price to be above the long-term simple moving average.
+    """
     # TODO: review
 
-    attach_ema_sma_cross_signals(price_data_frame, window_size)
+    attach_ema_sma_cross_signals(
+        price_data_frame,
+        window_size,
+        require_close_above_long_term_sma=False,
+    )
     price_data_frame["sma_slope"] = (
         price_data_frame["sma_value"] - price_data_frame["sma_previous"]
     )
