@@ -85,6 +85,8 @@ def download_history(
                 progress=False,
                 **download_options,
             )
+            if isinstance(downloaded_frame.columns, pandas.MultiIndex):
+                downloaded_frame.columns = downloaded_frame.columns.get_level_values(0)
             downloaded_frame.columns = [
                 str(column_name).lower().replace(" ", "_")
                 for column_name in downloaded_frame.columns
