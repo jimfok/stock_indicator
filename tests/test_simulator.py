@@ -12,6 +12,7 @@ from stock_indicator.indicators import sma
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 from stock_indicator.simulator import (
+    TRADE_COMMISSION,
     SimulationResult,
     Trade,
     calculate_maximum_concurrent_positions,
@@ -42,9 +43,10 @@ def test_simulate_trades_executes_trade_flow_with_default_column() -> None:
     assert completed_trade.exit_date == expected_exit_date
     assert completed_trade.entry_price == 102.0
     assert completed_trade.exit_price == 106.0
-    assert completed_trade.profit == 4.0
+    expected_profit = 4.0 - TRADE_COMMISSION
+    assert completed_trade.profit == expected_profit
     assert completed_trade.holding_period == 3
-    assert result.total_profit == 4.0
+    assert result.total_profit == expected_profit
 
 
 def test_simulate_trades_with_sma_strategy_uses_aligned_labels() -> None:
@@ -89,9 +91,10 @@ def test_simulate_trades_with_sma_strategy_uses_aligned_labels() -> None:
     assert completed_trade.exit_date == expected_exit_date
     assert completed_trade.entry_price == 102.0
     assert completed_trade.exit_price == 103.0
-    assert completed_trade.profit == 1.0
+    expected_profit = 1.0 - TRADE_COMMISSION
+    assert completed_trade.profit == expected_profit
     assert completed_trade.holding_period == 2
-    assert result.total_profit == 1.0
+    assert result.total_profit == expected_profit
 
 
 def test_simulate_trades_handles_distinct_entry_and_exit_price_columns() -> None:
@@ -122,9 +125,10 @@ def test_simulate_trades_handles_distinct_entry_and_exit_price_columns() -> None
     assert completed_trade.exit_date == expected_exit_date
     assert completed_trade.entry_price == 10.0
     assert completed_trade.exit_price == 13.0
-    assert completed_trade.profit == 3.0
+    expected_profit = 3.0 - TRADE_COMMISSION
+    assert completed_trade.profit == expected_profit
     assert completed_trade.holding_period == 1
-    assert result.total_profit == 3.0
+    assert result.total_profit == expected_profit
 
 
 def test_simulate_trades_closes_open_position_at_end() -> None:
@@ -242,4 +246,5 @@ def test_simulate_portfolio_balance_allocates_proportional_cash() -> None:
     final_balance = simulate_portfolio_balance(
         [trade_alpha, trade_beta, trade_gamma], 100.0, 2
     )
-    assert pytest.approx(final_balance, rel=1e-6) == 150.0
+    expected_final_balance = 150.0 - TRADE_COMMISSION * 2
+    assert pytest.approx(final_balance, rel=1e-6) == expected_final_balance

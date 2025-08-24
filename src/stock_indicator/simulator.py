@@ -8,6 +8,8 @@ from typing import Callable, Iterable, List
 
 import pandas
 
+# TODO: review
+TRADE_COMMISSION: float = 1.0
 
 @dataclass(frozen=True)
 class Trade:
@@ -52,6 +54,8 @@ def simulate_trades(
     exit_price_column: str, optional
         Column name used for calculating exit price. When ``None``,
         ``entry_price_column`` is used for both entry and exit prices.
+    A fixed commission defined by ``TRADE_COMMISSION`` is subtracted from each
+    trade's profit.
 
     Returns
     -------
@@ -81,7 +85,7 @@ def simulate_trades(
                     exit_price_column if exit_price_column is not None else entry_price_column
                 )
                 exit_price = float(current_row[price_column_name])
-                profit_value = exit_price - entry_price
+                profit_value = exit_price - entry_price - TRADE_COMMISSION
                 holding_period_value = row_index - entry_row_index
                 trades.append(
                     Trade(
@@ -104,7 +108,7 @@ def simulate_trades(
         final_row = data.iloc[-1]
         entry_price = float(entry_row[entry_price_column])
         exit_price = float(final_row[price_column_name])
-        profit_value = exit_price - entry_price
+        profit_value = exit_price - entry_price - TRADE_COMMISSION
         holding_period_value = len(data) - entry_row_index - 1
         trades.append(
             Trade(
@@ -165,6 +169,7 @@ def simulate_portfolio_balance(
         Initial cash available for trading.
     maximum_positions : int
         Maximum number of concurrent positions allowed.
+    Each trade closure deducts ``TRADE_COMMISSION`` from the cash balance.
 
     Returns
     -------
@@ -185,6 +190,7 @@ def simulate_portfolio_balance(
                 cash_balance += invested_amount * (
                     trade.exit_price / trade.entry_price
                 )
+                cash_balance -= TRADE_COMMISSION
         else:
             if len(open_trades) >= maximum_positions or cash_balance <= 0:
                 continue
