@@ -15,6 +15,7 @@ from .indicators import ema, kalman_filter, sma, rsi, ftd
 from .simulator import (
     calculate_maximum_concurrent_positions,
     calculate_annual_returns,
+    calculate_annual_trade_counts,
     simulate_trades,
     SimulationResult,
     simulate_portfolio_balance,
@@ -41,6 +42,7 @@ class StrategyMetrics:
     maximum_concurrent_positions: int
     final_balance: float
     annual_returns: Dict[int, float]
+    annual_trade_counts: Dict[int, int]
 
 
 def load_price_data(csv_file_path: Path) -> pandas.DataFrame:
@@ -186,7 +188,7 @@ def attach_ftd_ema_sma_cross_signals(
 def attach_ema_sma_cross_with_slope_signals(
     price_data_frame: pandas.DataFrame,
     window_size: int = 50,
-    slope_range: tuple[float, float] = (-0.3, 1.0),
+    slope_range: tuple[float, float] = (-0.3, 0.3),
 ) -> None:
     """Attach EMA/SMA cross signals filtered by SMA slope to ``price_data_frame``.
 
@@ -198,7 +200,7 @@ def attach_ema_sma_cross_with_slope_signals(
     attach_ema_sma_cross_signals(
         price_data_frame,
         window_size,
-        require_close_above_long_term_sma=True,
+        require_close_above_long_term_sma=False,
     )
     price_data_frame["sma_slope"] = (
         price_data_frame["sma_value"] - price_data_frame["sma_previous"]
@@ -305,6 +307,7 @@ def calculate_metrics(
     maximum_concurrent_positions: int = 0,
     final_balance: float = 0.0,
     annual_returns: Dict[int, float] | None = None,
+    annual_trade_counts: Dict[int, int] | None = None,
 ) -> StrategyMetrics:
     """Compute summary metrics for a list of simulated trades."""
     # TODO: review
@@ -323,6 +326,7 @@ def calculate_metrics(
             maximum_concurrent_positions=maximum_concurrent_positions,
             final_balance=final_balance,
             annual_returns={} if annual_returns is None else annual_returns,
+            annual_trade_counts={} if annual_trade_counts is None else annual_trade_counts,
         )
 
     winning_trade_count = sum(
@@ -356,6 +360,7 @@ def calculate_metrics(
         maximum_concurrent_positions=maximum_concurrent_positions,
         final_balance=final_balance,
         annual_returns={} if annual_returns is None else annual_returns,
+        annual_trade_counts={} if annual_trade_counts is None else annual_trade_counts,
     )
 
 
@@ -467,6 +472,7 @@ def evaluate_combined_strategy(
     annual_returns = calculate_annual_returns(
         all_trades, starting_cash, maximum_positions
     )
+    annual_trade_counts = calculate_annual_trade_counts(all_trades)
     final_balance = simulate_portfolio_balance(
         all_trades, starting_cash, maximum_positions
     )
@@ -478,6 +484,7 @@ def evaluate_combined_strategy(
         maximum_concurrent_positions,
         final_balance,
         annual_returns,
+        annual_trade_counts,
     )
 
 
@@ -627,6 +634,7 @@ def evaluate_ema_sma_cross_strategy(
             maximum_concurrent_positions=maximum_concurrent_positions,
             final_balance=0.0,
             annual_returns={},
+            annual_trade_counts={},
         )
 
     winning_trade_count = sum(
@@ -658,6 +666,7 @@ def evaluate_ema_sma_cross_strategy(
         maximum_concurrent_positions=maximum_concurrent_positions,
         final_balance=0.0,
         annual_returns={},
+        annual_trade_counts={},
     )
 
 
@@ -800,6 +809,7 @@ def evaluate_kalman_channel_strategy(
             maximum_concurrent_positions=maximum_concurrent_positions,
             final_balance=0.0,
             annual_returns={},
+            annual_trade_counts={},
         )
 
     winning_trade_count = sum(
@@ -833,4 +843,5 @@ def evaluate_kalman_channel_strategy(
         maximum_concurrent_positions=maximum_concurrent_positions,
         final_balance=0.0,
         annual_returns={},
+        annual_trade_counts={},
     )
