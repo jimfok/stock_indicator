@@ -11,7 +11,7 @@ from typing import Callable, Dict, List
 import re
 import pandas
 
-from .indicators import ema, kalman_filter, sma, rsi
+from .indicators import ema, kalman_filter, sma, rsi, ftd
 from .simulator import (
     calculate_maximum_concurrent_positions,
     calculate_annual_returns,
@@ -140,6 +140,32 @@ def attach_ema_sma_cross_and_rsi_signals(
     ]
 
 
+def attach_ftd_ema_sma_cross_signals(
+    price_data_frame: pandas.DataFrame, window_size: int = 50
+) -> None:
+    """Attach EMA/SMA cross signals gated by recent FTD signals."""
+    # TODO: review
+
+    attach_ema_sma_cross_signals(price_data_frame, window_size)
+    ftd_signal_list: List[bool] = []
+    for row_index in range(len(price_data_frame)):
+        recent_price_data_frame = price_data_frame.iloc[: row_index + 1]
+        ftd_signal_list.append(ftd(recent_price_data_frame, buy_mark_day=1))
+    price_data_frame["ftd_signal"] = pandas.Series(
+        ftd_signal_list, index=price_data_frame.index
+    )
+    price_data_frame["ftd_recent_signal"] = (
+        price_data_frame["ftd_signal"].shift(1).rolling(window=4).max().fillna(0) >= 1
+    )
+    price_data_frame["ftd_ema_sma_cross_entry_signal"] = (
+        price_data_frame["ema_sma_cross_entry_signal"]
+        & price_data_frame["ftd_recent_signal"]
+    )
+    price_data_frame["ftd_ema_sma_cross_exit_signal"] = price_data_frame[
+        "ema_sma_cross_exit_signal"
+    ]
+
+
 def attach_kalman_filtering_signals(
     price_data_frame: pandas.DataFrame,
     process_variance: float = 1e-5,
@@ -176,6 +202,7 @@ def attach_kalman_filtering_signals(
 SUPPORTED_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
     "ema_sma_cross": attach_ema_sma_cross_signals,
     "ema_sma_cross_and_rsi": attach_ema_sma_cross_and_rsi_signals,
+    "ftd_ema_sma_cross": attach_ftd_ema_sma_cross_signals,
     "kalman_filtering": attach_kalman_filtering_signals,
 }
 
