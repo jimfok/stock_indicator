@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from stock_indicator.indicators import (
     cci,
     ema,
+    ftd,
     kalman_filter,
     macd,
     relative_strength,
@@ -137,3 +138,27 @@ def test_kalman_filter_produces_bounds() -> None:
     result_dataframe = kalman_filter(price_series)
     expected_dataframe = manual_kalman(price_series)
     pandas.testing.assert_frame_equal(result_dataframe, expected_dataframe)
+
+
+# TODO: review
+def test_ftd_returns_true_when_conditions_met() -> None:
+    price_data_frame = pandas.DataFrame(
+        {
+            "close": [20] * 27 + [10, 11, 12, 13],
+            "low": [20] * 27 + [10, 11, 12, 13],
+            "volume": [100] * 27 + [100, 200, 200, 200],
+        }
+    )
+    assert ftd(price_data_frame, buy_mark_day=5)
+
+
+# TODO: review
+def test_ftd_returns_false_when_no_conditions_met() -> None:
+    price_data_frame = pandas.DataFrame(
+        {
+            "close": [10] * 10,
+            "low": [10] * 10,
+            "volume": [100] * 10,
+        }
+    )
+    assert not ftd(price_data_frame, buy_mark_day=5)

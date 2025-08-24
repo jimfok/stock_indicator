@@ -231,3 +231,76 @@ def kalman_filter(
         },
         index=price_series.index,
     )
+
+
+# TODO: review
+def ftd(price_data_frame: pandas.DataFrame, buy_mark_day: int, tolerance: float = 1e-8) -> bool:
+    """Evaluate the Follow Through Day (FTD) indicator.
+
+    The indicator returns ``True`` when all of the following conditions are met
+    for any bar within the last ``buy_mark_day`` bars:
+
+    * ``close`` price three bars ago is below its 50-period EMA.
+    * The low three bars ago is approximately equal to the 23-bar rolling
+      minimum low.
+    * Lows form a rising sequence over the most recent four bars.
+    * The sum of volume over the last four bars exceeds the sum from three bars
+      earlier.
+    * Within the last seven bars, at least one day's volume exceeds its
+      50-period EMA.
+
+    Parameters
+    ----------
+    price_data_frame : pandas.DataFrame
+        Data frame containing ``close``, ``low``, and ``volume`` columns.
+    buy_mark_day : int
+        Number of most recent bars to inspect.
+    tolerance : float, default 1e-8
+        Absolute tolerance used when comparing lows for equality.
+
+    Returns
+    -------
+    bool
+        ``True`` if a Follow Through Day occurred within ``buy_mark_day`` bars,
+        otherwise ``False``.
+    """
+    close_series = price_data_frame["close"]
+    low_series = price_data_frame["low"]
+    volume_series = price_data_frame["volume"]
+
+    ema_close_series = ema(close_series, 50)
+    ema_volume_series = ema(volume_series, 50)
+
+    rolling_low_series = low_series.rolling(window=23, min_periods=1).min()
+    four_day_volume_sum_series = volume_series.rolling(window=4).sum()
+
+    moving_average_check_series = close_series.shift(3) < ema_close_series.shift(3)
+
+    bottom_check_series = (
+        (rolling_low_series - low_series.shift(3)).abs() <= tolerance
+    )
+
+    low_check_series = (
+        (low_series > low_series.shift(1))
+        & (low_series.shift(1) > low_series.shift(2))
+        & (low_series.shift(2) > low_series.shift(3))
+    )
+
+    volume_check_series = (
+        four_day_volume_sum_series > four_day_volume_sum_series.shift(3)
+    )
+
+    volume_above_ema_series = volume_series > ema_volume_series
+    moving_average_volume_check_series = (
+        volume_above_ema_series.rolling(window=7, min_periods=1).max().astype(bool)
+    )
+
+    state_series = (
+        moving_average_check_series
+        & bottom_check_series
+        & low_check_series
+        & volume_check_series
+        & moving_average_volume_check_series
+    )
+
+    return state_series.tail(buy_mark_day).any()
