@@ -256,6 +256,57 @@ def test_start_simulate_supports_rsi_strategy(
     )
 
 
+def test_start_simulate_supports_slope_strategy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command should recognize the EMA/SMA cross with slope strategy."""
+    # TODO: review
+
+    import stock_indicator.manage as manage_module
+
+    call_arguments: dict[str, tuple[str, str]] = {}
+
+    from stock_indicator.strategy import StrategyMetrics
+
+    def fake_evaluate(
+        data_directory: Path,
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        minimum_average_dollar_volume: float,
+        stop_loss_percentage: float,
+    ) -> StrategyMetrics:
+        call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
+        return StrategyMetrics(
+            total_trades=0,
+            win_rate=0.0,
+            mean_profit_percentage=0.0,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.0,
+            loss_percentage_standard_deviation=0.0,
+            mean_holding_period=0.0,
+            holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=0,
+            final_balance=0.0,
+            annual_returns={},
+        )
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "evaluate_combined_strategy",
+        fake_evaluate,
+    )
+
+    shell = manage_module.StockShell(stdout=io.StringIO())
+    shell.onecmd(
+        "start_simulate dollar_volume>0 "
+        "ema_sma_cross_with_slope ema_sma_cross_with_slope"
+    )
+    assert call_arguments["strategies"] == (
+        "ema_sma_cross_with_slope",
+        "ema_sma_cross_with_slope",
+    )
+
+
 def test_start_simulate_accepts_stop_loss_argument(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
