@@ -360,3 +360,15 @@ def test_start_simulate_unsupported_strategy(monkeypatch: pytest.MonkeyPatch) ->
     shell = manage_module.StockShell(stdout=output_buffer)
     shell.onecmd("start_simulate dollar_volume>0 unknown ema_sma_cross")
     assert "unsupported strategies" in output_buffer.getvalue()
+
+
+def test_start_simulate_rejects_sell_only_buy_strategy() -> None:
+    """The command should reject strategies that are sell only when used for buying."""
+    import stock_indicator.manage as manage_module
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd(
+        "start_simulate dollar_volume>0 kalman_filtering ema_sma_cross"
+    )
+    assert "unsupported strategies" in output_buffer.getvalue()

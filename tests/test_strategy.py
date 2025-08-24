@@ -402,6 +402,12 @@ def test_evaluate_combined_strategy_unsupported_name(tmp_path: Path) -> None:
         evaluate_combined_strategy(tmp_path, "unknown", "ema_sma_cross")
 
 
+def test_evaluate_combined_strategy_rejects_sell_only_buy(tmp_path: Path) -> None:
+    """evaluate_combined_strategy should reject sell-only strategies used for buying."""
+    with pytest.raises(ValueError, match="Unsupported strategy"):
+        evaluate_combined_strategy(tmp_path, "kalman_filtering", "ema_sma_cross")
+
+
 def test_evaluate_combined_strategy_dollar_volume_filter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -481,6 +487,8 @@ def test_evaluate_combined_strategy_reports_maximum_positions(
             }
         ).to_csv(tmp_path / f"{symbol_name}.csv", index=False)
 
+    monkeypatch.setattr(strategy_module, "BUY_STRATEGIES", {"noop": lambda df: None})
+    monkeypatch.setattr(strategy_module, "SELL_STRATEGIES", {"noop": lambda df: None})
     monkeypatch.setattr(strategy_module, "SUPPORTED_STRATEGIES", {"noop": lambda df: None})
 
     simulation_results = [
