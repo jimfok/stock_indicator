@@ -309,23 +309,3 @@ def test_start_simulate_unsupported_strategy(monkeypatch: pytest.MonkeyPatch) ->
     shell = manage_module.StockShell(stdout=output_buffer)
     shell.onecmd("start_simulate dollar_volume>0 unknown ema_sma_cross")
     assert "unsupported strategies" in output_buffer.getvalue()
-
-
-def test_start_ftd_ema_sma_cross(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The command should evaluate the FTD EMA/SMA cross strategy."""
-    import stock_indicator.manage as manage_module
-
-    recorded_argument: dict[str, str] = {}
-
-    def fake_start_simulate(self: manage_module.StockShell, argument_line: str) -> None:
-        recorded_argument["argument_line"] = argument_line
-
-    monkeypatch.setattr(
-        manage_module.StockShell, "do_start_simulate", fake_start_simulate
-    )
-
-    shell = manage_module.StockShell(stdout=io.StringIO())
-    shell.onecmd("start_ftd_ema_sma_cross dollar_volume>50 0.7")
-    assert recorded_argument["argument_line"] == (
-        "dollar_volume>50 ftd_ema_sma_cross ftd_ema_sma_cross 0.7"
-    )

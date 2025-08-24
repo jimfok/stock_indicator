@@ -181,35 +181,6 @@ class StockShell(cmd.Cmd):
             "Buy and sell strategies may differ.\n"
         )
 
-    # TODO: review
-    def do_start_ftd_ema_sma_cross(self, argument_line: str) -> None:  # noqa: D401
-        """start_ftd_ema_sma_cross DOLLAR_VOLUME_FILTER [STOP_LOSS]
-        Evaluate the ftd_ema_sma_cross strategy for both entry and exit."""
-        argument_parts: List[str] = argument_line.split()
-        if len(argument_parts) not in (1, 2):
-            self.stdout.write(
-                "usage: start_ftd_ema_sma_cross DOLLAR_VOLUME_FILTER [STOP_LOSS]\n"
-            )
-            return
-        volume_filter = argument_parts[0]
-        stop_loss_argument = argument_parts[1] if len(argument_parts) == 2 else ""
-        command_arguments = (
-            f"{volume_filter} ftd_ema_sma_cross ftd_ema_sma_cross"
-            f"{(' ' + stop_loss_argument) if stop_loss_argument else ''}"
-        )
-        self.do_start_simulate(command_arguments)
-
-    # TODO: review
-    def help_start_ftd_ema_sma_cross(self) -> None:
-        """Display help for the start_ftd_ema_sma_cross command."""
-        self.stdout.write(
-            "start_ftd_ema_sma_cross DOLLAR_VOLUME_FILTER [STOP_LOSS]\n"
-            "Evaluate the ftd_ema_sma_cross strategy using cached data.\n"
-            "Parameters:\n"
-            "  DOLLAR_VOLUME_FILTER: Format dollar_volume>NUMBER (in millions).\n"
-            "  STOP_LOSS: Fractional loss that triggers an exit on the next day's open. "
-            "Defaults to 1.0.\n"
-        )
 
     def do_exit(self, argument_line: str) -> bool:  # noqa: D401
         """exit
