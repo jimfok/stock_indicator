@@ -166,6 +166,29 @@ def attach_ftd_ema_sma_cross_signals(
     ]
 
 
+def attach_ema_sma_cross_with_slope_signals(
+    price_data_frame: pandas.DataFrame,
+    window_size: int = 50,
+    slope_range: tuple[float, float] = (-0.3, 0.3),
+) -> None:
+    """Attach EMA/SMA cross signals filtered by SMA slope to ``price_data_frame``."""
+    # TODO: review
+
+    attach_ema_sma_cross_signals(price_data_frame, window_size)
+    price_data_frame["sma_slope"] = (
+        price_data_frame["sma_value"] - price_data_frame["sma_previous"]
+    )
+    slope_lower_bound, slope_upper_bound = slope_range
+    price_data_frame["ema_sma_cross_with_slope_entry_signal"] = (
+        price_data_frame["ema_sma_cross_entry_signal"]
+        & (price_data_frame["sma_slope"] >= slope_lower_bound)
+        & (price_data_frame["sma_slope"] <= slope_upper_bound)
+    )
+    price_data_frame["ema_sma_cross_with_slope_exit_signal"] = price_data_frame[
+        "ema_sma_cross_exit_signal"
+    ]
+
+
 def attach_kalman_filtering_signals(
     price_data_frame: pandas.DataFrame,
     process_variance: float = 1e-5,
@@ -203,6 +226,7 @@ SUPPORTED_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
     "ema_sma_cross": attach_ema_sma_cross_signals,
     "ema_sma_cross_and_rsi": attach_ema_sma_cross_and_rsi_signals,
     "ftd_ema_sma_cross": attach_ftd_ema_sma_cross_signals,
+    "ema_sma_cross_with_slope": attach_ema_sma_cross_with_slope_signals,
     "kalman_filtering": attach_kalman_filtering_signals,
 }
 

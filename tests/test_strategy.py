@@ -622,6 +622,48 @@ def test_attach_ftd_ema_sma_cross_signals_requires_recent_ftd(
     ]
 
 
+def test_attach_ema_sma_cross_with_slope_requires_flat_sma(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The EMA/SMA cross entry should require a flat SMA slope."""
+    # TODO: review
+
+    import stock_indicator.strategy as strategy_module
+
+    price_data_frame = pandas.DataFrame(
+        {"open": [1.0, 1.0, 1.0], "close": [1.0, 1.0, 1.0]}
+    )
+
+    def fake_attach_ema_sma_cross_signals(
+        data_frame: pandas.DataFrame, window_size: int = 50
+    ) -> None:
+        data_frame["sma_value"] = pandas.Series([1.0, 1.1, 1.5])
+        data_frame["sma_previous"] = data_frame["sma_value"].shift(1)
+        data_frame["ema_sma_cross_entry_signal"] = pandas.Series(
+            [False, True, True]
+        )
+        data_frame["ema_sma_cross_exit_signal"] = pandas.Series(
+            [False, False, True]
+        )
+
+    monkeypatch.setattr(
+        strategy_module, "attach_ema_sma_cross_signals", fake_attach_ema_sma_cross_signals
+    )
+
+    strategy_module.attach_ema_sma_cross_with_slope_signals(price_data_frame)
+
+    assert list(price_data_frame["ema_sma_cross_with_slope_entry_signal"]) == [
+        False,
+        True,
+        False,
+    ]
+    assert list(price_data_frame["ema_sma_cross_with_slope_exit_signal"]) == [
+        False,
+        False,
+        True,
+    ]
+
+
 def test_supported_strategies_includes_ftd_ema_sma_cross() -> None:
     """``SUPPORTED_STRATEGIES`` should expose the FTD/EMA-SMA cross strategy."""
     # TODO: review
@@ -634,4 +676,19 @@ def test_supported_strategies_includes_ftd_ema_sma_cross() -> None:
     assert (
         SUPPORTED_STRATEGIES["ftd_ema_sma_cross"]
         is attach_ftd_ema_sma_cross_signals
+    )
+
+
+def test_supported_strategies_includes_ema_sma_cross_with_slope() -> None:
+    """``SUPPORTED_STRATEGIES`` should expose the EMA/SMA cross with slope strategy."""
+    # TODO: review
+
+    from stock_indicator.strategy import (
+        SUPPORTED_STRATEGIES,
+        attach_ema_sma_cross_with_slope_signals,
+    )
+
+    assert (
+        SUPPORTED_STRATEGIES["ema_sma_cross_with_slope"]
+        is attach_ema_sma_cross_with_slope_signals
     )
