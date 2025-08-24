@@ -43,6 +43,33 @@ def test_download_history_returns_dataframe(monkeypatch: pytest.MonkeyPatch) -> 
     pandas.testing.assert_frame_equal(result_dataframe, expected_dataframe)
 
 
+def test_download_history_flattens_multiindex_columns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The function should flatten MultiIndex columns and normalize their names."""
+    raw_dataframe = pandas.DataFrame(
+        {
+            ("Close", "TEST"): [1.0],
+            ("Open", "TEST"): [1.5],
+        }
+    )
+
+    def stubbed_download(
+        symbol: str,
+        start: str,
+        end: str,
+        progress: bool = False,
+    ) -> pandas.DataFrame:
+        return raw_dataframe
+
+    monkeypatch.setattr(
+        "stock_indicator.data_loader.yfinance.download", stubbed_download
+    )
+    monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: ["TEST"])
+    result_dataframe = download_history("TEST", "2021-01-01", "2021-01-02")
+    assert list(result_dataframe.columns) == ["close", "open"]
+
+
 def test_download_history_retries_on_failure(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
