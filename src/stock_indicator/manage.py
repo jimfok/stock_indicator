@@ -109,7 +109,9 @@ class StockShell(cmd.Cmd):
     # TODO: review
     def do_start_simulate(self, argument_line: str) -> None:  # noqa: D401
         """start_simulate DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]
-        Evaluate trading strategies using cached data."""
+        Evaluate trading strategies using cached data.
+
+        STOP_LOSS defaults to 1.0 when not provided."""
         argument_parts: List[str] = argument_line.split()
         if len(argument_parts) not in (3, 4):
             self.stdout.write(
@@ -124,7 +126,7 @@ class StockShell(cmd.Cmd):
                 self.stdout.write("invalid stop loss\n")
                 return
         else:
-            stop_loss_percentage = 0.075
+            stop_loss_percentage = 1.0
         volume_match = re.fullmatch(r"dollar_volume>(\d+(?:\.\d+)?)", volume_filter)
         if volume_match is None:
             self.stdout.write("unsupported filter\n")
@@ -169,7 +171,8 @@ class StockShell(cmd.Cmd):
             "  DOLLAR_VOLUME_FILTER: Format dollar_volume>NUMBER (in millions).\n"
             "  BUY_STRATEGY: Name of the buying strategy.\n"
             "  SELL_STRATEGY: Name of the selling strategy.\n"
-            "  STOP_LOSS: Fractional loss that triggers an exit on the next day's open.\n"
+            "  STOP_LOSS: Fractional loss that triggers an exit on the next day's open. "
+            "Defaults to 1.0.\n"
             f"Available strategies: {available_strategies}.\n"
             "Buy and sell strategies may differ.\n"
         )
