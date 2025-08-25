@@ -237,6 +237,9 @@ def simulate_portfolio_balance(
             if share_count <= 0:
                 continue
             invested_amount = share_count * trade.entry_price
+            if cash_balance - invested_amount >= trade.entry_price:
+                share_count += 1
+                invested_amount = share_count * trade.entry_price
             open_trades[trade] = invested_amount
             cash_balance -= invested_amount
     return cash_balance
@@ -316,6 +319,9 @@ def calculate_annual_returns(
             if share_count <= 0:
                 continue
             invested_amount = share_count * trade.entry_price
+            if cash_balance - invested_amount >= trade.entry_price:
+                share_count += 1
+                invested_amount = share_count * trade.entry_price
             open_trades[trade] = invested_amount
             cash_balance -= invested_amount
 
