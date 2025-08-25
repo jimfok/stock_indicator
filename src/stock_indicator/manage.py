@@ -13,6 +13,7 @@ from typing import List
 from pandas import DataFrame
 
 from . import data_loader, symbols, strategy, volume
+from .daily_job import determine_start_date
 from .symbols import SP500_SYMBOL
 
 LOGGER = logging.getLogger(__name__)
@@ -138,12 +139,17 @@ class StockShell(cmd.Cmd):
         if sell_strategy_name not in strategy.SELL_STRATEGIES:
             self.stdout.write("unsupported strategies\n")
             return
+
+        start_date_string = determine_start_date(DATA_DIRECTORY)
         evaluation_metrics = strategy.evaluate_combined_strategy(
             DATA_DIRECTORY,
             buy_strategy_name,
             sell_strategy_name,
             minimum_average_dollar_volume,
             stop_loss_percentage=stop_loss_percentage,
+        )
+        self.stdout.write(
+            f"Simulation start date: {start_date_string}\n"
         )
         self.stdout.write(
             (
