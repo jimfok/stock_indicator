@@ -26,8 +26,9 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[
 ]:
     """Parse a cron job argument string.
 
-    The expected format is ``dollar_volume>NUMBER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``
-    or ``dollar_volume=Nth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``.
+    The expected format is ``dollar_volume>NUMBER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``,
+    ``dollar_volume=Nth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``, or
+    ``dollar_volume>NUMBER,Nth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``.
 
     Parameters
     ----------
@@ -44,22 +45,34 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[
     argument_parts = argument_line.split()
     if len(argument_parts) not in (3, 4):
         raise ValueError(
-            "argument_line must be of the form 'dollar_volume>NUMBER BUY_STRATEGY "
-            "SELL_STRATEGY [STOP_LOSS]'"
+            "argument_line must be 'dollar_volume>NUMBER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', "
+            "'dollar_volume=RANKth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', or "
+            "'dollar_volume>NUMBER,RANKth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]'",
         )
     volume_filter, buy_strategy_name, sell_strategy_name = argument_parts[:3]
     stop_loss_percentage = float(argument_parts[3]) if len(argument_parts) == 4 else 1.0
     minimum_average_dollar_volume: float | None = None
     top_dollar_volume_rank: int | None = None
-    volume_match = re.fullmatch(r"dollar_volume>(\d+(?:\.\d+)?)", volume_filter)
-    if volume_match is not None:
-        minimum_average_dollar_volume = float(volume_match.group(1))
+    combined_match = re.fullmatch(
+        r"dollar_volume>(\d+(?:\.\d+)?),(\d+)th",
+        volume_filter,
+    )
+    if combined_match is not None:
+        minimum_average_dollar_volume = float(combined_match.group(1))
+        top_dollar_volume_rank = int(combined_match.group(2))
     else:
-        rank_match = re.fullmatch(r"dollar_volume=(\d+)th", volume_filter)
-        if rank_match is not None:
-            top_dollar_volume_rank = int(rank_match.group(1))
+        volume_match = re.fullmatch(r"dollar_volume>(\d+(?:\.\d+)?)", volume_filter)
+        if volume_match is not None:
+            minimum_average_dollar_volume = float(volume_match.group(1))
         else:
-            raise ValueError("Unsupported filter format")
+            rank_match = re.fullmatch(r"dollar_volume=(\d+)th", volume_filter)
+            if rank_match is not None:
+                top_dollar_volume_rank = int(rank_match.group(1))
+            else:
+                raise ValueError(
+                    "Unsupported filter format. Expected 'dollar_volume>NUMBER', "
+                    "'dollar_volume=RANKth', or 'dollar_volume>NUMBER,RANKth'.",
+                )
     return (
         minimum_average_dollar_volume,
         top_dollar_volume_rank,
