@@ -79,6 +79,23 @@ def test_parse_daily_task_arguments_accepts_rank() -> None:
     assert stop_loss_percentage == 1.0
 
 
+def test_parse_daily_task_arguments_accepts_threshold_and_rank() -> None:
+    """The parser should accept combined threshold and ranking filters."""
+    argument_line = "dollar_volume>100,5th ema_sma_cross ema_sma_cross"
+    (
+        minimum_average_dollar_volume,
+        top_dollar_volume_rank,
+        buy_strategy_name,
+        sell_strategy_name,
+        stop_loss_percentage,
+    ) = cron.parse_daily_task_arguments(argument_line)
+    assert minimum_average_dollar_volume == 100.0
+    assert top_dollar_volume_rank == 5
+    assert buy_strategy_name == "ema_sma_cross"
+    assert sell_strategy_name == "ema_sma_cross"
+    assert stop_loss_percentage == 1.0
+
+
 def test_run_daily_tasks_skips_symbol_update_errors(monkeypatch):
     """run_daily_tasks should continue when the symbol cache update fails."""
 
@@ -145,6 +162,51 @@ def test_run_daily_tasks_honors_dollar_volume_rank(tmp_path, monkeypatch):
         symbol_list=symbol_list,
         data_download_function=fake_download_history,
         data_directory=tmp_path,
+        top_dollar_volume_rank=1,
+    )
+
+    assert result["entry_signals"] == ["AAA"]
+    assert result["exit_signals"] == []
+
+
+def test_run_daily_tasks_applies_combined_filters(tmp_path, monkeypatch):
+    """run_daily_tasks should respect both threshold and rank filters."""
+    symbol_list = ["AAA", "BBB", "CCC"]
+
+    def fake_update_symbol_cache() -> None:
+        return None
+
+    def fake_download_history(
+        symbol: str, start: str, end: str, cache_path: Path | None = None
+    ) -> pandas.DataFrame:
+        if symbol == "AAA":
+            volume_values = [200_000_000.0] * 60
+        elif symbol == "BBB":
+            volume_values = [150_000_000.0] * 60
+        else:
+            volume_values = [50_000_000.0] * 60
+        frame = pandas.DataFrame({"close": [1.0] * 60, "volume": volume_values})
+        if cache_path is not None:
+            frame.to_csv(cache_path)
+        return frame
+
+    def fake_strategy(price_history_frame: pandas.DataFrame) -> None:
+        entry_signals = [False] * 59 + [True]
+        price_history_frame["fake_strategy_entry_signal"] = entry_signals
+        price_history_frame["fake_strategy_exit_signal"] = [False] * 60
+
+    monkeypatch.setattr(cron, "update_symbol_cache", fake_update_symbol_cache)
+    monkeypatch.setitem(strategy.SUPPORTED_STRATEGIES, "fake_strategy", fake_strategy)
+
+    result = cron.run_daily_tasks(
+        "fake_strategy",
+        "fake_strategy",
+        "2024-01-01",
+        "2024-01-10",
+        symbol_list=symbol_list,
+        data_download_function=fake_download_history,
+        data_directory=tmp_path,
+        minimum_average_dollar_volume=100,
         top_dollar_volume_rank=1,
     )
 

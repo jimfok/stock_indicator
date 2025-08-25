@@ -13,6 +13,15 @@ volume, use:
 start_simulate dollar_volume=6th ftd_ema_sma_cross ftd_ema_sma_cross
 ```
 
+To apply both a minimum dollar volume and a ranking filter, combine them:
+
+```
+start_simulate dollar_volume>10000,6th ftd_ema_sma_cross ftd_ema_sma_cross
+```
+
+This processes only the six symbols with the highest 50-day average dollar
+volume that also exceed a 10,000 million minimum.
+
 The previous `start_ftd_ema_sma_cross` command has been removed.
 Use `start_simulate` with `ftd_ema_sma_cross` for both the buying and
 selling strategies instead.
