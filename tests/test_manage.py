@@ -172,6 +172,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     assert call_record["strategies"] == ("ema_sma_cross", "ema_sma_cross")
     assert volume_record["threshold"] == 500.0
     assert stop_loss_record["value"] == 1.0
+    assert "Simulation start date: 2019-01-01" in output_buffer.getvalue()
     assert (
         "Trades: 3, Win rate: 50.00%, Mean profit %: 10.00%, Profit % Std Dev: 0.00%, "
         "Mean loss %: 5.00%, Loss % Std Dev: 0.00%, Mean holding period: 2.00 bars, "
