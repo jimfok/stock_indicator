@@ -329,8 +329,12 @@ def test_calculate_annual_returns_computes_yearly_returns() -> None:
         profit=20.0 - TRADE_COMMISSION,
         holding_period=1,
     )
+    simulation_start = pandas.Timestamp("2018-01-01")
     annual_returns = calculate_annual_returns(
-        [trade_one, trade_two], starting_cash=1000.0, eligible_symbol_count=1
+        [trade_one, trade_two],
+        starting_cash=1000.0,
+        eligible_symbol_count=1,
+        simulation_start=simulation_start,
     )
     first_year_end = 1000.0 * (110.0 / 100.0) - TRADE_COMMISSION
     expected_return_2023 = (first_year_end - 1000.0) / 1000.0
@@ -340,6 +344,7 @@ def test_calculate_annual_returns_computes_yearly_returns() -> None:
         remaining_cash_year_two + share_count_year_two * 220.0 - TRADE_COMMISSION
     )
     expected_return_2024 = (second_year_end - first_year_end) / first_year_end
+    assert annual_returns[2018] == 0.0
     assert pytest.approx(annual_returns[2023], rel=1e-6) == expected_return_2023
     assert pytest.approx(annual_returns[2024], rel=1e-6) == expected_return_2024
 

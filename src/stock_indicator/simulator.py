@@ -249,6 +249,7 @@ def calculate_annual_returns(
     trades: Iterable[Trade],
     starting_cash: float,
     eligible_symbol_count: int,
+    simulation_start: pandas.Timestamp,
 ) -> Dict[int, float]:
     """Compute yearly portfolio returns for a series of trades.
 
@@ -266,6 +267,9 @@ def calculate_annual_returns(
     eligible_symbol_count: int
         Total number of symbols considered for trading. This value is typically
         produced by :func:`stock_indicator.volume.count_symbols_with_average_dollar_volume_above`.
+    simulation_start: pandas.Timestamp
+        Timestamp indicating the first day of the simulation. Years prior to
+        the first trade will be emitted with a zero return.
 
     Returns
     -------
@@ -274,23 +278,19 @@ def calculate_annual_returns(
         expressed as a decimal where ``0.10`` represents a ten percent return.
     """  # TODO: review
     events: List[tuple[pandas.Timestamp, int, Trade]] = []
-    for trade in trades:
-        events.append((trade.entry_date, 1, trade))
-        events.append((trade.exit_date, 0, trade))
+    for completed_trade in trades:
+        events.append((completed_trade.entry_date, 1, completed_trade))
+        events.append((completed_trade.exit_date, 0, completed_trade))
     events.sort(key=lambda event_tuple: (event_tuple[0], event_tuple[1]))
 
     cash_balance = starting_cash
     open_trades: dict[Trade, float] = {}
     annual_returns: Dict[int, float] = {}
 
-    current_year = events[0][0].year if events else None
+    current_year = simulation_start.year
     year_start_value = cash_balance
 
-    for event_timestamp, event_type, trade in events:
-        if current_year is None:
-            current_year = event_timestamp.year
-            year_start_value = cash_balance + sum(open_trades.values())
-
+    for event_timestamp, event_type, completed_trade in events:
         while event_timestamp.year > current_year:
             year_end_value = cash_balance + sum(open_trades.values())
             if year_start_value == 0:
@@ -303,10 +303,10 @@ def calculate_annual_returns(
             current_year += 1
 
         if event_type == 0:
-            if trade in open_trades:
-                invested_amount = open_trades.pop(trade)
+            if completed_trade in open_trades:
+                invested_amount = open_trades.pop(completed_trade)
                 cash_balance += invested_amount * (
-                    trade.exit_price / trade.entry_price
+                    completed_trade.exit_price / completed_trade.entry_price
                 )
                 cash_balance -= TRADE_COMMISSION
         else:
@@ -315,24 +315,25 @@ def calculate_annual_returns(
                 continue
             budget_per_position = cash_balance / remaining_slots
             # TODO: review
-            share_count = math.floor(budget_per_position / trade.entry_price)
+            share_count = math.floor(
+                budget_per_position / completed_trade.entry_price
+            )
             if share_count <= 0:
                 continue
-            invested_amount = share_count * trade.entry_price
-            if cash_balance - invested_amount >= trade.entry_price:
+            invested_amount = share_count * completed_trade.entry_price
+            if cash_balance - invested_amount >= completed_trade.entry_price:
                 share_count += 1
-                invested_amount = share_count * trade.entry_price
-            open_trades[trade] = invested_amount
+                invested_amount = share_count * completed_trade.entry_price
+            open_trades[completed_trade] = invested_amount
             cash_balance -= invested_amount
 
-    if current_year is not None:
-        year_end_value = cash_balance + sum(open_trades.values())
-        if year_start_value == 0:
-            annual_returns[current_year] = 0.0
-        else:
-            annual_returns[current_year] = (
-                (year_end_value - year_start_value) / year_start_value
-            )
+    year_end_value = cash_balance + sum(open_trades.values())
+    if year_start_value == 0:
+        annual_returns[current_year] = 0.0
+    else:
+        annual_returns[current_year] = (
+            (year_end_value - year_start_value) / year_start_value
+        )
 
     return annual_returns
 
