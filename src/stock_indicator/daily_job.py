@@ -9,6 +9,8 @@ import logging
 from pathlib import Path
 from typing import Dict
 
+import pandas
+
 from . import cron
 
 LOGGER = logging.getLogger(__name__)
@@ -16,6 +18,32 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_START_DATE = "2019-01-01"
 DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "data"
 LOG_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "logs"
+
+
+def determine_start_date(data_directory: Path) -> str:
+    """Return the oldest date found in ``data_directory``.
+
+    When no CSV files are available, ``DEFAULT_START_DATE`` is returned.
+    """
+    earliest_date: datetime.date | None = None
+    if not data_directory.exists():
+        return DEFAULT_START_DATE
+    for csv_file_path in data_directory.glob("*.csv"):
+        try:
+            date_frame = pandas.read_csv(
+                csv_file_path, usecols=[0], nrows=1, parse_dates=[0]
+            )
+        except Exception as read_error:  # noqa: BLE001
+            LOGGER.warning("Could not read %s: %s", csv_file_path, read_error)
+            continue
+        if date_frame.empty:
+            continue
+        first_date = date_frame.iloc[0, 0].date()
+        if earliest_date is None or first_date < earliest_date:
+            earliest_date = first_date
+    if earliest_date is None:
+        return DEFAULT_START_DATE
+    return earliest_date.isoformat()
 
 
 def run_daily_job(
@@ -56,9 +84,10 @@ def run_daily_job(
 
     current_date_string = current_date.isoformat()
     LOGGER.info("Starting daily tasks for %s", current_date_string)
+    start_date_string = determine_start_date(data_directory)
     signal_result: Dict[str, list[str]] = cron.run_daily_tasks_from_argument(
         argument_line,
-        start_date=DEFAULT_START_DATE,
+        start_date=start_date_string,
         end_date=current_date_string,
         data_directory=data_directory,
     )

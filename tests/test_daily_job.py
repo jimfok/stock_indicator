@@ -39,3 +39,44 @@ def test_run_daily_job_writes_log_file(tmp_path, monkeypatch):
     assert log_file_path.read_text(encoding="utf-8") == (
         "entry_signals: AAA\nexit_signals: BBB\n"
     )
+
+
+def test_run_daily_job_uses_oldest_data_date(tmp_path, monkeypatch):
+    """run_daily_job should start from the oldest available data date."""
+
+    captured_start_date: dict[str, str] = {}
+
+    def fake_run_daily_tasks_from_argument(
+        argument_line: str,
+        start_date: str,
+        end_date: str,
+        symbol_list=None,
+        data_download_function=None,
+        data_directory: Path | None = None,
+    ):
+        captured_start_date["value"] = start_date
+        return {"entry_signals": [], "exit_signals": []}
+
+    monkeypatch.setattr(
+        daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument
+    )
+
+    data_directory = tmp_path / "data"
+    data_directory.mkdir()
+    (data_directory / "AAA.csv").write_text(
+        "Date,open,close\n2018-06-01,1,1\n2018-06-02,1,1\n", encoding="utf-8"
+    )
+    (data_directory / "BBB.csv").write_text(
+        "Date,open,close\n2019-01-01,1,1\n2019-01-02,1,1\n", encoding="utf-8"
+    )
+    log_directory = tmp_path / "logs"
+    current_date = datetime.date(2024, 1, 10)
+
+    daily_job.run_daily_job(
+        "dollar_volume>1 ema_sma_cross ema_sma_cross",
+        data_directory=data_directory,
+        log_directory=log_directory,
+        current_date=current_date,
+    )
+
+    assert captured_start_date["value"] == "2018-06-01"
