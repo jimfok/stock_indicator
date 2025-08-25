@@ -370,7 +370,7 @@ def evaluate_combined_strategy(
     buy_strategy_name: str,
     sell_strategy_name: str,
     minimum_average_dollar_volume: float | None = None,
-    starting_cash: float = 1000.0,
+    starting_cash: float = 3000.0,
     stop_loss_percentage: float = 1.0,
 ) -> StrategyMetrics:
     """Evaluate a combination of strategies for entry and exit signals.
