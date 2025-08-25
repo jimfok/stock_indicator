@@ -407,6 +407,7 @@ def evaluate_combined_strategy(
     holding_period_list: List[int] = []
     simulation_results: List[SimulationResult] = []
     all_trades: List[Trade] = []
+    simulation_start_date: pandas.Timestamp | None = None
 
     if minimum_average_dollar_volume is not None:
         from .volume import count_symbols_with_average_dollar_volume_above  # TODO: review
@@ -421,6 +422,9 @@ def evaluate_combined_strategy(
         price_data_frame = load_price_data(csv_file_path)
         if price_data_frame.empty:
             continue
+        file_start_date = price_data_frame.index.min()
+        if simulation_start_date is None or file_start_date < simulation_start_date:
+            simulation_start_date = file_start_date
         if minimum_average_dollar_volume is not None:
             if "volume" not in price_data_frame.columns:
                 raise ValueError(
@@ -476,8 +480,10 @@ def evaluate_combined_strategy(
     maximum_concurrent_positions = calculate_maximum_concurrent_positions(
         simulation_results
     )
+    if simulation_start_date is None:
+        simulation_start_date = pandas.Timestamp.now()
     annual_returns = calculate_annual_returns(
-        all_trades, starting_cash, eligible_symbol_count
+        all_trades, starting_cash, eligible_symbol_count, simulation_start_date
     )
     annual_trade_counts = calculate_annual_trade_counts(all_trades)
     final_balance = simulate_portfolio_balance(
