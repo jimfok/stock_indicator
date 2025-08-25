@@ -435,24 +435,27 @@ def evaluate_combined_strategy(
             recent_average_dollar_volume = 0.0
         latest_dollar_volumes.append((csv_file_path, recent_average_dollar_volume))
 
-    if top_dollar_volume_rank is not None:
-        latest_dollar_volumes.sort(key=lambda item: item[1], reverse=True)
-        selected_paths = {
-            path for path, _ in latest_dollar_volumes[:top_dollar_volume_rank]
-        }
-        eligible_symbol_count = len(selected_paths)
-    else:
-        selected_paths = {path for path, _ in latest_dollar_volumes}
-        if minimum_average_dollar_volume is not None:
-            from .volume import (
-                count_symbols_with_average_dollar_volume_above,
-            )  # TODO: review
+    filtered_latest_dollar_volumes = [
+        (csv_path, dollar_volume)
+        for csv_path, dollar_volume in latest_dollar_volumes
+        if (
+            minimum_average_dollar_volume is None
+            or (dollar_volume / 1_000_000) >= minimum_average_dollar_volume
+        )
+    ]
 
-            eligible_symbol_count = count_symbols_with_average_dollar_volume_above(
-                data_directory, minimum_average_dollar_volume
-            )
-        else:
-            eligible_symbol_count = len(selected_paths)
+    if top_dollar_volume_rank is not None:
+        filtered_latest_dollar_volumes.sort(
+            key=lambda volume_item: volume_item[1], reverse=True
+        )
+        selected_paths = {
+            csv_path
+            for csv_path, _ in filtered_latest_dollar_volumes[:top_dollar_volume_rank]
+        }
+    else:
+        selected_paths = {csv_path for csv_path, _ in filtered_latest_dollar_volumes}
+
+    eligible_symbol_count = len(selected_paths)
 
     for csv_file_path, price_data_frame in symbol_frames:
         if csv_file_path not in selected_paths:
