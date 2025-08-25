@@ -283,7 +283,32 @@ def test_simulate_portfolio_balance_allocates_budget_by_symbol_count() -> None:
     final_balance = simulate_portfolio_balance(
         [trade_alpha, trade_beta, trade_gamma], 100.0, 3
     )
-    expected_final_balance = 167.0
+    expected_final_balance = 157.0
+    assert pytest.approx(final_balance, rel=1e-6) == expected_final_balance
+
+
+def test_simulate_portfolio_balance_invests_additional_share_when_cash_available() -> None:
+    """Portfolio simulation should buy an extra share if cash remains."""
+    trade_primary = Trade(
+        entry_date=pandas.Timestamp("2024-01-01"),
+        exit_date=pandas.Timestamp("2024-01-03"),
+        entry_price=30.0,
+        exit_price=60.0,
+        profit=30.0,
+        holding_period=2,
+    )
+    trade_secondary = Trade(
+        entry_date=pandas.Timestamp("2024-01-02"),
+        exit_date=pandas.Timestamp("2024-01-04"),
+        entry_price=70.0,
+        exit_price=70.0,
+        profit=0.0,
+        holding_period=2,
+    )
+    final_balance = simulate_portfolio_balance(
+        [trade_primary, trade_secondary], 100.0, 2
+    )
+    expected_final_balance = 159.0
     assert pytest.approx(final_balance, rel=1e-6) == expected_final_balance
 
 

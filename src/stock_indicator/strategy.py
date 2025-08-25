@@ -387,7 +387,7 @@ def evaluate_combined_strategy(
         Minimum 50-day moving average dollar volume, in millions, required for a
         symbol to be included in the evaluation. When ``None``, no filter is
         applied.
-    starting_cash: float, default 1000.0
+    starting_cash: float, default 3000.0
         Initial amount of cash used for portfolio simulation.
     stop_loss_percentage: float, default 1.0
         Fractional loss from the entry price that triggers an exit on the next
