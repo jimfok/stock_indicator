@@ -19,8 +19,13 @@ To apply both a minimum dollar volume and a ranking filter, combine them:
 start_simulate dollar_volume>10000,6th ftd_ema_sma_cross ftd_ema_sma_cross
 ```
 
-This processes only the six symbols with the highest 50-day average dollar
-volume that also exceed a 10,000 million minimum.
+The `dollar_volume` clause accepts a `>` threshold and an `=Nth` ranking. When both
+are separated by a comma, the parser applies them sequentially. The command
+above first filters symbols to those whose 50-day average dollar volume exceeds
+10,000 million and then selects the six symbols with the highest remaining
+averages. The tests `tests/test_manage.py::test_start_simulate_dollar_volume_threshold_and_rank`
+and `tests/test_strategy.py::test_evaluate_combined_strategy_dollar_volume_filter_and_rank`
+exercise this combined syntax.
 
 The previous `start_ftd_ema_sma_cross` command has been removed.
 Use `start_simulate` with `ftd_ema_sma_cross` for both the buying and

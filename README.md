@@ -65,6 +65,21 @@ python -m stock_indicator.manage
   `data/<SYMBOL>.csv`.
 * `update_all_data START END` performs the download for every cached symbol.
 
+The shell can also simulate trading strategies. The `dollar_volume` filter
+accepts both a minimum threshold and a ranking when the two are separated by a
+comma. The command below evaluates `ftd_ema_sma_cross` using only the six
+symbols whose 50-day average dollar volume exceeds 10,000 million:
+
+```bash
+(stock-indicator) start_simulate dollar_volume>10000,6th ftd_ema_sma_cross ftd_ema_sma_cross
+```
+
+Here `dollar_volume>10000,6th` first drops symbols below the threshold and then
+selects the six highest-volume symbols from the remainder. The tests
+`tests/test_manage.py::test_start_simulate_dollar_volume_threshold_and_rank` and
+`tests/test_strategy.py::test_evaluate_combined_strategy_dollar_volume_filter_and_rank`
+demonstrate this combined syntax.
+
 ## Contribution Guidelines
 1. Fork the repository and create a new branch for each feature or bug fix.
 2. Ensure your code passes all tests by running `pytest` before submitting.
