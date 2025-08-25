@@ -4,6 +4,7 @@
 import os
 import sys
 from pathlib import Path
+from typing import Iterable
 
 import pandas
 import pytest
@@ -494,6 +495,71 @@ def test_evaluate_combined_strategy_dollar_volume_rank(
         tmp_path, "noop", "noop", top_dollar_volume_rank=2
     )
     assert set(processed_symbols) == {"AAA", "CCC"}
+
+
+def test_evaluate_combined_strategy_dollar_volume_filter_and_rank(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only symbols above the dollar volume threshold should be ranked."""
+
+    import stock_indicator.strategy as strategy_module
+
+    volumes_by_symbol = {
+        "AAA": 100_000_000,
+        "BBB": 200_000_000,
+        "CCC": 300_000_000,
+        "DDD": 250_000_000,
+    }
+    for symbol_name, volume_value in volumes_by_symbol.items():
+        date_index = pandas.date_range("2020-01-01", periods=60, freq="D")
+        pandas.DataFrame(
+            {
+                "Date": date_index,
+                "open": [1.0] * 60,
+                "close": [1.0] * 60,
+                "volume": [volume_value] * 60,
+                "symbol": [symbol_name] * 60,
+            }
+        ).to_csv(tmp_path / f"{symbol_name}.csv", index=False)
+
+    processed_symbols: list[str] = []
+    captured_counts: list[int] = []
+
+    def fake_simulate_trades(
+        data: pandas.DataFrame, *args: object, **kwargs: object
+    ) -> SimulationResult:
+        processed_symbols.append(data["symbol"].iloc[0])
+        return SimulationResult(trades=[], total_profit=0.0)
+
+    def fake_simulate_portfolio_balance(
+        trades: Iterable[Trade],
+        starting_cash: float,
+        eligible_symbol_count: int,
+    ) -> float:
+        captured_counts.append(eligible_symbol_count)
+        return starting_cash
+
+    monkeypatch.setattr(strategy_module, "simulate_trades", fake_simulate_trades)
+    monkeypatch.setattr(
+        strategy_module, "simulate_portfolio_balance", fake_simulate_portfolio_balance
+    )
+    monkeypatch.setattr(strategy_module, "calculate_annual_returns", lambda *a, **k: {})
+    monkeypatch.setattr(
+        strategy_module, "calculate_annual_trade_counts", lambda *a, **k: {}
+    )
+    monkeypatch.setattr(strategy_module, "BUY_STRATEGIES", {"noop": lambda df: None})
+    monkeypatch.setattr(strategy_module, "SELL_STRATEGIES", {"noop": lambda df: None})
+    monkeypatch.setattr(strategy_module, "SUPPORTED_STRATEGIES", {"noop": lambda df: None})
+
+    strategy_module.evaluate_combined_strategy(
+        tmp_path,
+        "noop",
+        "noop",
+        minimum_average_dollar_volume=150,
+        top_dollar_volume_rank=2,
+    )
+    assert set(processed_symbols) == {"CCC", "DDD"}
+    assert captured_counts == [2]
 
 
 def test_evaluate_combined_strategy_handles_empty_csv(tmp_path: Path) -> None:
