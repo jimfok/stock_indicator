@@ -420,6 +420,9 @@ def evaluate_combined_strategy(
         if price_data_frame.empty:
             continue
         symbol_frames.append((csv_file_path, price_data_frame))
+        file_start_date = price_data_frame.index.min()
+        if simulation_start_date is None or file_start_date < simulation_start_date:
+            simulation_start_date = file_start_date
         if "volume" in price_data_frame.columns:
             dollar_volume_series = price_data_frame["close"] * price_data_frame["volume"]
             if dollar_volume_series.empty:
