@@ -12,7 +12,7 @@ from typing import List
 
 from pandas import DataFrame
 
-from . import data_loader, symbols, strategy
+from . import data_loader, symbols, strategy, volume
 from .symbols import SP500_SYMBOL
 
 LOGGER = logging.getLogger(__name__)
@@ -183,6 +183,36 @@ class StockShell(cmd.Cmd):
             "Defaults to 1.0.\n"
             f"Available buy strategies: {available_buy}.\n"
             f"Available sell strategies: {available_sell}.\n"
+        )
+
+# TODO: review
+    def do_count_symbols_with_average_dollar_volume_above(self, argument_line: str) -> None:  # noqa: D401
+        """count_symbols_with_average_dollar_volume_above THRESHOLD
+        Count symbols whose 50-day average dollar volume exceeds THRESHOLD."""
+        argument_string = argument_line.strip()
+        if not argument_string:
+            self.stdout.write(
+                "usage: count_symbols_with_average_dollar_volume_above THRESHOLD\n"
+            )
+            return
+        try:
+            minimum_average_dollar_volume = float(argument_string)
+        except ValueError:
+            self.stdout.write(
+                "usage: count_symbols_with_average_dollar_volume_above THRESHOLD\n"
+            )
+            return
+        symbol_count = volume.count_symbols_with_average_dollar_volume_above(
+            DATA_DIRECTORY, minimum_average_dollar_volume
+        )
+        self.stdout.write(f"{symbol_count}\n")
+
+    # TODO: review
+    def help_count_symbols_with_average_dollar_volume_above(self) -> None:
+        """Display help for the count_symbols_with_average_dollar_volume_above command."""
+        self.stdout.write(
+            "count_symbols_with_average_dollar_volume_above THRESHOLD\n"
+            "Count symbols whose 50-day average dollar volume is greater than THRESHOLD in millions.\n"
         )
 
 
