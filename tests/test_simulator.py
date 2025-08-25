@@ -1,6 +1,7 @@
 """Tests for trade simulation utilities."""
 # TODO: review
 
+import math
 import os
 import sys
 
@@ -253,8 +254,8 @@ def test_calculate_maximum_concurrent_positions_orders_exit_before_entry() -> No
     assert maximum_positions == 1
 
 
-def test_simulate_portfolio_balance_allocates_proportional_cash() -> None:
-    """Portfolio simulation should allocate cash across open positions."""
+def test_simulate_portfolio_balance_allocates_budget_by_symbol_count() -> None:
+    """Portfolio simulation should allocate cash based on remaining symbols."""
     trade_alpha = Trade(
         entry_date=pandas.Timestamp("2024-01-01"),
         exit_date=pandas.Timestamp("2024-01-05"),
@@ -280,9 +281,9 @@ def test_simulate_portfolio_balance_allocates_proportional_cash() -> None:
         holding_period=1,
     )
     final_balance = simulate_portfolio_balance(
-        [trade_alpha, trade_beta, trade_gamma], 100.0, 2
+        [trade_alpha, trade_beta, trade_gamma], 100.0, 3
     )
-    expected_final_balance = 150.0 - TRADE_COMMISSION * 2
+    expected_final_balance = 167.0
     assert pytest.approx(final_balance, rel=1e-6) == expected_final_balance
 
 
@@ -304,11 +305,15 @@ def test_calculate_annual_returns_computes_yearly_returns() -> None:
         holding_period=1,
     )
     annual_returns = calculate_annual_returns(
-        [trade_one, trade_two], starting_cash=1000.0, maximum_positions=1
+        [trade_one, trade_two], starting_cash=1000.0, eligible_symbol_count=1
     )
     first_year_end = 1000.0 * (110.0 / 100.0) - TRADE_COMMISSION
     expected_return_2023 = (first_year_end - 1000.0) / 1000.0
-    second_year_end = first_year_end * (220.0 / 200.0) - TRADE_COMMISSION
+    share_count_year_two = math.floor(first_year_end / 200.0)
+    remaining_cash_year_two = first_year_end - share_count_year_two * 200.0
+    second_year_end = (
+        remaining_cash_year_two + share_count_year_two * 220.0 - TRADE_COMMISSION
+    )
     expected_return_2024 = (second_year_end - first_year_end) / first_year_end
     assert pytest.approx(annual_returns[2023], rel=1e-6) == expected_return_2023
     assert pytest.approx(annual_returns[2024], rel=1e-6) == expected_return_2024

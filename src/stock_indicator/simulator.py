@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List
 
@@ -191,7 +192,7 @@ def calculate_maximum_concurrent_positions(
 def simulate_portfolio_balance(
     trades: Iterable[Trade],
     starting_cash: float,
-    maximum_positions: int,
+    eligible_symbol_count: int,
 ) -> float:
     """Simulate capital allocation across multiple trades.
 
@@ -201,9 +202,10 @@ def simulate_portfolio_balance(
         Collection of trades containing entry and exit information.
     starting_cash : float
         Initial cash available for trading.
-    maximum_positions : int
-        Maximum number of concurrent positions allowed.
-    Each trade closure deducts ``TRADE_COMMISSION`` from the cash balance.
+    eligible_symbol_count : int
+        Total number of symbols considered for trading. This value is typically
+        produced by :func:`stock_indicator.volume.count_symbols_with_average_dollar_volume_above`.
+        Each trade closure deducts ``TRADE_COMMISSION`` from the cash balance.
 
     Returns
     -------
@@ -226,19 +228,24 @@ def simulate_portfolio_balance(
                 )
                 cash_balance -= TRADE_COMMISSION
         else:
-            if len(open_trades) >= maximum_positions or cash_balance <= 0:
+            remaining_slots = eligible_symbol_count - len(open_trades)
+            if remaining_slots <= 0 or cash_balance <= 0:
                 continue
-            allocation = cash_balance / (maximum_positions - len(open_trades))
-            open_trades[trade] = allocation
-            cash_balance -= allocation
+            budget_per_position = cash_balance / remaining_slots
+            # TODO: review
+            share_count = math.floor(budget_per_position / trade.entry_price)
+            if share_count <= 0:
+                continue
+            invested_amount = share_count * trade.entry_price
+            open_trades[trade] = invested_amount
+            cash_balance -= invested_amount
     return cash_balance
 
 
-# TODO: review
 def calculate_annual_returns(
     trades: Iterable[Trade],
     starting_cash: float,
-    maximum_positions: int,
+    eligible_symbol_count: int,
 ) -> Dict[int, float]:
     """Compute yearly portfolio returns for a series of trades.
 
@@ -253,15 +260,16 @@ def calculate_annual_returns(
         Collection of trades containing entry and exit information.
     starting_cash: float
         Initial cash available for trading.
-    maximum_positions: int
-        Maximum number of concurrent positions allowed.
+    eligible_symbol_count: int
+        Total number of symbols considered for trading. This value is typically
+        produced by :func:`stock_indicator.volume.count_symbols_with_average_dollar_volume_above`.
 
     Returns
     -------
     Dict[int, float]
         Mapping of year to return percentage for that year. The value is
         expressed as a decimal where ``0.10`` represents a ten percent return.
-    """
+    """  # TODO: review
     events: List[tuple[pandas.Timestamp, int, Trade]] = []
     for trade in trades:
         events.append((trade.entry_date, 1, trade))
@@ -299,11 +307,17 @@ def calculate_annual_returns(
                 )
                 cash_balance -= TRADE_COMMISSION
         else:
-            if len(open_trades) >= maximum_positions or cash_balance <= 0:
+            remaining_slots = eligible_symbol_count - len(open_trades)
+            if remaining_slots <= 0 or cash_balance <= 0:
                 continue
-            allocation = cash_balance / (maximum_positions - len(open_trades))
-            open_trades[trade] = allocation
-            cash_balance -= allocation
+            budget_per_position = cash_balance / remaining_slots
+            # TODO: review
+            share_count = math.floor(budget_per_position / trade.entry_price)
+            if share_count <= 0:
+                continue
+            invested_amount = share_count * trade.entry_price
+            open_trades[trade] = invested_amount
+            cash_balance -= invested_amount
 
     if current_year is not None:
         year_end_value = cash_balance + sum(open_trades.values())
