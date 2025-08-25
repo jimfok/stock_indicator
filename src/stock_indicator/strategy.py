@@ -11,15 +11,15 @@ from typing import Callable, Dict, List
 import re
 import pandas
 
-from .indicators import ema, kalman_filter, sma, rsi, ftd
+from .indicators import ema, ftd, kalman_filter, rsi, sma
 from .simulator import (
-    calculate_maximum_concurrent_positions,
+    SimulationResult,
+    Trade,
     calculate_annual_returns,
     calculate_annual_trade_counts,
-    simulate_trades,
-    SimulationResult,
+    calculate_maximum_concurrent_positions,
     simulate_portfolio_balance,
-    Trade,
+    simulate_trades,
 )
 
 
@@ -371,7 +371,6 @@ def evaluate_combined_strategy(
     sell_strategy_name: str,
     minimum_average_dollar_volume: float | None = None,
     starting_cash: float = 1000.0,
-    maximum_positions: int = 5,
     stop_loss_percentage: float = 1.0,
 ) -> StrategyMetrics:
     """Evaluate a combination of strategies for entry and exit signals.
@@ -390,8 +389,6 @@ def evaluate_combined_strategy(
         applied.
     starting_cash: float, default 1000.0
         Initial amount of cash used for portfolio simulation.
-    maximum_positions: int, default 5
-        Maximum number of concurrent positions during simulation.
     stop_loss_percentage: float, default 1.0
         Fractional loss from the entry price that triggers an exit on the next
         bar's opening price. Values greater than or equal to ``1.0`` disable
@@ -410,6 +407,15 @@ def evaluate_combined_strategy(
     holding_period_list: List[int] = []
     simulation_results: List[SimulationResult] = []
     all_trades: List[Trade] = []
+
+    if minimum_average_dollar_volume is not None:
+        from .volume import count_symbols_with_average_dollar_volume_above  # TODO: review
+
+        eligible_symbol_count = count_symbols_with_average_dollar_volume_above(
+            data_directory, minimum_average_dollar_volume
+        )
+    else:
+        eligible_symbol_count = sum(1 for _ in data_directory.glob("*.csv"))
 
     for csv_file_path in data_directory.glob("*.csv"):
         price_data_frame = load_price_data(csv_file_path)
@@ -471,11 +477,11 @@ def evaluate_combined_strategy(
         simulation_results
     )
     annual_returns = calculate_annual_returns(
-        all_trades, starting_cash, maximum_positions
+        all_trades, starting_cash, eligible_symbol_count
     )
     annual_trade_counts = calculate_annual_trade_counts(all_trades)
     final_balance = simulate_portfolio_balance(
-        all_trades, starting_cash, maximum_positions
+        all_trades, starting_cash, eligible_symbol_count
     )
     return calculate_metrics(
         trade_profit_list,
