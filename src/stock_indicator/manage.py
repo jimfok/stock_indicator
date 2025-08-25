@@ -128,11 +128,18 @@ class StockShell(cmd.Cmd):
                 return
         else:
             stop_loss_percentage = 1.0
+        minimum_average_dollar_volume: float | None = None  # TODO: review
+        top_dollar_volume_rank: int | None = None  # TODO: review
         volume_match = re.fullmatch(r"dollar_volume>(\d+(?:\.\d+)?)", volume_filter)
-        if volume_match is None:
-            self.stdout.write("unsupported filter\n")
-            return
-        minimum_average_dollar_volume = float(volume_match.group(1))
+        if volume_match is not None:
+            minimum_average_dollar_volume = float(volume_match.group(1))
+        else:
+            rank_match = re.fullmatch(r"dollar_volume=(\d+)th", volume_filter)
+            if rank_match is not None:
+                top_dollar_volume_rank = int(rank_match.group(1))
+            else:
+                self.stdout.write("unsupported filter\n")
+                return
         if buy_strategy_name not in strategy.BUY_STRATEGIES:
             self.stdout.write("unsupported strategies\n")
             return
@@ -145,7 +152,8 @@ class StockShell(cmd.Cmd):
             DATA_DIRECTORY,
             buy_strategy_name,
             sell_strategy_name,
-            minimum_average_dollar_volume,
+            minimum_average_dollar_volume=minimum_average_dollar_volume,
+            top_dollar_volume_rank=top_dollar_volume_rank,
             stop_loss_percentage=stop_loss_percentage,
         )
         self.stdout.write(
@@ -182,7 +190,9 @@ class StockShell(cmd.Cmd):
             "start_simulate DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]\n"
             "Evaluate trading strategies using cached data.\n"
             "Parameters:\n"
-            "  DOLLAR_VOLUME_FILTER: Format dollar_volume>NUMBER (in millions).\n"
+            "  DOLLAR_VOLUME_FILTER: Format dollar_volume>NUMBER (in millions) or\n"
+            "    dollar_volume=Nth to select the N symbols with the highest\n"
+            "    previous-day dollar volume.\n"
             "  BUY_STRATEGY: Name of the buying strategy.\n"
             "  SELL_STRATEGY: Name of the selling strategy.\n"
             "  STOP_LOSS: Fractional loss that triggers an exit on the next day's open. "
