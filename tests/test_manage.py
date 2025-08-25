@@ -99,6 +99,31 @@ def test_update_all_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     assert download_calls == expected_symbols
 
 
+# TODO: review
+def test_count_symbols_with_average_dollar_volume_above(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command should report how many symbols exceed a dollar volume threshold."""
+    import stock_indicator.manage as manage_module
+
+    call_arguments: dict[str, float] = {}
+
+    def fake_counter(data_directory: Path, minimum_average_dollar_volume: float) -> int:
+        call_arguments["threshold"] = minimum_average_dollar_volume
+        assert data_directory == manage_module.DATA_DIRECTORY
+        return 7
+
+    monkeypatch.setattr(
+        manage_module.volume,
+        "count_symbols_with_average_dollar_volume_above",
+        fake_counter,
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd("count_symbols_with_average_dollar_volume_above 10")
+    assert call_arguments["threshold"] == 10.0
+    assert output_buffer.getvalue().strip() == "7"
+
+
 def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     """The command should evaluate strategies and display metrics."""
     import stock_indicator.manage as manage_module
