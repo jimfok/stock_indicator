@@ -17,10 +17,17 @@ from .strategy import SUPPORTED_STRATEGIES
 LOGGER = logging.getLogger(__name__)
 
 
-def parse_daily_task_arguments(argument_line: str) -> Tuple[float, str, str, float]:
+def parse_daily_task_arguments(argument_line: str) -> Tuple[
+    float | None,
+    int | None,
+    str,
+    str,
+    float,
+]:
     """Parse a cron job argument string.
 
-    The expected format is ``dollar_volume>NUMBER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``.
+    The expected format is ``dollar_volume>NUMBER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``
+    or ``dollar_volume=Nth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``.
 
     Parameters
     ----------
@@ -29,9 +36,10 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[float, str, str, flo
 
     Returns
     -------
-    Tuple[float, str, str, float]
-        Tuple containing minimum dollar volume, buy strategy name, sell strategy
-        name, and stop loss percentage.
+    Tuple[float | None, int | None, str, str, float]
+        Tuple containing either a minimum dollar volume threshold or a ranking
+        position, followed by the buy strategy name, sell strategy name, and
+        stop loss percentage.
     """
     argument_parts = argument_line.split()
     if len(argument_parts) not in (3, 4):
@@ -41,12 +49,20 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[float, str, str, flo
         )
     volume_filter, buy_strategy_name, sell_strategy_name = argument_parts[:3]
     stop_loss_percentage = float(argument_parts[3]) if len(argument_parts) == 4 else 1.0
+    minimum_average_dollar_volume: float | None = None
+    top_dollar_volume_rank: int | None = None
     volume_match = re.fullmatch(r"dollar_volume>(\d+(?:\.\d+)?)", volume_filter)
-    if volume_match is None:
-        raise ValueError("Unsupported filter format")
-    minimum_average_dollar_volume = float(volume_match.group(1))
+    if volume_match is not None:
+        minimum_average_dollar_volume = float(volume_match.group(1))
+    else:
+        rank_match = re.fullmatch(r"dollar_volume=(\d+)th", volume_filter)
+        if rank_match is not None:
+            top_dollar_volume_rank = int(rank_match.group(1))
+        else:
+            raise ValueError("Unsupported filter format")
     return (
         minimum_average_dollar_volume,
+        top_dollar_volume_rank,
         buy_strategy_name,
         sell_strategy_name,
         stop_loss_percentage,
@@ -62,6 +78,7 @@ def run_daily_tasks(
     data_download_function: Callable[[str, str, str], pandas.DataFrame] = download_history,
     data_directory: Path | None = None,
     minimum_average_dollar_volume: float | None = None,
+    top_dollar_volume_rank: int | None = None,  # TODO: review
 ) -> Dict[str, List[str]]:
     """Execute the daily workflow for data retrieval and signal detection.
 
@@ -86,6 +103,9 @@ def run_daily_tasks(
     minimum_average_dollar_volume: float | None
         Minimum 50-day average dollar volume in millions required for a symbol
         to be processed. When ``None``, no volume filter is applied.
+    top_dollar_volume_rank: int | None
+        When provided, only the ``N`` symbols with the highest 50-day average
+        dollar volume are processed.
 
     Returns
     -------
@@ -108,6 +128,7 @@ def run_daily_tasks(
     if sell_strategy_name not in SUPPORTED_STRATEGIES:
         raise ValueError(f"Unknown strategy: {sell_strategy_name}")
 
+    symbol_data: List[tuple[str, pandas.DataFrame, float | None]] = []
     for symbol in symbol_list:
         data_file_path: Path | None = None
         if data_directory is not None:
@@ -127,19 +148,29 @@ def run_daily_tasks(
             LOGGER.warning("No data returned for %s", symbol)
             continue
 
-        if minimum_average_dollar_volume is not None:
-            if "volume" not in price_history_frame.columns:
-                LOGGER.warning("Volume column is missing for %s", symbol)
-                continue
+        average_dollar_volume: float | None = None
+        if "volume" in price_history_frame.columns:
             dollar_volume_series = price_history_frame["close"] * price_history_frame["volume"]
-            recent_average_dollar_volume = (
-                dollar_volume_series.rolling(window=50).mean().iloc[-1] / 1_000_000
-            )
-            if pandas.isna(recent_average_dollar_volume) or (
-                recent_average_dollar_volume < minimum_average_dollar_volume
-            ):
-                continue
+            if not dollar_volume_series.empty:
+                average_dollar_volume = float(
+                    dollar_volume_series.rolling(window=50).mean().iloc[-1]
+                )
+        symbol_data.append((symbol, price_history_frame, average_dollar_volume))
 
+    if minimum_average_dollar_volume is not None:
+        symbol_data = [
+            item
+            for item in symbol_data
+            if item[2] is not None
+            and (item[2] / 1_000_000) >= minimum_average_dollar_volume
+        ]
+
+    if top_dollar_volume_rank is not None:
+        symbol_data = [item for item in symbol_data if item[2] is not None]
+        symbol_data.sort(key=lambda item: item[2], reverse=True)
+        symbol_data = symbol_data[:top_dollar_volume_rank]
+
+    for symbol, price_history_frame, _ in symbol_data:
         SUPPORTED_STRATEGIES[buy_strategy_name](price_history_frame)
         if buy_strategy_name != sell_strategy_name:
             SUPPORTED_STRATEGIES[sell_strategy_name](price_history_frame)
@@ -191,6 +222,7 @@ def run_daily_tasks_from_argument(
     """
     (
         minimum_average_dollar_volume,
+        top_dollar_volume_rank,
         buy_strategy_name,
         sell_strategy_name,
         _,
@@ -204,4 +236,5 @@ def run_daily_tasks_from_argument(
         data_download_function=data_download_function,
         data_directory=data_directory,
         minimum_average_dollar_volume=minimum_average_dollar_volume,
+        top_dollar_volume_rank=top_dollar_volume_rank,
     )

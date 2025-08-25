@@ -370,6 +370,7 @@ def evaluate_combined_strategy(
     buy_strategy_name: str,
     sell_strategy_name: str,
     minimum_average_dollar_volume: float | None = None,
+    top_dollar_volume_rank: int | None = None,  # TODO: review
     starting_cash: float = 3000.0,
     stop_loss_percentage: float = 1.0,
 ) -> StrategyMetrics:
@@ -387,6 +388,9 @@ def evaluate_combined_strategy(
         Minimum 50-day moving average dollar volume, in millions, required for a
         symbol to be included in the evaluation. When ``None``, no filter is
         applied.
+    top_dollar_volume_rank: int | None, optional
+        Select only the ``N`` symbols with the highest 50-day average dollar
+        volume. When ``None``, no ranking filter is applied.
     starting_cash: float, default 3000.0
         Initial amount of cash used for portfolio simulation.
     stop_loss_percentage: float, default 1.0
@@ -408,18 +412,46 @@ def evaluate_combined_strategy(
     simulation_results: List[SimulationResult] = []
     all_trades: List[Trade] = []
 
-    if minimum_average_dollar_volume is not None:
-        from .volume import count_symbols_with_average_dollar_volume_above  # TODO: review
-
-        eligible_symbol_count = count_symbols_with_average_dollar_volume_above(
-            data_directory, minimum_average_dollar_volume
-        )
-    else:
-        eligible_symbol_count = sum(1 for _ in data_directory.glob("*.csv"))
-
+    symbol_frames: List[tuple[Path, pandas.DataFrame]] = []  # TODO: review
+    latest_dollar_volumes: List[tuple[Path, float]] = []  # TODO: review
     for csv_file_path in data_directory.glob("*.csv"):
         price_data_frame = load_price_data(csv_file_path)
         if price_data_frame.empty:
+            continue
+        symbol_frames.append((csv_file_path, price_data_frame))
+        if "volume" in price_data_frame.columns:
+            dollar_volume_series = price_data_frame["close"] * price_data_frame["volume"]
+            if dollar_volume_series.empty:
+                recent_average_dollar_volume = 0.0
+            else:
+                recent_average_dollar_volume = float(
+                    dollar_volume_series.rolling(window=50).mean().iloc[-1]
+                )
+        else:
+            recent_average_dollar_volume = 0.0
+        latest_dollar_volumes.append((csv_file_path, recent_average_dollar_volume))
+
+    if top_dollar_volume_rank is not None:
+        latest_dollar_volumes.sort(key=lambda item: item[1], reverse=True)
+        selected_paths = {
+            path for path, _ in latest_dollar_volumes[:top_dollar_volume_rank]
+        }
+        eligible_symbol_count = len(selected_paths)
+    else:
+        selected_paths = {path for path, _ in latest_dollar_volumes}
+        if minimum_average_dollar_volume is not None:
+            from .volume import (
+                count_symbols_with_average_dollar_volume_above,
+            )  # TODO: review
+
+            eligible_symbol_count = count_symbols_with_average_dollar_volume_above(
+                data_directory, minimum_average_dollar_volume
+            )
+        else:
+            eligible_symbol_count = len(selected_paths)
+
+    for csv_file_path, price_data_frame in symbol_frames:
+        if csv_file_path not in selected_paths:
             continue
         if minimum_average_dollar_volume is not None:
             if "volume" not in price_data_frame.columns:

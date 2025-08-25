@@ -454,6 +454,48 @@ def test_evaluate_combined_strategy_dollar_volume_filter(
     assert simulate_called["called"] is True
 
 
+def test_evaluate_combined_strategy_dollar_volume_rank(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The function should process only the top symbols by 50-day average dollar volume."""
+
+    import stock_indicator.strategy as strategy_module
+
+    for symbol_name, volume_list in {
+        "AAA": [1000.0] * 59 + [1.0],
+        "BBB": [10.0] * 59 + [200.0],
+        "CCC": [10.0] * 59 + [300.0],
+    }.items():
+        date_index = pandas.date_range("2020-01-01", periods=60, freq="D")
+        pandas.DataFrame(
+            {
+                "Date": date_index,
+                "open": [1.0] * 60,
+                "close": [1.0] * 60,
+                "volume": volume_list,
+                "symbol": [symbol_name] * 60,
+            }
+        ).to_csv(tmp_path / f"{symbol_name}.csv", index=False)
+
+    processed_symbols: list[str] = []
+
+    def fake_simulate_trades(
+        data: pandas.DataFrame, *args: object, **kwargs: object
+    ) -> SimulationResult:
+        processed_symbols.append(data["symbol"].iloc[0])
+        return SimulationResult(trades=[], total_profit=0.0)
+
+    monkeypatch.setattr(strategy_module, "simulate_trades", fake_simulate_trades)
+    monkeypatch.setattr(strategy_module, "BUY_STRATEGIES", {"noop": lambda df: None})
+    monkeypatch.setattr(strategy_module, "SELL_STRATEGIES", {"noop": lambda df: None})
+    monkeypatch.setattr(strategy_module, "SUPPORTED_STRATEGIES", {"noop": lambda df: None})
+
+    strategy_module.evaluate_combined_strategy(
+        tmp_path, "noop", "noop", top_dollar_volume_rank=2
+    )
+    assert set(processed_symbols) == {"AAA", "CCC"}
+
+
 def test_evaluate_combined_strategy_handles_empty_csv(tmp_path: Path) -> None:
     """evaluate_combined_strategy should skip empty CSV files and return zero trades."""
     empty_data_frame = pandas.DataFrame(

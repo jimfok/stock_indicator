@@ -138,8 +138,9 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
         data_directory: Path,
         buy_strategy_name: str,
         sell_strategy_name: str,
-        minimum_average_dollar_volume: float,
-        stop_loss_percentage: float,
+        minimum_average_dollar_volume: float | None,
+        top_dollar_volume_rank: int | None = None,
+        stop_loss_percentage: float = 1.0,
     ) -> StrategyMetrics:
         call_record["strategies"] = (buy_strategy_name, sell_strategy_name)
         volume_record["threshold"] = minimum_average_dollar_volume
@@ -196,8 +197,9 @@ def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) ->
         data_directory: Path,
         buy_strategy_name: str,
         sell_strategy_name: str,
-        minimum_average_dollar_volume: float,
-        stop_loss_percentage: float,
+        minimum_average_dollar_volume: float | None,
+        top_dollar_volume_rank: int | None = None,
+        stop_loss_percentage: float = 1.0,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
         threshold_record["threshold"] = minimum_average_dollar_volume
@@ -233,6 +235,49 @@ def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) ->
     assert stop_loss_record["value"] == 1.0
 
 
+def test_start_simulate_dollar_volume_rank(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command should forward the ranking filter to evaluation."""
+    import stock_indicator.manage as manage_module
+
+    rank_record: dict[str, int | None] = {}
+
+    from stock_indicator.strategy import StrategyMetrics
+
+    def fake_evaluate(
+        data_directory: Path,
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        minimum_average_dollar_volume: float | None,
+        top_dollar_volume_rank: int | None = None,
+        stop_loss_percentage: float = 1.0,
+    ) -> StrategyMetrics:
+        rank_record["rank"] = top_dollar_volume_rank
+        return StrategyMetrics(
+            total_trades=0,
+            win_rate=0.0,
+            mean_profit_percentage=0.0,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.0,
+            loss_percentage_standard_deviation=0.0,
+            mean_holding_period=0.0,
+            holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=0,
+            final_balance=0.0,
+            annual_returns={},
+            annual_trade_counts={},
+        )
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "evaluate_combined_strategy",
+        fake_evaluate,
+    )
+
+    shell = manage_module.StockShell(stdout=io.StringIO())
+    shell.onecmd("start_simulate dollar_volume=6th ema_sma_cross ema_sma_cross")
+    assert rank_record["rank"] == 6
+
+
 def test_start_simulate_supports_rsi_strategy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -249,8 +294,9 @@ def test_start_simulate_supports_rsi_strategy(
         data_directory: Path,
         buy_strategy_name: str,
         sell_strategy_name: str,
-        minimum_average_dollar_volume: float,
-        stop_loss_percentage: float,
+        minimum_average_dollar_volume: float | None,
+        top_dollar_volume_rank: int | None = None,
+        stop_loss_percentage: float = 1.0,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
         return StrategyMetrics(
@@ -301,8 +347,9 @@ def test_start_simulate_supports_slope_strategy(
         data_directory: Path,
         buy_strategy_name: str,
         sell_strategy_name: str,
-        minimum_average_dollar_volume: float,
-        stop_loss_percentage: float,
+        minimum_average_dollar_volume: float | None,
+        top_dollar_volume_rank: int | None = None,
+        stop_loss_percentage: float = 1.0,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
         return StrategyMetrics(
@@ -351,8 +398,9 @@ def test_start_simulate_accepts_stop_loss_argument(
         data_directory: Path,
         buy_strategy_name: str,
         sell_strategy_name: str,
-        minimum_average_dollar_volume: float,
-        stop_loss_percentage: float,
+        minimum_average_dollar_volume: float | None,
+        top_dollar_volume_rank: int | None = None,
+        stop_loss_percentage: float = 1.0,
     ) -> StrategyMetrics:
         stop_loss_record["value"] = stop_loss_percentage
         return StrategyMetrics(
