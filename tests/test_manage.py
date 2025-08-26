@@ -132,7 +132,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     volume_record: dict[str, float] = {}
     stop_loss_record: dict[str, float] = {}
 
-    from stock_indicator.strategy import StrategyMetrics
+    from stock_indicator.strategy import StrategyMetrics, TradeDetail
 
     def fake_evaluate(
         data_directory: Path,
@@ -150,6 +150,54 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
         assert starting_cash == 3000.0
         assert withdraw_amount == 0.0
         assert data_directory == manage_module.DATA_DIRECTORY
+        trade_details_by_year = {
+            2023: [
+                TradeDetail(
+                    date=pandas.Timestamp("2023-01-02"),
+                    symbol="AAA",
+                    action="open",
+                    price=10.0,
+                    fifty_day_average_dollar_volume_ratio=0.1,
+                ),
+                TradeDetail(
+                    date=pandas.Timestamp("2023-01-05"),
+                    symbol="AAA",
+                    action="close",
+                    price=11.0,
+                    fifty_day_average_dollar_volume_ratio=0.1,
+                ),
+                TradeDetail(
+                    date=pandas.Timestamp("2023-02-10"),
+                    symbol="BBB",
+                    action="open",
+                    price=20.0,
+                    fifty_day_average_dollar_volume_ratio=0.2,
+                ),
+                TradeDetail(
+                    date=pandas.Timestamp("2023-02-15"),
+                    symbol="BBB",
+                    action="close",
+                    price=21.0,
+                    fifty_day_average_dollar_volume_ratio=0.2,
+                ),
+            ],
+            2024: [
+                TradeDetail(
+                    date=pandas.Timestamp("2024-03-01"),
+                    symbol="CCC",
+                    action="open",
+                    price=30.0,
+                    fifty_day_average_dollar_volume_ratio=0.3,
+                ),
+                TradeDetail(
+                    date=pandas.Timestamp("2024-03-05"),
+                    symbol="CCC",
+                    action="close",
+                    price=29.0,
+                    fifty_day_average_dollar_volume_ratio=0.3,
+                ),
+            ],
+        }
         return StrategyMetrics(
             total_trades=3,
             win_rate=0.5,
@@ -163,6 +211,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
             final_balance=123.45,
             annual_returns={2023: 0.1, 2024: -0.05},
             annual_trade_counts={2023: 2, 2024: 1},
+            trade_details_by_year=trade_details_by_year,
         )
 
     monkeypatch.setattr(
@@ -185,6 +234,10 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert "Year 2023: 10.00%, trade: 2" in output_buffer.getvalue()
     assert "Year 2024: -5.00%, trade: 1" in output_buffer.getvalue()
+    assert "  2023-01-02 AAA open 10.00 0.1000" in output_buffer.getvalue()
+    assert "  2023-01-05 AAA close 11.00 0.1000" in output_buffer.getvalue()
+    assert "  2024-03-01 CCC open 30.00 0.3000" in output_buffer.getvalue()
+    assert "  2024-03-05 CCC close 29.00 0.3000" in output_buffer.getvalue()
 
 
 def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) -> None:
