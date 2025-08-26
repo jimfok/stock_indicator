@@ -619,13 +619,17 @@ def evaluate_combined_strategy(
                 ]
             else:
                 entry_volume = float("nan")
+            if isinstance(entry_volume, pandas.Series):  # TODO: review
+                entry_volume_value = float(entry_volume.iloc[0])
+            else:
+                entry_volume_value = float(entry_volume)
             total_entry_volume = total_fifty_day_average_dollar_volume_by_date.get(
                 completed_trade.entry_date, 0.0
             )
-            if pandas.isna(entry_volume) or total_entry_volume == 0:
+            if pandas.isna(entry_volume_value) or total_entry_volume == 0:
                 entry_ratio = 0.0
             else:
-                entry_ratio = float(entry_volume) / float(total_entry_volume)
+                entry_ratio = entry_volume_value / float(total_entry_volume)
             entry_detail = TradeDetail(
                 date=completed_trade.entry_date,
                 symbol=symbol_name,
@@ -640,13 +644,17 @@ def evaluate_combined_strategy(
                 ]
             else:
                 exit_volume = float("nan")
+            if isinstance(exit_volume, pandas.Series):  # TODO: review
+                exit_volume_value = float(exit_volume.iloc[0])
+            else:
+                exit_volume_value = float(exit_volume)
             total_exit_volume = total_fifty_day_average_dollar_volume_by_date.get(
                 completed_trade.exit_date, 0.0
             )
-            if pandas.isna(exit_volume) or total_exit_volume == 0:
+            if pandas.isna(exit_volume_value) or total_exit_volume == 0:
                 exit_ratio = 0.0
             else:
-                exit_ratio = float(exit_volume) / float(total_exit_volume)
+                exit_ratio = exit_volume_value / float(total_exit_volume)
             exit_detail = TradeDetail(
                 date=completed_trade.exit_date,
                 symbol=symbol_name,
