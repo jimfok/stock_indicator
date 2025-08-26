@@ -546,14 +546,8 @@ def evaluate_combined_strategy(
     else:
         selected_volume_items = filtered_latest_dollar_volumes
     selected_paths = {csv_path for csv_path, _ in selected_volume_items}
-    latest_average_dollar_volume_by_path: Dict[Path, float] = {
-        csv_path: dollar_volume for csv_path, dollar_volume in selected_volume_items
-    }
-    total_latest_average_dollar_volume = sum(
-        latest_average_dollar_volume_by_path.values()
-    )
 
-    selected_symbol_frames: List[tuple[Path, pandas.DataFrame]] = []  # TODO: review
+    selected_symbol_frames: List[tuple[Path, pandas.DataFrame]] = []
     for csv_file_path, price_data_frame in symbol_frames:
         if csv_file_path not in selected_paths:
             continue
@@ -570,8 +564,8 @@ def evaluate_combined_strategy(
             price_data_frame["simple_moving_average_dollar_volume"] = float("nan")
         selected_symbol_frames.append((csv_file_path, price_data_frame))
 
-    eligible_symbol_count = len(selected_symbol_frames)
-
+    # Apply a second filter to ensure all symbols meet the minimum requirement
+    filtered_symbol_frames: List[tuple[Path, pandas.DataFrame]] = []
     for csv_file_path, price_data_frame in selected_symbol_frames:
         if minimum_average_dollar_volume is not None:
             recent_average_dollar_volume = (
@@ -582,21 +576,40 @@ def evaluate_combined_strategy(
                 recent_average_dollar_volume < minimum_average_dollar_volume
             ):
                 continue
+        filtered_symbol_frames.append((csv_file_path, price_data_frame))
+    selected_symbol_frames = filtered_symbol_frames
+
+    simple_moving_average_dollar_volume_by_symbol_and_date: Dict[
+        str, Dict[pandas.Timestamp, float]
+    ] = {}
+    total_dollar_volume_by_date: Dict[pandas.Timestamp, float] = {}
+    for csv_file_path, price_data_frame in selected_symbol_frames:
+        symbol_name = csv_file_path.stem
+        simple_moving_average_series = price_data_frame[
+            "simple_moving_average_dollar_volume"
+        ]
+        simple_moving_average_dollar_volume_by_symbol_and_date[symbol_name] = (
+            simple_moving_average_series.to_dict()
+        )
+        for current_date, dollar_volume in simple_moving_average_series.items():
+            if pandas.isna(dollar_volume):
+                continue
+            total_dollar_volume_by_date[current_date] = (
+                total_dollar_volume_by_date.get(current_date, 0.0) + float(dollar_volume)
+            )
+
+    eligible_symbol_count = len(selected_symbol_frames)
+
+    for csv_file_path, price_data_frame in selected_symbol_frames:
         BUY_STRATEGIES[buy_strategy_name](price_data_frame)
         if buy_strategy_name != sell_strategy_name:
             SELL_STRATEGIES[sell_strategy_name](price_data_frame)
 
         def entry_rule(current_row: pandas.Series) -> bool:
-            return bool(
-                current_row[f"{buy_strategy_name}_entry_signal"]
-            )
+            return bool(current_row[f"{buy_strategy_name}_entry_signal"])
 
-        def exit_rule(
-            current_row: pandas.Series, entry_row: pandas.Series
-        ) -> bool:
-            return bool(
-                current_row[f"{sell_strategy_name}_exit_signal"]
-            )
+        def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
+            return bool(current_row[f"{sell_strategy_name}_exit_signal"])
 
         simulation_result = simulate_trades(
             data=price_data_frame,
@@ -609,43 +622,57 @@ def evaluate_combined_strategy(
         simulation_results.append(simulation_result)
         all_trades.extend(simulation_result.trades)
         symbol_name = csv_file_path.stem
+        symbol_volume_lookup = simple_moving_average_dollar_volume_by_symbol_and_date.get(
+            symbol_name, {}
+        )
         for completed_trade in simulation_result.trades:
             trade_profit_list.append(completed_trade.profit)
             holding_period_list.append(completed_trade.holding_period)
-            percentage_change = (
-                completed_trade.profit / completed_trade.entry_price
-            )
+            percentage_change = completed_trade.profit / completed_trade.entry_price
             if percentage_change > 0:
                 profit_percentage_list.append(percentage_change)
             elif percentage_change < 0:
                 loss_percentage_list.append(abs(percentage_change))
-            symbol_latest_average_dollar_volume = latest_average_dollar_volume_by_path.get(
-                csv_file_path, 0.0
+
+            entry_dollar_volume = float(
+                symbol_volume_lookup.get(completed_trade.entry_date, 0.0)
             )
-            if total_latest_average_dollar_volume == 0:
-                average_dollar_volume_ratio = 0.0
+            total_entry_dollar_volume = total_dollar_volume_by_date.get(
+                completed_trade.entry_date, 0.0
+            )
+            if total_entry_dollar_volume == 0:
+                entry_volume_ratio = 0.0
             else:
-                average_dollar_volume_ratio = (
-                    symbol_latest_average_dollar_volume
-                    / total_latest_average_dollar_volume
-                )
+                entry_volume_ratio = entry_dollar_volume / total_entry_dollar_volume
+
+            exit_dollar_volume = float(
+                symbol_volume_lookup.get(completed_trade.exit_date, 0.0)
+            )
+            total_exit_dollar_volume = total_dollar_volume_by_date.get(
+                completed_trade.exit_date, 0.0
+            )
+            if total_exit_dollar_volume == 0:
+                exit_volume_ratio = 0.0
+            else:
+                exit_volume_ratio = exit_dollar_volume / total_exit_dollar_volume
+
             entry_detail = TradeDetail(
                 date=completed_trade.entry_date,
                 symbol=symbol_name,
                 action="open",
                 price=completed_trade.entry_price,
-                simple_moving_average_dollar_volume=symbol_latest_average_dollar_volume,
-                total_simple_moving_average_dollar_volume=total_latest_average_dollar_volume,
-                simple_moving_average_dollar_volume_ratio=average_dollar_volume_ratio,
+                simple_moving_average_dollar_volume=entry_dollar_volume,
+                total_simple_moving_average_dollar_volume=total_entry_dollar_volume,
+                simple_moving_average_dollar_volume_ratio=entry_volume_ratio,
             )
             exit_detail = TradeDetail(
                 date=completed_trade.exit_date,
                 symbol=symbol_name,
                 action="close",
                 price=completed_trade.exit_price,
-                simple_moving_average_dollar_volume=symbol_latest_average_dollar_volume,
-                total_simple_moving_average_dollar_volume=total_latest_average_dollar_volume,
-                simple_moving_average_dollar_volume_ratio=average_dollar_volume_ratio,
+                simple_moving_average_dollar_volume=exit_dollar_volume,
+                total_simple_moving_average_dollar_volume=total_exit_dollar_volume,
+                simple_moving_average_dollar_volume_ratio=exit_volume_ratio,
             )
             trade_details_by_year.setdefault(
                 completed_trade.entry_date.year, []

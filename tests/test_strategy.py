@@ -567,7 +567,7 @@ def test_evaluate_combined_strategy_dollar_volume_filter_and_rank(
 def test_evaluate_combined_strategy_trade_details_use_latest_average_dollar_volume(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """TradeDetail should store latest 50-day average dollar volume values."""
+    """TradeDetail should store date-specific 50-day average dollar volumes."""
 
     import stock_indicator.strategy as strategy_module
 
@@ -597,10 +597,10 @@ def test_evaluate_combined_strategy_trade_details_use_latest_average_dollar_volu
 
     def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
         price_data_frame: pandas.DataFrame = kwargs["data"]
-        entry_date = price_data_frame.index[52]
-        exit_date = price_data_frame.index[53]
-        entry_price = float(price_data_frame.iloc[52]["open"])
-        exit_price = float(price_data_frame.iloc[53]["open"])
+        entry_date = price_data_frame.index[58]
+        exit_date = price_data_frame.index[59]
+        entry_price = float(price_data_frame.iloc[58]["open"])
+        exit_price = float(price_data_frame.iloc[59]["open"])
         trade = Trade(
             entry_date=entry_date,
             exit_date=exit_date,
@@ -618,20 +618,39 @@ def test_evaluate_combined_strategy_trade_details_use_latest_average_dollar_volu
     open_details = {
         detail.symbol: detail for detail in trade_details if detail.action == "open"
     }
-    aaa_detail = open_details["AAA"]
-    bbb_detail = open_details["BBB"]
-    assert aaa_detail.simple_moving_average_dollar_volume == pytest.approx(10_200_000.0)
-    assert bbb_detail.simple_moving_average_dollar_volume == pytest.approx(40_800_000.0)
+    close_details = {
+        detail.symbol: detail for detail in trade_details if detail.action == "close"
+    }
+    aaa_open = open_details["AAA"]
+    bbb_open = open_details["BBB"]
+    aaa_close = close_details["AAA"]
+    bbb_close = close_details["BBB"]
+
+    assert aaa_open.simple_moving_average_dollar_volume == pytest.approx(10_000_000.0)
+    assert bbb_open.simple_moving_average_dollar_volume == pytest.approx(40_000_000.0)
     assert (
-        aaa_detail.total_simple_moving_average_dollar_volume
+        aaa_open.total_simple_moving_average_dollar_volume
+        == pytest.approx(50_000_000.0)
+    )
+    assert (
+        bbb_open.total_simple_moving_average_dollar_volume
+        == pytest.approx(50_000_000.0)
+    )
+    assert aaa_open.simple_moving_average_dollar_volume_ratio == pytest.approx(0.2)
+    assert bbb_open.simple_moving_average_dollar_volume_ratio == pytest.approx(0.8)
+
+    assert aaa_close.simple_moving_average_dollar_volume == pytest.approx(10_200_000.0)
+    assert bbb_close.simple_moving_average_dollar_volume == pytest.approx(40_800_000.0)
+    assert (
+        aaa_close.total_simple_moving_average_dollar_volume
         == pytest.approx(51_000_000.0)
     )
     assert (
-        bbb_detail.total_simple_moving_average_dollar_volume
+        bbb_close.total_simple_moving_average_dollar_volume
         == pytest.approx(51_000_000.0)
     )
-    assert aaa_detail.simple_moving_average_dollar_volume_ratio == pytest.approx(0.2)
-    assert bbb_detail.simple_moving_average_dollar_volume_ratio == pytest.approx(0.8)
+    assert aaa_close.simple_moving_average_dollar_volume_ratio == pytest.approx(0.2)
+    assert bbb_close.simple_moving_average_dollar_volume_ratio == pytest.approx(0.8)
 
 
 def test_evaluate_combined_strategy_handles_empty_csv(tmp_path: Path) -> None:
