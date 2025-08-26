@@ -803,7 +803,7 @@ def test_attach_ema_sma_cross_with_slope_requires_close_above_long_term_sma_and_
         nonlocal recorded_require_close_above_long_term_sma
         recorded_require_close_above_long_term_sma = require_close_above_long_term_sma
         data_frame["sma_value"] = pandas.Series(
-            [1.0, 0.65, 0.75, 1.15, 0.70]
+            [1.0, 0.8, 0.9, 1.2, 0.7]
         )
         data_frame["sma_previous"] = data_frame["sma_value"].shift(1)
         data_frame["ema_sma_cross_entry_signal"] = pandas.Series(
