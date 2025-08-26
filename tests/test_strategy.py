@@ -535,8 +535,10 @@ def test_evaluate_combined_strategy_dollar_volume_filter_and_rank(
         trades: Iterable[Trade],
         starting_cash: float,
         eligible_symbol_count: int,
+        withdraw_amount: float = 0.0,
     ) -> float:
         captured_counts.append(eligible_symbol_count)
+        assert withdraw_amount == 0.0
         return starting_cash
 
     monkeypatch.setattr(strategy_module, "simulate_trades", fake_simulate_trades)

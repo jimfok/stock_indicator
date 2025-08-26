@@ -71,7 +71,7 @@ comma. The command below evaluates `ftd_ema_sma_cross` using only the six
 symbols whose 50-day average dollar volume exceeds 10,000 million:
 
 ```bash
-(stock-indicator) start_simulate dollar_volume>10000,6th ftd_ema_sma_cross ftd_ema_sma_cross
+(stock-indicator) start_simulate starting_cash=5000 withdraw=1000 dollar_volume>10000,6th ftd_ema_sma_cross ftd_ema_sma_cross
 ```
 
 Here `dollar_volume>10000,6th` first drops symbols below the threshold and then

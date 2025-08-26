@@ -140,11 +140,15 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
         sell_strategy_name: str,
         minimum_average_dollar_volume: float | None,
         top_dollar_volume_rank: int | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
     ) -> StrategyMetrics:
         call_record["strategies"] = (buy_strategy_name, sell_strategy_name)
         volume_record["threshold"] = minimum_average_dollar_volume
         stop_loss_record["value"] = stop_loss_percentage
+        assert starting_cash == 3000.0
+        assert withdraw_amount == 0.0
         assert data_directory == manage_module.DATA_DIRECTORY
         return StrategyMetrics(
             total_trades=3,
@@ -199,11 +203,15 @@ def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) ->
         sell_strategy_name: str,
         minimum_average_dollar_volume: float | None,
         top_dollar_volume_rank: int | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
         threshold_record["threshold"] = minimum_average_dollar_volume
         stop_loss_record["value"] = stop_loss_percentage
+        assert starting_cash == 3000.0
+        assert withdraw_amount == 0.0
         return StrategyMetrics(
             total_trades=0,
             win_rate=0.0,
@@ -249,9 +257,13 @@ def test_start_simulate_dollar_volume_rank(monkeypatch: pytest.MonkeyPatch) -> N
         sell_strategy_name: str,
         minimum_average_dollar_volume: float | None,
         top_dollar_volume_rank: int | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
     ) -> StrategyMetrics:
         rank_record["rank"] = top_dollar_volume_rank
+        assert starting_cash == 3000.0
+        assert withdraw_amount == 0.0
         return StrategyMetrics(
             total_trades=0,
             win_rate=0.0,
@@ -294,10 +306,14 @@ def test_start_simulate_dollar_volume_threshold_and_rank(
         sell_strategy_name: str,
         minimum_average_dollar_volume: float | None,
         top_dollar_volume_rank: int | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
     ) -> StrategyMetrics:
         recorded_values["threshold"] = minimum_average_dollar_volume
         recorded_values["rank"] = top_dollar_volume_rank
+        assert starting_cash == 3000.0
+        assert withdraw_amount == 0.0
         return StrategyMetrics(
             total_trades=0,
             win_rate=0.0,
@@ -343,9 +359,13 @@ def test_start_simulate_supports_rsi_strategy(
         sell_strategy_name: str,
         minimum_average_dollar_volume: float | None,
         top_dollar_volume_rank: int | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
+        assert starting_cash == 3000.0
+        assert withdraw_amount == 0.0
         return StrategyMetrics(
             total_trades=0,
             win_rate=0.0,
@@ -396,9 +416,13 @@ def test_start_simulate_supports_slope_strategy(
         sell_strategy_name: str,
         minimum_average_dollar_volume: float | None,
         top_dollar_volume_rank: int | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
+        assert starting_cash == 3000.0
+        assert withdraw_amount == 0.0
         return StrategyMetrics(
             total_trades=0,
             win_rate=0.0,
@@ -449,9 +473,13 @@ def test_start_simulate_supports_20_50_sma_cross_strategy(
         sell_strategy_name: str,
         minimum_average_dollar_volume: float | None,
         top_dollar_volume_rank: int | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
+        assert starting_cash == 3000.0
+        assert withdraw_amount == 0.0
         return StrategyMetrics(
             total_trades=0,
             win_rate=0.0,
@@ -499,9 +527,13 @@ def test_start_simulate_accepts_stop_loss_argument(
         sell_strategy_name: str,
         minimum_average_dollar_volume: float | None,
         top_dollar_volume_rank: int | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
     ) -> StrategyMetrics:
         stop_loss_record["value"] = stop_loss_percentage
+        assert starting_cash == 3000.0
+        assert withdraw_amount == 0.0
         return StrategyMetrics(
             total_trades=0,
             win_rate=0.0,
@@ -528,6 +560,57 @@ def test_start_simulate_accepts_stop_loss_argument(
         "start_simulate dollar_volume>100 ema_sma_cross ema_sma_cross 0.5"
     )
     assert stop_loss_record["value"] == 0.5
+
+
+def test_start_simulate_accepts_cash_and_withdraw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command should forward cash and withdraw arguments."""
+    import stock_indicator.manage as manage_module
+
+    recorded_values: dict[str, float] = {}
+
+    from stock_indicator.strategy import StrategyMetrics
+
+    def fake_evaluate(
+        data_directory: Path,
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        minimum_average_dollar_volume: float | None,
+        top_dollar_volume_rank: int | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
+        stop_loss_percentage: float = 1.0,
+    ) -> StrategyMetrics:
+        recorded_values["cash"] = starting_cash
+        recorded_values["withdraw"] = withdraw_amount
+        return StrategyMetrics(
+            total_trades=0,
+            win_rate=0.0,
+            mean_profit_percentage=0.0,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.0,
+            loss_percentage_standard_deviation=0.0,
+            mean_holding_period=0.0,
+            holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=0,
+            final_balance=0.0,
+            annual_returns={},
+            annual_trade_counts={},
+        )
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "evaluate_combined_strategy",
+        fake_evaluate,
+    )
+
+    shell = manage_module.StockShell(stdout=io.StringIO())
+    shell.onecmd(
+        "start_simulate starting_cash=5000 withdraw=1000 dollar_volume>0 ema_sma_cross ema_sma_cross"
+    )
+    assert recorded_values["cash"] == 5000.0
+    assert recorded_values["withdraw"] == 1000.0
 
 
 def test_start_simulate_unsupported_strategy(monkeypatch: pytest.MonkeyPatch) -> None:

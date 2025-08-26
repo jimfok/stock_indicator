@@ -349,6 +349,67 @@ def test_calculate_annual_returns_computes_yearly_returns() -> None:
     assert pytest.approx(annual_returns[2024], rel=1e-6) == expected_return_2024
 
 
+def test_simulate_portfolio_balance_applies_withdraw() -> None:
+    """Portfolio simulation should deduct annual withdrawals."""
+    trade_record = Trade(
+        entry_date=pandas.Timestamp("2023-01-01"),
+        exit_date=pandas.Timestamp("2023-01-02"),
+        entry_price=100.0,
+        exit_price=100.0,
+        profit=0.0,
+        holding_period=1,
+    )
+    final_balance = simulate_portfolio_balance(
+        [trade_record],
+        starting_cash=100.0,
+        eligible_symbol_count=1,
+        withdraw_amount=10.0,
+    )
+    expected_balance = 89.0
+    assert pytest.approx(final_balance, rel=1e-6) == expected_balance
+
+
+def test_calculate_annual_returns_applies_withdraw() -> None:
+    """Annual return calculation should account for yearly withdrawals."""
+    trade_one = Trade(
+        entry_date=pandas.Timestamp("2023-01-01"),
+        exit_date=pandas.Timestamp("2023-01-02"),
+        entry_price=50.0,
+        exit_price=60.0,
+        profit=10.0 - TRADE_COMMISSION,
+        holding_period=1,
+    )
+    trade_two = Trade(
+        entry_date=pandas.Timestamp("2024-01-01"),
+        exit_date=pandas.Timestamp("2024-01-02"),
+        entry_price=50.0,
+        exit_price=60.0,
+        profit=10.0 - TRADE_COMMISSION,
+        holding_period=1,
+    )
+    simulation_start = pandas.Timestamp("2023-01-01")
+    annual_returns = calculate_annual_returns(
+        [trade_one, trade_two],
+        starting_cash=100.0,
+        eligible_symbol_count=1,
+        simulation_start=simulation_start,
+        withdraw_amount=10.0,
+    )
+    first_year_end = 100.0 * (60.0 / 50.0) - TRADE_COMMISSION
+    expected_return_2023 = (first_year_end - 100.0) / 100.0
+    second_year_start = first_year_end - 10.0
+    share_count_year_two = math.floor(second_year_start / 50.0)
+    remaining_cash_year_two = second_year_start - share_count_year_two * 50.0
+    second_year_end = (
+        remaining_cash_year_two + share_count_year_two * 60.0 - TRADE_COMMISSION
+    )
+    expected_return_2024 = (
+        (second_year_end - second_year_start) / second_year_start
+    )
+    assert pytest.approx(annual_returns[2023], rel=1e-6) == expected_return_2023
+    assert pytest.approx(annual_returns[2024], rel=1e-6) == expected_return_2024
+
+
 def test_calculate_annual_trade_counts_counts_trades_per_year() -> None:
     trade_alpha = Trade(
         entry_date=pandas.Timestamp("2023-01-01"),
