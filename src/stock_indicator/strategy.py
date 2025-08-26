@@ -478,8 +478,9 @@ def evaluate_combined_strategy(
         symbol to be included in the evaluation. When ``None``, no filter is
         applied.
     top_dollar_volume_rank: int | None, optional
-        Select only the ``N`` symbols with the highest 50-day average dollar
-        volume. When ``None``, no ranking filter is applied.
+        Retain only the ``N`` symbols with the highest 50-day simple moving
+        average dollar volume on each trading day. When ``None``, no ranking
+        filter is applied.
     starting_cash: float, default 3000.0
         Initial amount of cash used for portfolio simulation.
     withdraw_amount: float, default 0.0
@@ -505,97 +506,90 @@ def evaluate_combined_strategy(
     simulation_start_date: pandas.Timestamp | None = None
     trade_details_by_year: Dict[int, List[TradeDetail]] = {}  # TODO: review
 
-    symbol_frames: List[tuple[Path, pandas.DataFrame]] = []  # TODO: review
-    latest_dollar_volumes: List[tuple[Path, float]] = []  # TODO: review
+    symbol_frames: List[tuple[Path, pandas.DataFrame]] = []
     for csv_file_path in data_directory.glob("*.csv"):
         if csv_file_path.stem == SP500_SYMBOL:
-            continue  # Skip the S&P 500 index; it is used for benchmarking only.
+            continue
         price_data_frame = load_price_data(csv_file_path)
         if price_data_frame.empty:
-            continue
-        symbol_frames.append((csv_file_path, price_data_frame))
-        if "volume" in price_data_frame.columns:
-            dollar_volume_series = price_data_frame["close"] * price_data_frame["volume"]
-            if dollar_volume_series.empty:
-                recent_average_dollar_volume = 0.0
-            else:
-                recent_average_dollar_volume = float(
-                    dollar_volume_series.rolling(window=50).mean().iloc[-1]
-                )
-        else:
-            recent_average_dollar_volume = 0.0
-        latest_dollar_volumes.append((csv_file_path, recent_average_dollar_volume))
-
-    filtered_latest_dollar_volumes = [
-        (csv_path, dollar_volume)
-        for csv_path, dollar_volume in latest_dollar_volumes
-        if (
-            minimum_average_dollar_volume is None
-            or (dollar_volume / 1_000_000) >= minimum_average_dollar_volume
-        )
-    ]
-
-    if top_dollar_volume_rank is not None:
-        filtered_latest_dollar_volumes.sort(
-            key=lambda volume_item: volume_item[1], reverse=True
-        )
-        selected_volume_items = filtered_latest_dollar_volumes[:top_dollar_volume_rank]
-    else:
-        selected_volume_items = filtered_latest_dollar_volumes
-    selected_paths = {csv_path for csv_path, _ in selected_volume_items}
-
-    selected_symbol_frames: List[tuple[Path, pandas.DataFrame]] = []
-    for csv_file_path, price_data_frame in symbol_frames:
-        if csv_file_path not in selected_paths:
             continue
         if "volume" in price_data_frame.columns:
             dollar_volume_series = price_data_frame["close"] * price_data_frame["volume"]
             price_data_frame["simple_moving_average_dollar_volume"] = sma(
                 dollar_volume_series, DOLLAR_VOLUME_SMA_WINDOW
             )
-            if minimum_average_dollar_volume is not None:
-                volume_threshold_series = (
-                    price_data_frame["simple_moving_average_dollar_volume"] / 1_000_000
-                )
-                price_data_frame = price_data_frame[
-                    volume_threshold_series >= minimum_average_dollar_volume
-                ].copy()
-                # TODO: review
         else:
-            if minimum_average_dollar_volume is not None:
+            if (
+                minimum_average_dollar_volume is not None
+                or top_dollar_volume_rank is not None
+            ):
                 raise ValueError(
-                    "Volume column is required to compute dollar volume filter"
+                    "Volume column is required to compute dollar volume metrics"
                 )
             price_data_frame["simple_moving_average_dollar_volume"] = float("nan")
-        if price_data_frame.empty:
+        symbol_frames.append((csv_file_path, price_data_frame))
+
+    if symbol_frames:
+        merged_volume_frame = pandas.concat(
+            {
+                csv_path.stem: frame["simple_moving_average_dollar_volume"]
+                for csv_path, frame in symbol_frames
+            },
+            axis=1,
+        )
+        if (
+            minimum_average_dollar_volume is None
+            and top_dollar_volume_rank is None
+        ):
+            eligibility_mask = pandas.DataFrame(
+                True,
+                index=merged_volume_frame.index,
+                columns=merged_volume_frame.columns,
+            )
+        else:
+            eligibility_mask = ~merged_volume_frame.isna()
+            if minimum_average_dollar_volume is not None:
+                eligibility_mask &= (
+                    merged_volume_frame / 1_000_000 >= minimum_average_dollar_volume
+                )
+            if top_dollar_volume_rank is not None:
+                rank_frame = merged_volume_frame.rank(
+                    axis=1, method="min", ascending=False
+                )
+                eligibility_mask &= rank_frame <= top_dollar_volume_rank
+    else:
+        merged_volume_frame = pandas.DataFrame()
+        eligibility_mask = pandas.DataFrame()
+
+    eligible_symbol_counts_by_date = (
+        eligibility_mask.sum(axis=1).astype(int).to_dict()
+    )
+    total_dollar_volume_by_date = (
+        merged_volume_frame.where(eligibility_mask).sum(axis=1).to_dict()
+    )
+
+    selected_symbol_frames: List[tuple[Path, pandas.DataFrame]] = []
+    simple_moving_average_dollar_volume_by_symbol_and_date: Dict[
+        str, Dict[pandas.Timestamp, float]
+    ] = {}
+    for csv_file_path, price_data_frame in symbol_frames:
+        symbol_name = csv_file_path.stem
+        if symbol_name not in eligibility_mask.columns:
             continue
-        selected_symbol_frames.append((csv_file_path, price_data_frame))
+        symbol_mask = eligibility_mask[symbol_name]
+        symbol_mask = symbol_mask.reindex(price_data_frame.index, fill_value=False)
+        filtered_frame = price_data_frame.loc[symbol_mask].copy()
+        if filtered_frame.empty:
+            continue
+        selected_symbol_frames.append((csv_file_path, filtered_frame))
+        simple_moving_average_dollar_volume_by_symbol_and_date[symbol_name] = (
+            filtered_frame["simple_moving_average_dollar_volume"].to_dict()
+        )
 
     if selected_symbol_frames:
         simulation_start_date = min(
             frame.index.min() for _, frame in selected_symbol_frames
         )
-
-    simple_moving_average_dollar_volume_by_symbol_and_date: Dict[
-        str, Dict[pandas.Timestamp, float]
-    ] = {}
-    total_dollar_volume_by_date: Dict[pandas.Timestamp, float] = {}
-    for csv_file_path, price_data_frame in selected_symbol_frames:
-        symbol_name = csv_file_path.stem
-        simple_moving_average_series = price_data_frame[
-            "simple_moving_average_dollar_volume"
-        ]
-        simple_moving_average_dollar_volume_by_symbol_and_date[symbol_name] = (
-            simple_moving_average_series.to_dict()
-        )
-        for current_date, dollar_volume in simple_moving_average_series.items():
-            if pandas.isna(dollar_volume):
-                continue
-            total_dollar_volume_by_date[current_date] = (
-                total_dollar_volume_by_date.get(current_date, 0.0) + float(dollar_volume)
-            )
-
-    eligible_symbol_count = len(selected_symbol_frames)
 
     for csv_file_path, price_data_frame in selected_symbol_frames:
         BUY_STRATEGIES[buy_strategy_name](price_data_frame)
@@ -686,13 +680,13 @@ def evaluate_combined_strategy(
     annual_returns = calculate_annual_returns(
         all_trades,
         starting_cash,
-        eligible_symbol_count,
+        eligible_symbol_counts_by_date,
         simulation_start_date,
         withdraw_amount,
     )
     annual_trade_counts = calculate_annual_trade_counts(all_trades)
     final_balance = simulate_portfolio_balance(
-        all_trades, starting_cash, eligible_symbol_count, withdraw_amount
+        all_trades, starting_cash, eligible_symbol_counts_by_date, withdraw_amount
     )
     for year_trades in trade_details_by_year.values():
         year_trades.sort(key=lambda detail: detail.date)

@@ -192,7 +192,7 @@ def calculate_maximum_concurrent_positions(
 def simulate_portfolio_balance(
     trades: Iterable[Trade],
     starting_cash: float,
-    eligible_symbol_count: int,
+    eligible_symbol_count: int | Dict[pandas.Timestamp, int],
     withdraw_amount: float = 0.0,
 ) -> float:
     """Simulate capital allocation across multiple trades.
@@ -203,8 +203,10 @@ def simulate_portfolio_balance(
         Collection of trades containing entry and exit information.
     starting_cash : float
         Initial cash available for trading.
-    eligible_symbol_count : int
-        Total number of symbols considered for trading. This value is typically
+    eligible_symbol_count : int | Dict[pandas.Timestamp, int]
+        Total number of symbols considered for trading. When provided as a
+        dictionary, the key is the trading date and the value represents the
+        number of eligible symbols on that day. This mirrors the values
         produced by :func:`stock_indicator.volume.count_symbols_with_average_dollar_volume_above`.
         Each trade closure deducts ``TRADE_COMMISSION`` from the cash balance.
     withdraw_amount : float, optional
@@ -224,6 +226,12 @@ def simulate_portfolio_balance(
     cash_balance = starting_cash
     open_trades: dict[Trade, float] = {}
     current_year: int | None = None
+
+    def get_symbol_count(current_date: pandas.Timestamp) -> int:
+        if isinstance(eligible_symbol_count, dict):
+            return eligible_symbol_count.get(current_date, 0)
+        return eligible_symbol_count
+
     for event_timestamp, event_type, trade in events:
         if current_year is None:
             current_year = event_timestamp.year
@@ -238,11 +246,10 @@ def simulate_portfolio_balance(
                 )
                 cash_balance -= TRADE_COMMISSION
         else:
-            remaining_slots = eligible_symbol_count - len(open_trades)
+            remaining_slots = get_symbol_count(event_timestamp) - len(open_trades)
             if remaining_slots <= 0 or cash_balance <= 0:
                 continue
             budget_per_position = cash_balance / remaining_slots
-            # TODO: review
             share_count = math.floor(budget_per_position / trade.entry_price)
             if share_count <= 0:
                 continue
@@ -260,7 +267,7 @@ def simulate_portfolio_balance(
 def calculate_annual_returns(
     trades: Iterable[Trade],
     starting_cash: float,
-    eligible_symbol_count: int,
+    eligible_symbol_count: int | Dict[pandas.Timestamp, int],
     simulation_start: pandas.Timestamp,
     withdraw_amount: float = 0.0,
 ) -> Dict[int, float]:
@@ -277,9 +284,11 @@ def calculate_annual_returns(
         Collection of trades containing entry and exit information.
     starting_cash: float
         Initial cash available for trading.
-    eligible_symbol_count: int
-        Total number of symbols considered for trading. This value is typically
-        produced by :func:`stock_indicator.volume.count_symbols_with_average_dollar_volume_above`.
+    eligible_symbol_count: int | Dict[pandas.Timestamp, int]
+        Total number of symbols considered for trading. When provided as a
+        dictionary, keys are trading dates and values are the counts of
+        eligible symbols on those dates. This mirrors the values produced by
+        :func:`stock_indicator.volume.count_symbols_with_average_dollar_volume_above`.
     simulation_start: pandas.Timestamp
         Timestamp indicating the first day of the simulation. Years prior to
         the first trade will be emitted with a zero return.
@@ -306,6 +315,11 @@ def calculate_annual_returns(
     current_year = simulation_start.year
     year_start_value = cash_balance
 
+    def get_symbol_count(current_date: pandas.Timestamp) -> int:
+        if isinstance(eligible_symbol_count, dict):
+            return eligible_symbol_count.get(current_date, 0)
+        return eligible_symbol_count
+
     for event_timestamp, event_type, completed_trade in events:
         while event_timestamp.year > current_year:
             year_end_value = cash_balance + sum(open_trades.values())
@@ -327,11 +341,10 @@ def calculate_annual_returns(
                 )
                 cash_balance -= TRADE_COMMISSION
         else:
-            remaining_slots = eligible_symbol_count - len(open_trades)
+            remaining_slots = get_symbol_count(event_timestamp) - len(open_trades)
             if remaining_slots <= 0 or cash_balance <= 0:
                 continue
             budget_per_position = cash_balance / remaining_slots
-            # TODO: review
             share_count = math.floor(
                 budget_per_position / completed_trade.entry_price
             )

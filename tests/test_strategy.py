@@ -462,10 +462,10 @@ def test_evaluate_combined_strategy_dollar_volume_rank(
 
     import stock_indicator.strategy as strategy_module
 
-    for symbol_name, volume_list in {
-        "AAA": [1000.0] * 59 + [1.0],
-        "BBB": [10.0] * 59 + [200.0],
-        "CCC": [10.0] * 59 + [300.0],
+    for symbol_name, volume_value in {
+        "AAA": 300_000_000,
+        "BBB": 100_000_000,
+        "CCC": 200_000_000,
     }.items():
         date_index = pandas.date_range("2020-01-01", periods=60, freq="D")
         pandas.DataFrame(
@@ -473,7 +473,7 @@ def test_evaluate_combined_strategy_dollar_volume_rank(
                 "Date": date_index,
                 "open": [1.0] * 60,
                 "close": [1.0] * 60,
-                "volume": volume_list,
+                "volume": [volume_value] * 60,
                 "symbol": [symbol_name] * 60,
             }
         ).to_csv(tmp_path / f"{symbol_name}.csv", index=False)
@@ -495,6 +495,57 @@ def test_evaluate_combined_strategy_dollar_volume_rank(
         tmp_path, "noop", "noop", top_dollar_volume_rank=2
     )
     assert set(processed_symbols) == {"AAA", "CCC"}
+
+
+def test_evaluate_combined_strategy_symbols_enter_and_exit_daily_universe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Symbols should appear only on days they rank within the daily universe."""
+
+    import stock_indicator.strategy as strategy_module
+
+    date_index = pandas.date_range("2020-01-01", periods=100, freq="D")
+    volume_values_a = [200_000_000] * 50 + [50_000_000] * 50
+    volume_values_b = [100_000_000] * 50 + [200_000_000] * 50
+    for symbol_name, volume_values in {
+        "AAA": volume_values_a,
+        "BBB": volume_values_b,
+    }.items():
+        pandas.DataFrame(
+            {
+                "Date": date_index,
+                "open": [1.0] * 100,
+                "close": [1.0] * 100,
+                "volume": volume_values,
+                "symbol": [symbol_name] * 100,
+            }
+        ).to_csv(tmp_path / f"{symbol_name}.csv", index=False)
+
+    captured_frames: dict[str, pandas.DataFrame] = {}
+
+    def fake_simulate_trades(
+        data: pandas.DataFrame, *args: object, **kwargs: object
+    ) -> SimulationResult:
+        captured_frames[data["symbol"].iloc[0]] = data
+        return SimulationResult(trades=[], total_profit=0.0)
+
+    monkeypatch.setattr(strategy_module, "simulate_trades", fake_simulate_trades)
+    monkeypatch.setattr(strategy_module, "BUY_STRATEGIES", {"noop": lambda df: None})
+    monkeypatch.setattr(strategy_module, "SELL_STRATEGIES", {"noop": lambda df: None})
+    monkeypatch.setattr(strategy_module, "SUPPORTED_STRATEGIES", {"noop": lambda df: None})
+
+    strategy_module.evaluate_combined_strategy(
+        tmp_path, "noop", "noop", top_dollar_volume_rank=1
+    )
+
+    first_date = pandas.Timestamp("2020-03-09")
+    later_date = pandas.Timestamp("2020-03-11")
+    aaa_frame = captured_frames["AAA"]
+    bbb_frame = captured_frames["BBB"]
+    assert first_date in aaa_frame.index
+    assert later_date not in aaa_frame.index
+    assert first_date not in bbb_frame.index
+    assert later_date in bbb_frame.index
 
 
 def test_evaluate_combined_strategy_dollar_volume_filter_and_rank(
@@ -523,7 +574,7 @@ def test_evaluate_combined_strategy_dollar_volume_filter_and_rank(
         ).to_csv(tmp_path / f"{symbol_name}.csv", index=False)
 
     processed_symbols: list[str] = []
-    captured_counts: list[int] = []
+    captured_counts: list[dict[pandas.Timestamp, int]] = []
 
     def fake_simulate_trades(
         data: pandas.DataFrame, *args: object, **kwargs: object
@@ -534,11 +585,12 @@ def test_evaluate_combined_strategy_dollar_volume_filter_and_rank(
     def fake_simulate_portfolio_balance(
         trades: Iterable[Trade],
         starting_cash: float,
-        eligible_symbol_count: int,
+        eligible_symbol_count: dict[pandas.Timestamp, int] | int,
         withdraw_amount: float = 0.0,
     ) -> float:
-        captured_counts.append(eligible_symbol_count)
         assert withdraw_amount == 0.0
+        assert isinstance(eligible_symbol_count, dict)
+        captured_counts.append(eligible_symbol_count)
         return starting_cash
 
     monkeypatch.setattr(strategy_module, "simulate_trades", fake_simulate_trades)
@@ -561,7 +613,9 @@ def test_evaluate_combined_strategy_dollar_volume_filter_and_rank(
         top_dollar_volume_rank=2,
     )
     assert set(processed_symbols) == {"CCC", "DDD"}
-    assert captured_counts == [2]
+    assert len(captured_counts) == 1
+    positive_counts = [value for value in captured_counts[0].values() if value > 0]
+    assert set(positive_counts) == {2}
 
 
 def test_evaluate_combined_strategy_filters_low_average_dollar_volume_rows(
