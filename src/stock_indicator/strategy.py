@@ -243,6 +243,38 @@ def attach_ema_sma_cross_with_slope_signals(
     ]
 
 
+def attach_ema_sma_cross_with_slope_and_volume_signals(
+    price_data_frame: pandas.DataFrame,
+    window_size: int = 50,
+    slope_range: tuple[float, float] = (-0.3, 1.0),
+) -> None:
+    """Attach EMA/SMA cross signals filtered by SMA slope and dollar volume."""
+    # TODO: review
+
+    attach_ema_sma_cross_with_slope_signals(
+        price_data_frame, window_size, slope_range
+    )
+    price_data_frame["dollar_volume_value"] = (
+        price_data_frame["close"] * price_data_frame["volume"]
+    )
+    price_data_frame["ema_dollar_volume_value"] = ema(
+        price_data_frame["dollar_volume_value"], window_size
+    )
+    price_data_frame["sma_dollar_volume_value"] = sma(
+        price_data_frame["dollar_volume_value"], window_size
+    )
+    price_data_frame["ema_sma_cross_with_slope_and_volume_entry_signal"] = (
+        price_data_frame["ema_sma_cross_with_slope_entry_signal"]
+        & (
+            price_data_frame["ema_dollar_volume_value"]
+            > price_data_frame["sma_dollar_volume_value"]
+        )
+    )
+    price_data_frame["ema_sma_cross_with_slope_and_volume_exit_signal"] = (
+        price_data_frame["ema_sma_cross_with_slope_exit_signal"]
+    )
+
+
 def attach_ema_sma_double_cross_signals(
     price_data_frame: pandas.DataFrame,
     window_size: int = 50,
@@ -312,6 +344,7 @@ BUY_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
     "ema_sma_cross_and_rsi": attach_ema_sma_cross_and_rsi_signals,
     "ftd_ema_sma_cross": attach_ftd_ema_sma_cross_signals,
     "ema_sma_cross_with_slope": attach_ema_sma_cross_with_slope_signals,
+    "ema_sma_cross_with_slope_and_volume": attach_ema_sma_cross_with_slope_and_volume_signals,
     "ema_sma_double_cross": attach_ema_sma_double_cross_signals,
 }
 

@@ -455,6 +455,64 @@ def test_start_simulate_supports_slope_strategy(
     )
 
 
+def test_start_simulate_supports_slope_and_volume_strategy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command should recognize the slope and volume strategy."""
+    # TODO: review
+
+    import stock_indicator.manage as manage_module
+
+    call_arguments: dict[str, tuple[str, str]] = {}
+
+    from stock_indicator.strategy import StrategyMetrics
+
+    def fake_evaluate(
+        data_directory: Path,
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        minimum_average_dollar_volume: float | None,
+        top_dollar_volume_rank: int | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
+        stop_loss_percentage: float = 1.0,
+    ) -> StrategyMetrics:
+        call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
+        assert starting_cash == 3000.0
+        assert withdraw_amount == 0.0
+        return StrategyMetrics(
+            total_trades=0,
+            win_rate=0.0,
+            mean_profit_percentage=0.0,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.0,
+            loss_percentage_standard_deviation=0.0,
+            mean_holding_period=0.0,
+            holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=0,
+            final_balance=0.0,
+            annual_returns={},
+            annual_trade_counts={},
+        )
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "evaluate_combined_strategy",
+        fake_evaluate,
+    )
+
+    shell = manage_module.StockShell(stdout=io.StringIO())
+    shell.onecmd(
+        "start_simulate dollar_volume>0 "
+        "ema_sma_cross_with_slope_and_volume "
+        "ema_sma_cross_with_slope_and_volume"
+    )
+    assert call_arguments["strategies"] == (
+        "ema_sma_cross_with_slope_and_volume",
+        "ema_sma_cross_with_slope_and_volume",
+    )
+
+
 def test_start_simulate_supports_20_50_sma_cross_strategy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
