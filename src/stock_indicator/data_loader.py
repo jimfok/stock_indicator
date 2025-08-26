@@ -42,9 +42,11 @@ def download_history(
         Optional path to a CSV file used as a local cache. When the file exists,
         only missing rows are requested from the remote source and the merged
         result is written back to this file.
+    'auto_adjust':
+        auto_adjust is set to true to avoid warning.
     **download_options
         Additional keyword arguments forwarded to :func:`yfinance.download`, such
-        as ``actions``, ``auto_adjust``, or ``interval``.
+        as ``actions``, or ``interval``.
 
     Returns
     -------
@@ -83,6 +85,7 @@ def download_history(
                 start=start,
                 end=end,
                 progress=False,
+                auto_adjust=True
                 **download_options,
             )
             if isinstance(downloaded_frame.columns, pandas.MultiIndex):
