@@ -212,7 +212,7 @@ def attach_ftd_ema_sma_cross_signals(
 def attach_ema_sma_cross_with_slope_signals(
     price_data_frame: pandas.DataFrame,
     window_size: int = 50,
-    slope_range: tuple[float, float] = (-0.3, 1.0),
+    slope_range: tuple[float, float] = (-0.4, 1.0),
 ) -> None:
     """Attach EMA/SMA cross signals filtered by SMA slope to ``price_data_frame``.
 
@@ -220,7 +220,7 @@ def attach_ema_sma_cross_with_slope_signals(
     than the long-term simple moving average and the slope of the simple moving
     average lies within ``slope_range``.
 
-    The default ``slope_range`` is ``(-0.3, 1.0)``.
+    The default ``slope_range`` is ``(-0.4, 1.0)``.
     """
     # TODO: review
 
@@ -399,6 +399,7 @@ def evaluate_combined_strategy(
     minimum_average_dollar_volume: float | None = None,
     top_dollar_volume_rank: int | None = None,  # TODO: review
     starting_cash: float = 3000.0,
+    withdraw_amount: float = 0.0,
     stop_loss_percentage: float = 1.0,
 ) -> StrategyMetrics:
     """Evaluate a combination of strategies for entry and exit signals.
@@ -420,6 +421,8 @@ def evaluate_combined_strategy(
         volume. When ``None``, no ranking filter is applied.
     starting_cash: float, default 3000.0
         Initial amount of cash used for portfolio simulation.
+    withdraw_amount: float, default 0.0
+        Cash amount removed from the balance at the end of each calendar year.
     stop_loss_percentage: float, default 1.0
         Fractional loss from the entry price that triggers an exit on the next
         bar's opening price. Values greater than or equal to ``1.0`` disable
@@ -545,11 +548,15 @@ def evaluate_combined_strategy(
     if simulation_start_date is None:
         simulation_start_date = pandas.Timestamp.now()
     annual_returns = calculate_annual_returns(
-        all_trades, starting_cash, eligible_symbol_count, simulation_start_date
+        all_trades,
+        starting_cash,
+        eligible_symbol_count,
+        simulation_start_date,
+        withdraw_amount,
     )
     annual_trade_counts = calculate_annual_trade_counts(all_trades)
     final_balance = simulate_portfolio_balance(
-        all_trades, starting_cash, eligible_symbol_count
+        all_trades, starting_cash, eligible_symbol_count, withdraw_amount
     )
     return calculate_metrics(
         trade_profit_list,

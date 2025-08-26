@@ -193,6 +193,7 @@ def simulate_portfolio_balance(
     trades: Iterable[Trade],
     starting_cash: float,
     eligible_symbol_count: int,
+    withdraw_amount: float = 0.0,
 ) -> float:
     """Simulate capital allocation across multiple trades.
 
@@ -206,6 +207,9 @@ def simulate_portfolio_balance(
         Total number of symbols considered for trading. This value is typically
         produced by :func:`stock_indicator.volume.count_symbols_with_average_dollar_volume_above`.
         Each trade closure deducts ``TRADE_COMMISSION`` from the cash balance.
+    withdraw_amount : float, optional
+        Cash amount removed from the balance at the end of each calendar year.
+        Defaults to ``0.0``.
 
     Returns
     -------
@@ -219,7 +223,13 @@ def simulate_portfolio_balance(
     events.sort(key=lambda event_tuple: (event_tuple[0], event_tuple[1]))
     cash_balance = starting_cash
     open_trades: dict[Trade, float] = {}
+    current_year: int | None = None
     for event_timestamp, event_type, trade in events:
+        if current_year is None:
+            current_year = event_timestamp.year
+        while event_timestamp.year > current_year:
+            cash_balance -= withdraw_amount
+            current_year += 1
         if event_type == 0:
             if trade in open_trades:
                 invested_amount = open_trades.pop(trade)
@@ -242,6 +252,8 @@ def simulate_portfolio_balance(
                 invested_amount = share_count * trade.entry_price
             open_trades[trade] = invested_amount
             cash_balance -= invested_amount
+    if current_year is not None:
+        cash_balance -= withdraw_amount
     return cash_balance
 
 
@@ -250,6 +262,7 @@ def calculate_annual_returns(
     starting_cash: float,
     eligible_symbol_count: int,
     simulation_start: pandas.Timestamp,
+    withdraw_amount: float = 0.0,
 ) -> Dict[int, float]:
     """Compute yearly portfolio returns for a series of trades.
 
@@ -270,6 +283,9 @@ def calculate_annual_returns(
     simulation_start: pandas.Timestamp
         Timestamp indicating the first day of the simulation. Years prior to
         the first trade will be emitted with a zero return.
+    withdraw_amount: float, optional
+        Cash amount removed from the balance at the end of each calendar year.
+        Defaults to ``0.0``.
 
     Returns
     -------
@@ -299,7 +315,8 @@ def calculate_annual_returns(
                 annual_returns[current_year] = (
                     (year_end_value - year_start_value) / year_start_value
                 )
-            year_start_value = year_end_value
+            cash_balance -= withdraw_amount
+            year_start_value = cash_balance + sum(open_trades.values())
             current_year += 1
 
         if event_type == 0:
@@ -334,6 +351,7 @@ def calculate_annual_returns(
         annual_returns[current_year] = (
             (year_end_value - year_start_value) / year_start_value
         )
+    cash_balance -= withdraw_amount
 
     return annual_returns
 
