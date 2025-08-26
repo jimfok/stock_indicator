@@ -169,6 +169,8 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
                     simple_moving_average_dollar_volume=100_000_000.0,
                     total_simple_moving_average_dollar_volume=1_000_000_000.0,
                     simple_moving_average_dollar_volume_ratio=0.1,
+                    result="win",
+                    percentage_change=0.1,
                 ),
                 TradeDetail(
                     date=pandas.Timestamp("2023-02-10"),
@@ -187,6 +189,8 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
                     simple_moving_average_dollar_volume=200_000_000.0,
                     total_simple_moving_average_dollar_volume=1_000_000_000.0,
                     simple_moving_average_dollar_volume_ratio=0.2,
+                    result="win",
+                    percentage_change=0.05,
                 ),
             ],
             2024: [
@@ -207,6 +211,8 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
                     simple_moving_average_dollar_volume=300_000_000.0,
                     total_simple_moving_average_dollar_volume=1_000_000_000.0,
                     simple_moving_average_dollar_volume_ratio=0.3,
+                    result="lose",
+                    percentage_change=-1.0 / 30.0,
                 ),
             ],
         }
@@ -251,7 +257,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
         in output_buffer.getvalue()
     )
     assert (
-        "  2023-01-05 AAA close 11.00 0.1000 100.00M 1000.00M"
+        "  2023-01-05 AAA close 11.00 0.1000 100.00M 1000.00M win 10.00%"
         in output_buffer.getvalue()
     )
     assert (
@@ -259,7 +265,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
         in output_buffer.getvalue()
     )
     assert (
-        "  2024-03-05 CCC close 29.00 0.3000 300.00M 1000.00M"
+        "  2024-03-05 CCC close 29.00 0.3000 300.00M 1000.00M lose -3.33%"
         in output_buffer.getvalue()
     )
 

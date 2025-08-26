@@ -37,6 +37,10 @@ class TradeDetail:
     dollar volume used when selecting symbols. The ratio expresses this
     symbol's share of the summed average dollar volume across all eligible
     symbols.
+
+    The ``result`` field marks whether a closed trade ended in a win or a
+    loss. For closing trades, ``percentage_change`` records the fractional
+    price change between entry and exit.
     """
     # TODO: review
     date: pandas.Timestamp
@@ -46,6 +50,8 @@ class TradeDetail:
     simple_moving_average_dollar_volume: float
     total_simple_moving_average_dollar_volume: float
     simple_moving_average_dollar_volume_ratio: float
+    result: str | None = None  # TODO: review
+    percentage_change: float | None = None  # TODO: review
 
 
 @dataclass
@@ -656,6 +662,7 @@ def evaluate_combined_strategy(
                 total_simple_moving_average_dollar_volume=total_entry_dollar_volume,
                 simple_moving_average_dollar_volume_ratio=entry_volume_ratio,
             )
+            trade_result = "win" if completed_trade.profit > 0 else "lose"  # TODO: review
             exit_detail = TradeDetail(
                 date=completed_trade.exit_date,
                 symbol=symbol_name,
@@ -664,6 +671,8 @@ def evaluate_combined_strategy(
                 simple_moving_average_dollar_volume=exit_dollar_volume,
                 total_simple_moving_average_dollar_volume=total_exit_dollar_volume,
                 simple_moving_average_dollar_volume_ratio=exit_volume_ratio,
+                result=trade_result,
+                percentage_change=percentage_change,
             )
             trade_details_by_year.setdefault(
                 completed_trade.entry_date.year, []
