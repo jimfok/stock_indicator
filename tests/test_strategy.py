@@ -785,7 +785,10 @@ def test_attach_ema_sma_cross_with_slope_requires_close_above_long_term_sma_and_
     import stock_indicator.strategy as strategy_module
 
     price_data_frame = pandas.DataFrame(
-        {"open": [1.0, 1.0, 1.0], "close": [1.0, 1.0, 1.0]}
+        {
+            "open": [1.0, 1.0, 1.0, 1.0, 1.0],
+            "close": [1.0, 1.0, 1.0, 1.0, 1.0],
+        }
     )
 
     recorded_require_close_above_long_term_sma: bool | None = None
@@ -797,13 +800,15 @@ def test_attach_ema_sma_cross_with_slope_requires_close_above_long_term_sma_and_
     ) -> None:
         nonlocal recorded_require_close_above_long_term_sma
         recorded_require_close_above_long_term_sma = require_close_above_long_term_sma
-        data_frame["sma_value"] = pandas.Series([1.0, 1.1, 1.5])
+        data_frame["sma_value"] = pandas.Series(
+            [1.0, 0.65, 0.75, 1.15, 0.70]
+        )
         data_frame["sma_previous"] = data_frame["sma_value"].shift(1)
         data_frame["ema_sma_cross_entry_signal"] = pandas.Series(
-            [False, True, True]
+            [False, True, True, True, True]
         )
         data_frame["ema_sma_cross_exit_signal"] = pandas.Series(
-            [False, False, True]
+            [False, False, False, False, True]
         )
 
     monkeypatch.setattr(
@@ -817,8 +822,12 @@ def test_attach_ema_sma_cross_with_slope_requires_close_above_long_term_sma_and_
         False,
         True,
         True,
+        True,
+        False,
     ]
     assert list(price_data_frame["ema_sma_cross_with_slope_exit_signal"]) == [
+        False,
+        False,
         False,
         False,
         True,
