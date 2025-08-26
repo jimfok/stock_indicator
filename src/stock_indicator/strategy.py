@@ -514,9 +514,6 @@ def evaluate_combined_strategy(
         if price_data_frame.empty:
             continue
         symbol_frames.append((csv_file_path, price_data_frame))
-        file_start_date = price_data_frame.index.min()
-        if simulation_start_date is None or file_start_date < simulation_start_date:
-            simulation_start_date = file_start_date
         if "volume" in price_data_frame.columns:
             dollar_volume_series = price_data_frame["close"] * price_data_frame["volume"]
             if dollar_volume_series.empty:
@@ -556,28 +553,28 @@ def evaluate_combined_strategy(
             price_data_frame["simple_moving_average_dollar_volume"] = sma(
                 dollar_volume_series, DOLLAR_VOLUME_SMA_WINDOW
             )
+            if minimum_average_dollar_volume is not None:
+                volume_threshold_series = (
+                    price_data_frame["simple_moving_average_dollar_volume"] / 1_000_000
+                )
+                price_data_frame = price_data_frame[
+                    volume_threshold_series >= minimum_average_dollar_volume
+                ].copy()
+                # TODO: review
         else:
             if minimum_average_dollar_volume is not None:
                 raise ValueError(
                     "Volume column is required to compute dollar volume filter"
                 )
             price_data_frame["simple_moving_average_dollar_volume"] = float("nan")
+        if price_data_frame.empty:
+            continue
         selected_symbol_frames.append((csv_file_path, price_data_frame))
 
-    # Apply a second filter to ensure all symbols meet the minimum requirement
-    filtered_symbol_frames: List[tuple[Path, pandas.DataFrame]] = []
-    for csv_file_path, price_data_frame in selected_symbol_frames:
-        if minimum_average_dollar_volume is not None:
-            recent_average_dollar_volume = (
-                price_data_frame["simple_moving_average_dollar_volume"].iloc[-1]
-                / 1_000_000
-            )
-            if pandas.isna(recent_average_dollar_volume) or (
-                recent_average_dollar_volume < minimum_average_dollar_volume
-            ):
-                continue
-        filtered_symbol_frames.append((csv_file_path, price_data_frame))
-    selected_symbol_frames = filtered_symbol_frames
+    if selected_symbol_frames:
+        simulation_start_date = min(
+            frame.index.min() for _, frame in selected_symbol_frames
+        )
 
     simple_moving_average_dollar_volume_by_symbol_and_date: Dict[
         str, Dict[pandas.Timestamp, float]

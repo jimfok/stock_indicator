@@ -564,6 +564,58 @@ def test_evaluate_combined_strategy_dollar_volume_filter_and_rank(
     assert captured_counts == [2]
 
 
+def test_evaluate_combined_strategy_filters_low_average_dollar_volume_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rows below the dollar volume threshold should be excluded."""
+
+    import stock_indicator.strategy as strategy_module
+
+    date_index = pandas.date_range("2020-01-01", periods=52, freq="D")
+    low_volume_date = date_index[50]
+    open_values = [10.0] * 50 + [10.0, 30.0]
+    close_values = [10.0] * 50 + [10.0, 30.0]
+    volume_values = [10_000_000] * 50 + [0, 10_000_000]
+    pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": open_values,
+            "close": close_values,
+            "volume": volume_values,
+        }
+    ).to_csv(tmp_path / "AAA.csv", index=False)
+
+    def fake_strategy(frame: pandas.DataFrame) -> None:
+        frame["test_entry_signal"] = False
+        frame["test_exit_signal"] = False
+        # TODO: review
+
+    captured_frames: dict[str, pandas.DataFrame] = {}
+
+    def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
+        captured_frames["data"] = kwargs["data"]
+        return SimulationResult(trades=[], total_profit=0.0)
+
+    monkeypatch.setattr(strategy_module, "BUY_STRATEGIES", {"test": fake_strategy})
+    monkeypatch.setattr(strategy_module, "SELL_STRATEGIES", {"test": fake_strategy})
+    monkeypatch.setattr(strategy_module, "SUPPORTED_STRATEGIES", {"test": fake_strategy})
+    monkeypatch.setattr(strategy_module, "simulate_trades", fake_simulate_trades)
+
+    strategy_module.evaluate_combined_strategy(
+        tmp_path,
+        "test",
+        "test",
+        minimum_average_dollar_volume=100,
+    )
+
+    filtered_data = captured_frames["data"]
+    assert (
+        filtered_data["simple_moving_average_dollar_volume"] / 1_000_000
+        >= 100
+    ).all()
+    assert low_volume_date not in filtered_data.index
+
+
 def test_evaluate_combined_strategy_trade_details_use_latest_average_dollar_volume(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
