@@ -157,6 +157,8 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
                     symbol="AAA",
                     action="open",
                     price=10.0,
+                    simple_moving_average_dollar_volume=100_000_000.0,
+                    total_simple_moving_average_dollar_volume=1_000_000_000.0,
                     simple_moving_average_dollar_volume_ratio=0.1,
                 ),
                 TradeDetail(
@@ -164,6 +166,8 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
                     symbol="AAA",
                     action="close",
                     price=11.0,
+                    simple_moving_average_dollar_volume=100_000_000.0,
+                    total_simple_moving_average_dollar_volume=1_000_000_000.0,
                     simple_moving_average_dollar_volume_ratio=0.1,
                 ),
                 TradeDetail(
@@ -171,6 +175,8 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
                     symbol="BBB",
                     action="open",
                     price=20.0,
+                    simple_moving_average_dollar_volume=200_000_000.0,
+                    total_simple_moving_average_dollar_volume=1_000_000_000.0,
                     simple_moving_average_dollar_volume_ratio=0.2,
                 ),
                 TradeDetail(
@@ -178,6 +184,8 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
                     symbol="BBB",
                     action="close",
                     price=21.0,
+                    simple_moving_average_dollar_volume=200_000_000.0,
+                    total_simple_moving_average_dollar_volume=1_000_000_000.0,
                     simple_moving_average_dollar_volume_ratio=0.2,
                 ),
             ],
@@ -187,6 +195,8 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
                     symbol="CCC",
                     action="open",
                     price=30.0,
+                    simple_moving_average_dollar_volume=300_000_000.0,
+                    total_simple_moving_average_dollar_volume=1_000_000_000.0,
                     simple_moving_average_dollar_volume_ratio=0.3,
                 ),
                 TradeDetail(
@@ -194,6 +204,8 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
                     symbol="CCC",
                     action="close",
                     price=29.0,
+                    simple_moving_average_dollar_volume=300_000_000.0,
+                    total_simple_moving_average_dollar_volume=1_000_000_000.0,
                     simple_moving_average_dollar_volume_ratio=0.3,
                 ),
             ],
@@ -234,10 +246,22 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert "Year 2023: 10.00%, trade: 2" in output_buffer.getvalue()
     assert "Year 2024: -5.00%, trade: 1" in output_buffer.getvalue()
-    assert "  2023-01-02 AAA open 10.00 0.1000" in output_buffer.getvalue()
-    assert "  2023-01-05 AAA close 11.00 0.1000" in output_buffer.getvalue()
-    assert "  2024-03-01 CCC open 30.00 0.3000" in output_buffer.getvalue()
-    assert "  2024-03-05 CCC close 29.00 0.3000" in output_buffer.getvalue()
+    assert (
+        "  2023-01-02 AAA open 10.00 0.1000 100.00M 1000.00M"
+        in output_buffer.getvalue()
+    )
+    assert (
+        "  2023-01-05 AAA close 11.00 0.1000 100.00M 1000.00M"
+        in output_buffer.getvalue()
+    )
+    assert (
+        "  2024-03-01 CCC open 30.00 0.3000 300.00M 1000.00M"
+        in output_buffer.getvalue()
+    )
+    assert (
+        "  2024-03-05 CCC close 29.00 0.3000 300.00M 1000.00M"
+        in output_buffer.getvalue()
+    )
 
 
 def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) -> None:
