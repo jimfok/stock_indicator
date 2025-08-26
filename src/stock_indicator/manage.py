@@ -213,7 +213,7 @@ class StockShell(cmd.Cmd):
             trade_details = evaluation_metrics.trade_details_by_year.get(year, [])  # TODO: review
             for trade_detail in trade_details:  # TODO: review
                 self.stdout.write(
-                    f"  {trade_detail.date.date()} {trade_detail.symbol} {trade_detail.action} {trade_detail.price:.2f} {trade_detail.fifty_day_average_dollar_volume_ratio:.4f}\n"
+                    f"  {trade_detail.date.date()} {trade_detail.symbol} {trade_detail.action} {trade_detail.price:.2f} {trade_detail.simple_moving_average_dollar_volume_ratio:.4f}\n"
                 )
 
     # TODO: review
