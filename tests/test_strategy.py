@@ -836,6 +836,52 @@ def test_attach_ema_sma_cross_with_slope_requires_close_above_long_term_sma_and_
     ]
 
 
+def test_attach_ema_sma_cross_with_slope_and_volume_requires_higher_ema_volume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Entry requires EMA dollar volume to exceed the SMA value."""
+    # TODO: review
+
+    import stock_indicator.strategy as strategy_module
+
+    price_data_frame = pandas.DataFrame(
+        {
+            "open": [1.0, 1.0, 1.0, 1.0, 1.0],
+            "close": [1.0, 1.0, 1.0, 1.0, 1.0],
+            "volume": [1.0, 2.0, 3.0, 2.0, 1.0],
+        }
+    )
+
+    def fake_attach_ema_sma_cross_with_slope_signals(
+        data_frame: pandas.DataFrame,
+        window_size: int = 50,
+        slope_range: tuple[float, float] = (-0.3, 1.0),
+    ) -> None:
+        data_frame["ema_sma_cross_with_slope_entry_signal"] = pandas.Series(
+            [False, True, True, True, True]
+        )
+        data_frame["ema_sma_cross_with_slope_exit_signal"] = pandas.Series(
+            [False, False, False, False, True]
+        )
+
+    monkeypatch.setattr(
+        strategy_module,
+        "attach_ema_sma_cross_with_slope_signals",
+        fake_attach_ema_sma_cross_with_slope_signals,
+    )
+
+    strategy_module.attach_ema_sma_cross_with_slope_and_volume_signals(
+        price_data_frame, window_size=3
+    )
+
+    assert list(
+        price_data_frame["ema_sma_cross_with_slope_and_volume_entry_signal"]
+    ) == [False, False, True, False, False]
+    assert list(
+        price_data_frame["ema_sma_cross_with_slope_and_volume_exit_signal"]
+    ) == [False, False, False, False, True]
+
+
 def test_attach_ema_sma_double_cross_requires_long_term_ema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -934,6 +980,21 @@ def test_supported_strategies_includes_ema_sma_cross_with_slope() -> None:
     assert (
         SUPPORTED_STRATEGIES["ema_sma_cross_with_slope"]
         is attach_ema_sma_cross_with_slope_signals
+    )
+
+
+def test_supported_strategies_includes_ema_sma_cross_with_slope_and_volume() -> None:
+    """``SUPPORTED_STRATEGIES`` should expose the slope and volume strategy."""
+    # TODO: review
+
+    from stock_indicator.strategy import (
+        SUPPORTED_STRATEGIES,
+        attach_ema_sma_cross_with_slope_and_volume_signals,
+    )
+
+    assert (
+        SUPPORTED_STRATEGIES["ema_sma_cross_with_slope_and_volume"]
+        is attach_ema_sma_cross_with_slope_and_volume_signals
     )
 
 
