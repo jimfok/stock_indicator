@@ -212,7 +212,7 @@ def attach_ftd_ema_sma_cross_signals(
 def attach_ema_sma_cross_with_slope_signals(
     price_data_frame: pandas.DataFrame,
     window_size: int = 50,
-    slope_range: tuple[float, float] = (-0.4, 1.0),
+    slope_range: tuple[float, float] = (-0.3, 1.0),
 ) -> None:
     """Attach EMA/SMA cross signals filtered by SMA slope to ``price_data_frame``.
 
@@ -220,7 +220,7 @@ def attach_ema_sma_cross_with_slope_signals(
     than the long-term simple moving average and the slope of the simple moving
     average lies within ``slope_range``.
 
-    The default ``slope_range`` is ``(-0.4, 1.0)``.
+    The default ``slope_range`` is ``(-0.3, 1.0)``.
     """
     # TODO: review
 
