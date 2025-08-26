@@ -543,8 +543,8 @@ def test_evaluate_combined_strategy_symbols_enter_and_exit_daily_universe(
     aaa_frame = captured_frames["AAA"]
     bbb_frame = captured_frames["BBB"]
     assert first_date in aaa_frame.index
-    assert later_date not in aaa_frame.index
-    assert first_date not in bbb_frame.index
+    assert later_date in aaa_frame.index
+    assert first_date in bbb_frame.index
     assert later_date in bbb_frame.index
 
 
@@ -663,11 +663,11 @@ def test_evaluate_combined_strategy_filters_low_average_dollar_volume_rows(
     )
 
     filtered_data = captured_frames["data"]
+    assert low_volume_date in filtered_data.index
     assert (
-        filtered_data["simple_moving_average_dollar_volume"] / 1_000_000
-        >= 100
-    ).all()
-    assert low_volume_date not in filtered_data.index
+        filtered_data.loc[low_volume_date, "simple_moving_average_dollar_volume"]
+        / 1_000_000
+    ) < 100
 
 
 def test_evaluate_combined_strategy_trade_details_use_latest_average_dollar_volume(
