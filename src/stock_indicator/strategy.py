@@ -471,6 +471,10 @@ def evaluate_combined_strategy(
 ) -> StrategyMetrics:
     """Evaluate a combination of strategies for entry and exit signals.
 
+    The function evaluates strategies on full historical data and uses symbol
+    eligibility to gate entries. Exit signals remain active even when a symbol
+    becomes ineligible so existing positions can close.
+
     Parameters
     ----------
     data_directory: Path
@@ -574,36 +578,36 @@ def evaluate_combined_strategy(
         merged_volume_frame.where(eligibility_mask).sum(axis=1).to_dict()
     )
 
-    selected_symbol_frames: List[tuple[Path, pandas.DataFrame]] = []
+    selected_symbol_data: List[tuple[Path, pandas.DataFrame, pandas.Series]] = []
     simple_moving_average_dollar_volume_by_symbol_and_date: Dict[
         str, Dict[pandas.Timestamp, float]
     ] = {}
+    first_eligible_dates: List[pandas.Timestamp] = []
     for csv_file_path, price_data_frame in symbol_frames:
         symbol_name = csv_file_path.stem
         if symbol_name not in eligibility_mask.columns:
             continue
         symbol_mask = eligibility_mask[symbol_name]
         symbol_mask = symbol_mask.reindex(price_data_frame.index, fill_value=False)
-        filtered_frame = price_data_frame.loc[symbol_mask].copy()
-        if filtered_frame.empty:
+        if not symbol_mask.any():
             continue
-        selected_symbol_frames.append((csv_file_path, filtered_frame))
+        selected_symbol_data.append((csv_file_path, price_data_frame, symbol_mask))
         simple_moving_average_dollar_volume_by_symbol_and_date[symbol_name] = (
-            filtered_frame["simple_moving_average_dollar_volume"].to_dict()
+            price_data_frame["simple_moving_average_dollar_volume"].to_dict()
         )
+        first_eligible_dates.append(symbol_mask[symbol_mask].index.min())
 
-    if selected_symbol_frames:
-        simulation_start_date = min(
-            frame.index.min() for _, frame in selected_symbol_frames
-        )
+    if first_eligible_dates:
+        simulation_start_date = min(first_eligible_dates)
 
-    for csv_file_path, price_data_frame in selected_symbol_frames:
+    for csv_file_path, price_data_frame, symbol_mask in selected_symbol_data:
         BUY_STRATEGIES[buy_strategy_name](price_data_frame)
         if buy_strategy_name != sell_strategy_name:
             SELL_STRATEGIES[sell_strategy_name](price_data_frame)
 
         def entry_rule(current_row: pandas.Series) -> bool:
-            return bool(current_row[f"{buy_strategy_name}_entry_signal"])
+            symbol_is_eligible = bool(symbol_mask.loc[current_row.name])
+            return bool(current_row[f"{buy_strategy_name}_entry_signal"]) and symbol_is_eligible
 
         def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
             return bool(current_row[f"{sell_strategy_name}_exit_signal"])
@@ -620,7 +624,7 @@ def evaluate_combined_strategy(
         all_trades.extend(simulation_result.trades)
         symbol_name = csv_file_path.stem
         symbol_volume_lookup = simple_moving_average_dollar_volume_by_symbol_and_date.get(
-            symbol_name, {}
+            symbol_name, {},
         )
         for completed_trade in simulation_result.trades:
             trade_profit_list.append(completed_trade.profit)
