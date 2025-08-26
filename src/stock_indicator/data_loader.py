@@ -85,7 +85,6 @@ def download_history(
                 start=start,
                 end=end,
                 progress=False,
-                auto_adjust=True
                 **download_options,
             )
             if isinstance(downloaded_frame.columns, pandas.MultiIndex):
