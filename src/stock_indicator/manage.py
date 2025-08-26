@@ -210,6 +210,11 @@ class StockShell(cmd.Cmd):
             self.stdout.write(
                 f"Year {year}: {annual_return:.2%}, trade: {trade_count}\n"
             )
+            trade_details = evaluation_metrics.trade_details_by_year.get(year, [])  # TODO: review
+            for trade_detail in trade_details:  # TODO: review
+                self.stdout.write(
+                    f"  {trade_detail.date.date()} {trade_detail.symbol} {trade_detail.action} {trade_detail.price:.2f}\n"
+                )
 
     # TODO: review
     def help_start_simulate(self) -> None:
