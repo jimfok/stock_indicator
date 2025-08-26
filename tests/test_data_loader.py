@@ -9,6 +9,7 @@ import pathlib
 
 import pandas
 import pytest
+from typing import Any
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
@@ -29,6 +30,7 @@ def test_download_history_returns_dataframe(monkeypatch: pytest.MonkeyPatch) -> 
         start: str,
         end: str,
         progress: bool = False,
+        auto_adjust: bool = True,
     ) -> pandas.DataFrame:
         return raw_dataframe
 
@@ -59,6 +61,7 @@ def test_download_history_flattens_multiindex_columns(
         start: str,
         end: str,
         progress: bool = False,
+        auto_adjust: bool = True,
     ) -> pandas.DataFrame:
         return raw_dataframe
 
@@ -82,6 +85,7 @@ def test_download_history_retries_on_failure(
         start: str,
         end: str,
         progress: bool = False,
+        auto_adjust: bool = True,
     ) -> pandas.DataFrame:
         call_counter["count"] += 1
         if call_counter["count"] < 3:
@@ -113,6 +117,7 @@ def test_download_history_raises_after_max_attempts(
         start: str,
         end: str,
         progress: bool = False,
+        auto_adjust: bool = True,
     ) -> pandas.DataFrame:
         raise ValueError("permanent error")
 
@@ -130,14 +135,14 @@ def test_download_history_forwards_optional_arguments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The function should forward optional keyword arguments to yfinance."""
-    captured_arguments: dict[str, str] = {}
+    captured_arguments: dict[str, Any] = {}
 
     def stubbed_download(
         symbol: str,
         start: str,
         end: str,
         progress: bool = False,
-        **options: str,
+        **options: Any,
     ) -> pandas.DataFrame:
         captured_arguments.update(options)
         return pandas.DataFrame()
@@ -148,6 +153,7 @@ def test_download_history_forwards_optional_arguments(
     monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: ["TEST"])
     download_history("TEST", "2021-01-01", "2021-01-02", interval="1h")
     assert captured_arguments["interval"] == "1h"
+    assert captured_arguments["auto_adjust"] is True
 
 
 def test_download_history_uses_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
@@ -171,6 +177,7 @@ def test_download_history_uses_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         start: str,
         end: str,
         progress: bool = False,
+        auto_adjust: bool = True,
     ) -> pandas.DataFrame:
         captured_arguments["start"] = start
         captured_arguments["end"] = end

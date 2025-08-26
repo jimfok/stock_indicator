@@ -42,11 +42,10 @@ def download_history(
         Optional path to a CSV file used as a local cache. When the file exists,
         only missing rows are requested from the remote source and the merged
         result is written back to this file.
-    'auto_adjust':
-        auto_adjust is set to true to avoid warning.
     **download_options
         Additional keyword arguments forwarded to :func:`yfinance.download`, such
-        as ``actions``, or ``interval``.
+        as ``actions`` or ``interval``. By default, ``auto_adjust`` is set to
+        ``True`` to avoid warnings when retrieving data.
 
     Returns
     -------
@@ -76,6 +75,9 @@ def download_history(
                 cached_frame.to_csv(cache_path)
                 return cached_frame
             start = next_download_date.strftime("%Y-%m-%d")
+
+    if "auto_adjust" not in download_options:
+        download_options["auto_adjust"] = True
 
     maximum_attempts = 3
     for attempt_number in range(1, maximum_attempts + 1):
