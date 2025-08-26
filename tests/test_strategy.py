@@ -638,6 +638,40 @@ def test_evaluate_combined_strategy_reports_maximum_positions(
     assert result.maximum_concurrent_positions == 2
 
 
+def test_attach_20_50_sma_cross_signals_mark_crosses() -> None:
+    """The 20/50 SMA cross signals should mark upward and downward crosses."""
+    # TODO: review
+
+    import stock_indicator.strategy as strategy_module
+    from stock_indicator.indicators import sma
+
+    close_values = (
+        [100.0] * 50
+        + list(range(100, 50, -1))
+        + list(range(50, 200))
+        + list(range(200, 50, -1))
+    )
+    price_data_frame = pandas.DataFrame({"close": close_values})
+
+    strategy_module.attach_20_50_sma_cross_signals(price_data_frame)
+
+    sma_20_series = sma(price_data_frame["close"], 20)
+    sma_50_series = sma(price_data_frame["close"], 50)
+    expected_entry_series = (
+        (sma_20_series.shift(1) <= sma_50_series.shift(1))
+        & (sma_20_series > sma_50_series)
+    ).shift(1, fill_value=False)
+    expected_exit_series = (
+        (sma_20_series.shift(1) >= sma_50_series.shift(1))
+        & (sma_20_series < sma_50_series)
+    ).shift(1, fill_value=False)
+
+    assert price_data_frame["20_50_sma_cross_entry_signal"].equals(expected_entry_series)
+    assert price_data_frame["20_50_sma_cross_exit_signal"].equals(expected_exit_series)
+    assert price_data_frame["20_50_sma_cross_entry_signal"].any()
+    assert price_data_frame["20_50_sma_cross_exit_signal"].any()
+
+
 def test_attach_ema_sma_cross_and_rsi_signals_filters_by_rsi(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -845,6 +879,21 @@ def test_attach_ema_sma_double_cross_requires_long_term_ema(
         False,
         True,
     ]
+
+
+def test_supported_strategies_includes_20_50_sma_cross() -> None:
+    """``SUPPORTED_STRATEGIES`` should expose the 20/50 SMA cross strategy."""
+    # TODO: review
+
+    from stock_indicator.strategy import (
+        SUPPORTED_STRATEGIES,
+        attach_20_50_sma_cross_signals,
+    )
+
+    assert (
+        SUPPORTED_STRATEGIES["20_50_sma_cross"]
+        is attach_20_50_sma_cross_signals
+    )
 
 
 def test_supported_strategies_includes_ftd_ema_sma_cross() -> None:

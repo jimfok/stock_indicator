@@ -138,6 +138,30 @@ def attach_ema_sma_cross_signals(
     )
 
 
+def attach_20_50_sma_cross_signals(price_data_frame: pandas.DataFrame) -> None:
+    """Attach 20/50 SMA cross entry and exit signals to ``price_data_frame``."""
+    # TODO: review
+
+    price_data_frame["sma_20_value"] = sma(price_data_frame["close"], 20)
+    price_data_frame["sma_50_value"] = sma(price_data_frame["close"], 50)
+    price_data_frame["sma_20_previous"] = price_data_frame["sma_20_value"].shift(1)
+    price_data_frame["sma_50_previous"] = price_data_frame["sma_50_value"].shift(1)
+    sma_20_crosses_above_sma_50 = (
+        (price_data_frame["sma_20_previous"] <= price_data_frame["sma_50_previous"])
+        & (price_data_frame["sma_20_value"] > price_data_frame["sma_50_value"])
+    )
+    sma_20_crosses_below_sma_50 = (
+        (price_data_frame["sma_20_previous"] >= price_data_frame["sma_50_previous"])
+        & (price_data_frame["sma_20_value"] < price_data_frame["sma_50_value"])
+    )
+    price_data_frame["20_50_sma_cross_entry_signal"] = (
+        sma_20_crosses_above_sma_50.shift(1, fill_value=False)
+    )
+    price_data_frame["20_50_sma_cross_exit_signal"] = (
+        sma_20_crosses_below_sma_50.shift(1, fill_value=False)
+    )
+
+
 def attach_ema_sma_cross_and_rsi_signals(
     price_data_frame: pandas.DataFrame,
     window_size: int = 50,
@@ -282,6 +306,7 @@ def attach_kalman_filtering_signals(
 # TODO: review
 BUY_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
     "ema_sma_cross": attach_ema_sma_cross_signals,
+    "20_50_sma_cross": attach_20_50_sma_cross_signals,
     "ema_sma_cross_and_rsi": attach_ema_sma_cross_and_rsi_signals,
     "ftd_ema_sma_cross": attach_ftd_ema_sma_cross_signals,
     "ema_sma_cross_with_slope": attach_ema_sma_cross_with_slope_signals,
