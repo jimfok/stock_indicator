@@ -564,6 +564,76 @@ def test_evaluate_combined_strategy_dollar_volume_filter_and_rank(
     assert captured_counts == [2]
 
 
+def test_evaluate_combined_strategy_trade_details_use_latest_average_dollar_volume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TradeDetail should store latest 50-day average dollar volume values."""
+
+    import stock_indicator.strategy as strategy_module
+
+    date_index = pandas.date_range("2020-01-01", periods=60, freq="D")
+    pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": [10.0] * 60,
+            "close": [10.0] * 60,
+            "volume": [1_000_000] * 59 + [2_000_000],
+        }
+    ).to_csv(tmp_path / "AAA.csv", index=False)
+    pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": [20.0] * 60,
+            "close": [20.0] * 60,
+            "volume": [2_000_000] * 59 + [4_000_000],
+        }
+    ).to_csv(tmp_path / "BBB.csv", index=False)
+
+    monkeypatch.setattr(strategy_module, "BUY_STRATEGIES", {"noop": lambda frame: None})
+    monkeypatch.setattr(strategy_module, "SELL_STRATEGIES", {"noop": lambda frame: None})
+    monkeypatch.setattr(
+        strategy_module, "SUPPORTED_STRATEGIES", {"noop": lambda frame: None}
+    )
+
+    def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
+        price_data_frame: pandas.DataFrame = kwargs["data"]
+        entry_date = price_data_frame.index[52]
+        exit_date = price_data_frame.index[53]
+        entry_price = float(price_data_frame.iloc[52]["open"])
+        exit_price = float(price_data_frame.iloc[53]["open"])
+        trade = Trade(
+            entry_date=entry_date,
+            exit_date=exit_date,
+            entry_price=entry_price,
+            exit_price=exit_price,
+            profit=0.0,
+            holding_period=1,
+        )
+        return SimulationResult(trades=[trade], total_profit=0.0)
+
+    monkeypatch.setattr(strategy_module, "simulate_trades", fake_simulate_trades)
+
+    result = strategy_module.evaluate_combined_strategy(tmp_path, "noop", "noop")
+    trade_details = result.trade_details_by_year[2020]
+    open_details = {
+        detail.symbol: detail for detail in trade_details if detail.action == "open"
+    }
+    aaa_detail = open_details["AAA"]
+    bbb_detail = open_details["BBB"]
+    assert aaa_detail.simple_moving_average_dollar_volume == pytest.approx(10_200_000.0)
+    assert bbb_detail.simple_moving_average_dollar_volume == pytest.approx(40_800_000.0)
+    assert (
+        aaa_detail.total_simple_moving_average_dollar_volume
+        == pytest.approx(51_000_000.0)
+    )
+    assert (
+        bbb_detail.total_simple_moving_average_dollar_volume
+        == pytest.approx(51_000_000.0)
+    )
+    assert aaa_detail.simple_moving_average_dollar_volume_ratio == pytest.approx(0.2)
+    assert bbb_detail.simple_moving_average_dollar_volume_ratio == pytest.approx(0.8)
+
+
 def test_evaluate_combined_strategy_handles_empty_csv(tmp_path: Path) -> None:
     """evaluate_combined_strategy should skip empty CSV files and return zero trades."""
     empty_data_frame = pandas.DataFrame(
