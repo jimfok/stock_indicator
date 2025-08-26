@@ -31,7 +31,13 @@ DOLLAR_VOLUME_SMA_WINDOW: int = 50
 
 @dataclass
 class TradeDetail:
-    """Represent a single trade event for reporting purposes."""
+    """Represent a single trade event for reporting purposes.
+
+    The dollar volume fields record the latest 50-day simple moving average
+    dollar volume used when selecting symbols. The ratio expresses this
+    symbol's share of the summed average dollar volume across all eligible
+    symbols.
+    """
     # TODO: review
     date: pandas.Timestamp
     symbol: str
@@ -536,16 +542,17 @@ def evaluate_combined_strategy(
         filtered_latest_dollar_volumes.sort(
             key=lambda volume_item: volume_item[1], reverse=True
         )
-        selected_paths = {
-            csv_path
-            for csv_path, _ in filtered_latest_dollar_volumes[:top_dollar_volume_rank]
-        }
+        selected_volume_items = filtered_latest_dollar_volumes[:top_dollar_volume_rank]
     else:
-        selected_paths = {csv_path for csv_path, _ in filtered_latest_dollar_volumes}
+        selected_volume_items = filtered_latest_dollar_volumes
+    selected_paths = {csv_path for csv_path, _ in selected_volume_items}
+    latest_average_dollar_volume_by_path: Dict[Path, float] = {
+        csv_path: dollar_volume for csv_path, dollar_volume in selected_volume_items
+    }
+    total_latest_average_dollar_volume = sum(
+        latest_average_dollar_volume_by_path.values()
+    )
 
-    total_simple_moving_average_dollar_volume_by_date: Dict[
-        pandas.Timestamp, float
-    ] = {}  # TODO: review
     selected_symbol_frames: List[tuple[Path, pandas.DataFrame]] = []  # TODO: review
     for csv_file_path, price_data_frame in symbol_frames:
         if csv_file_path not in selected_paths:
@@ -555,13 +562,6 @@ def evaluate_combined_strategy(
             price_data_frame["simple_moving_average_dollar_volume"] = sma(
                 dollar_volume_series, DOLLAR_VOLUME_SMA_WINDOW
             )
-            for date, value in (
-                price_data_frame["simple_moving_average_dollar_volume"].dropna().items()
-            ):
-                total_simple_moving_average_dollar_volume_by_date[date] = (
-                    total_simple_moving_average_dollar_volume_by_date.get(date, 0.0)
-                    + float(value)
-                )
         else:
             if minimum_average_dollar_volume is not None:
                 raise ValueError(
@@ -619,87 +619,33 @@ def evaluate_combined_strategy(
                 profit_percentage_list.append(percentage_change)
             elif percentage_change < 0:
                 loss_percentage_list.append(abs(percentage_change))
-            if completed_trade.entry_date in price_data_frame.index:
-                entry_average_dollar_volume = price_data_frame.at[
-                    completed_trade.entry_date,
-                    "simple_moving_average_dollar_volume",
-                ]
-            else:
-                entry_average_dollar_volume = float("nan")
-            if isinstance(entry_average_dollar_volume, pandas.Series):  # TODO: review
-                entry_average_dollar_volume_value = float(
-                    entry_average_dollar_volume.iloc[0]
-                )
-            else:
-                entry_average_dollar_volume_value = float(
-                    entry_average_dollar_volume
-                )
-            total_entry_average_dollar_volume = (
-                total_simple_moving_average_dollar_volume_by_date.get(
-                    completed_trade.entry_date, 0.0
-                )
+            symbol_latest_average_dollar_volume = latest_average_dollar_volume_by_path.get(
+                csv_file_path, 0.0
             )
-            if (
-                pandas.isna(entry_average_dollar_volume_value)
-                or total_entry_average_dollar_volume == 0
-            ):
-                entry_ratio = 0.0
+            if total_latest_average_dollar_volume == 0:
+                average_dollar_volume_ratio = 0.0
             else:
-                entry_ratio = (
-                    entry_average_dollar_volume_value
-                    / float(total_entry_average_dollar_volume)
+                average_dollar_volume_ratio = (
+                    symbol_latest_average_dollar_volume
+                    / total_latest_average_dollar_volume
                 )
             entry_detail = TradeDetail(
                 date=completed_trade.entry_date,
                 symbol=symbol_name,
                 action="open",
                 price=completed_trade.entry_price,
-                simple_moving_average_dollar_volume=entry_average_dollar_volume_value,
-                total_simple_moving_average_dollar_volume=float(
-                    total_entry_average_dollar_volume
-                ),
-                simple_moving_average_dollar_volume_ratio=entry_ratio,
+                simple_moving_average_dollar_volume=symbol_latest_average_dollar_volume,
+                total_simple_moving_average_dollar_volume=total_latest_average_dollar_volume,
+                simple_moving_average_dollar_volume_ratio=average_dollar_volume_ratio,
             )
-            if completed_trade.exit_date in price_data_frame.index:
-                exit_average_dollar_volume = price_data_frame.at[
-                    completed_trade.exit_date,
-                    "simple_moving_average_dollar_volume",
-                ]
-            else:
-                exit_average_dollar_volume = float("nan")
-            if isinstance(exit_average_dollar_volume, pandas.Series):  # TODO: review
-                exit_average_dollar_volume_value = float(
-                    exit_average_dollar_volume.iloc[0]
-                )
-            else:
-                exit_average_dollar_volume_value = float(
-                    exit_average_dollar_volume
-                )
-            total_exit_average_dollar_volume = (
-                total_simple_moving_average_dollar_volume_by_date.get(
-                    completed_trade.exit_date, 0.0
-                )
-            )
-            if (
-                pandas.isna(exit_average_dollar_volume_value)
-                or total_exit_average_dollar_volume == 0
-            ):
-                exit_ratio = 0.0
-            else:
-                exit_ratio = (
-                    exit_average_dollar_volume_value
-                    / float(total_exit_average_dollar_volume)
-                )
             exit_detail = TradeDetail(
                 date=completed_trade.exit_date,
                 symbol=symbol_name,
                 action="close",
                 price=completed_trade.exit_price,
-                simple_moving_average_dollar_volume=exit_average_dollar_volume_value,
-                total_simple_moving_average_dollar_volume=float(
-                    total_exit_average_dollar_volume
-                ),
-                simple_moving_average_dollar_volume_ratio=exit_ratio,
+                simple_moving_average_dollar_volume=symbol_latest_average_dollar_volume,
+                total_simple_moving_average_dollar_volume=total_latest_average_dollar_volume,
+                simple_moving_average_dollar_volume_ratio=average_dollar_volume_ratio,
             )
             trade_details_by_year.setdefault(
                 completed_trade.entry_date.year, []
