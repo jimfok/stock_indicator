@@ -212,11 +212,19 @@ class StockShell(cmd.Cmd):
             )
             trade_details = evaluation_metrics.trade_details_by_year.get(year, [])  # TODO: review
             for trade_detail in trade_details:  # TODO: review
-                result_suffix = (
-                    f" {trade_detail.result}"  # TODO: review
-                    if trade_detail.action == "close" and trade_detail.result is not None
-                    else ""
-                )
+                if (
+                    trade_detail.action == "close"
+                    and trade_detail.result is not None
+                ):
+                    if trade_detail.percentage_change is not None:
+                        result_suffix = (
+                            f" {trade_detail.result} "
+                            f"{trade_detail.percentage_change:.2%}"
+                        )
+                    else:
+                        result_suffix = f" {trade_detail.result}"
+                else:
+                    result_suffix = ""
                 self.stdout.write(
                     (
                         f"  {trade_detail.date.date()} {trade_detail.symbol} "
