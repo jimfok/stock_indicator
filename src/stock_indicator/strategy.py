@@ -35,8 +35,8 @@ class TradeDetail:
 
     The dollar volume fields record the latest 50-day simple moving average
     dollar volume used when selecting symbols. The ratio expresses this
-    symbol's share of the summed average dollar volume across all eligible
-    symbols.
+    symbol's share of the summed average dollar volume across the entire
+    market, not just the eligible subset.
 
     The ``result`` field marks whether a closed trade ended in a win or a
     loss. For closing trades, ``percentage_change`` records the fractional
@@ -574,6 +574,9 @@ def evaluate_combined_strategy(
     eligible_symbol_counts_by_date = (
         eligibility_mask.sum(axis=1).astype(int).to_dict()
     )
+    market_total_dollar_volume_by_date = (
+        merged_volume_frame.sum(axis=1).to_dict()
+    )
     total_dollar_volume_by_date = (
         merged_volume_frame.where(eligibility_mask).sum(axis=1).to_dict()
     )
@@ -638,24 +641,32 @@ def evaluate_combined_strategy(
             entry_dollar_volume = float(
                 symbol_volume_lookup.get(completed_trade.entry_date, 0.0)
             )
-            total_entry_dollar_volume = total_dollar_volume_by_date.get(
-                completed_trade.entry_date, 0.0
+            market_total_entry_dollar_volume = (
+                market_total_dollar_volume_by_date.get(
+                    completed_trade.entry_date, 0.0
+                )
             )
-            if total_entry_dollar_volume == 0:
+            if market_total_entry_dollar_volume == 0:
                 entry_volume_ratio = 0.0
             else:
-                entry_volume_ratio = entry_dollar_volume / total_entry_dollar_volume
+                entry_volume_ratio = (
+                    entry_dollar_volume / market_total_entry_dollar_volume
+                )
 
             exit_dollar_volume = float(
                 symbol_volume_lookup.get(completed_trade.exit_date, 0.0)
             )
-            total_exit_dollar_volume = total_dollar_volume_by_date.get(
-                completed_trade.exit_date, 0.0
+            market_total_exit_dollar_volume = (
+                market_total_dollar_volume_by_date.get(
+                    completed_trade.exit_date, 0.0
+                )
             )
-            if total_exit_dollar_volume == 0:
+            if market_total_exit_dollar_volume == 0:
                 exit_volume_ratio = 0.0
             else:
-                exit_volume_ratio = exit_dollar_volume / total_exit_dollar_volume
+                exit_volume_ratio = (
+                    exit_dollar_volume / market_total_exit_dollar_volume
+                )
 
             entry_detail = TradeDetail(
                 date=completed_trade.entry_date,
@@ -663,7 +674,7 @@ def evaluate_combined_strategy(
                 action="open",
                 price=completed_trade.entry_price,
                 simple_moving_average_dollar_volume=entry_dollar_volume,
-                total_simple_moving_average_dollar_volume=total_entry_dollar_volume,
+                total_simple_moving_average_dollar_volume=market_total_entry_dollar_volume,
                 simple_moving_average_dollar_volume_ratio=entry_volume_ratio,
             )
             trade_result = "win" if completed_trade.profit > 0 else "lose"  # TODO: review
@@ -673,7 +684,7 @@ def evaluate_combined_strategy(
                 action="close",
                 price=completed_trade.exit_price,
                 simple_moving_average_dollar_volume=exit_dollar_volume,
-                total_simple_moving_average_dollar_volume=total_exit_dollar_volume,
+                total_simple_moving_average_dollar_volume=market_total_exit_dollar_volume,
                 simple_moving_average_dollar_volume_ratio=exit_volume_ratio,
                 result=trade_result,
                 percentage_change=percentage_change,
