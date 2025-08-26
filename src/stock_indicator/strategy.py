@@ -37,6 +37,8 @@ class TradeDetail:
     symbol: str
     action: str
     price: float
+    simple_moving_average_dollar_volume: float
+    total_simple_moving_average_dollar_volume: float
     simple_moving_average_dollar_volume_ratio: float
 
 
@@ -652,6 +654,10 @@ def evaluate_combined_strategy(
                 symbol=symbol_name,
                 action="open",
                 price=completed_trade.entry_price,
+                simple_moving_average_dollar_volume=entry_average_dollar_volume_value,
+                total_simple_moving_average_dollar_volume=float(
+                    total_entry_average_dollar_volume
+                ),
                 simple_moving_average_dollar_volume_ratio=entry_ratio,
             )
             if completed_trade.exit_date in price_data_frame.index:
@@ -689,6 +695,10 @@ def evaluate_combined_strategy(
                 symbol=symbol_name,
                 action="close",
                 price=completed_trade.exit_price,
+                simple_moving_average_dollar_volume=exit_average_dollar_volume_value,
+                total_simple_moving_average_dollar_volume=float(
+                    total_exit_average_dollar_volume
+                ),
                 simple_moving_average_dollar_volume_ratio=exit_ratio,
             )
             trade_details_by_year.setdefault(
