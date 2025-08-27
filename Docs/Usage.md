@@ -33,6 +33,28 @@ The previous `start_ftd_ema_sma_cross` command has been removed.
 Use `start_simulate` with `ftd_ema_sma_cross` for both the buying and
 selling strategies instead.
 
+## Inspecting logged signals
+
+Each execution of the daily job records entry and exit signals in a log file in
+the project's `logs` directory. The files follow the `<YYYY-MM-DD>.log` naming
+convention, for example `logs/2024-01-10.log`. The management shell can parse a
+log file with:
+
+```
+find_signal 2024-01-10
+```
+
+The command prints the entry signal list on the first line and the exit signal
+list on the second line:
+
+```
+['AAA', 'BBB']
+['CCC', 'DDD']
+```
+
+Developers may call `daily_job.find_signal("2024-01-10")` to obtain the same
+data from Python code.
+
 ## Available strategies
 
 The `start_simulate` command accepts the following strategies:
