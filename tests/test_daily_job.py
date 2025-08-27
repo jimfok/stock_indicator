@@ -83,27 +83,28 @@ def test_run_daily_job_uses_oldest_data_date(tmp_path, monkeypatch):
 
     assert captured_start_date["value"] == "2018-06-01"
 
-
-def test_find_signal_reads_log_file(tmp_path):
-    """find_signal should return the symbols listed in the log file."""
+def test_find_signal_returns_expected_symbols(tmp_path):
+    """find_signal should return symbol lists stored in the log file."""
 
     log_directory = tmp_path / "logs"
     log_directory.mkdir()
-    log_file_path = log_directory / "2024-01-10.log"
-    log_file_path.write_text(
-        "entry_signals: AAA, BBB\nexit_signals: CCC\n", encoding="utf-8"
+    sample_log_path = log_directory / "2024-01-10.log"
+    sample_log_path.write_text(
+        "entry_signals: AAA, BBB\nexit_signals: CCC, DDD\n", encoding="utf-8"
     )
 
-    signal_result = daily_job.find_signal("2024-01-10", log_directory=log_directory)
+    signal_dictionary = daily_job.find_signal(
+        "2024-01-10", log_directory=log_directory
+    )
 
-    assert signal_result == {
+    assert signal_dictionary == {
         "entry_signals": ["AAA", "BBB"],
-        "exit_signals": ["CCC"],
+        "exit_signals": ["CCC", "DDD"],
     }
 
 
-def test_find_signal_raises_when_log_missing(tmp_path):
-    """find_signal should raise FileNotFoundError when log file is absent."""
+def test_find_signal_raises_file_not_found_error(tmp_path):
+    """find_signal should raise FileNotFoundError when the log is absent."""
 
     log_directory = tmp_path / "logs"
     log_directory.mkdir()
