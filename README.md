@@ -110,6 +110,8 @@ You can combine slope bounds with a custom EMA/SMA window size by placing the in
 
 When omitted, the window size defaults to 40 days.
 
+The tests `tests/test_manage.py::test_start_simulate_accepts_slope_range_strategy_names` and `tests/test_strategy.py::test_evaluate_combined_strategy_passes_slope_range` demonstrate the slope-bound syntax. The former shows that `start_simulate` recognizes strategy identifiers with slope ranges, while the latter verifies that the evaluation function passes the provided bounds to the strategy implementation.
+
 The summary printed after each simulation includes the maximum drawdown. This
 value represents the largest peak-to-trough decline in portfolio value over the
 test period and is expressed as a percentage.

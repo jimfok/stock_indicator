@@ -101,6 +101,8 @@ The window size and slope range can be combined by placing the integer before th
 start_simulate dollar_volume>1 ema_sma_cross_with_slope_40_-0.1_1.2 ema_sma_cross_with_slope_40_-0.1_1.2
 ```
 
+The tests `tests/test_manage.py::test_start_simulate_accepts_slope_range_strategy_names` and `tests/test_strategy.py::test_evaluate_combined_strategy_passes_slope_range` confirm this behavior. The management test shows the command accepts strategy names with slope bounds, and the strategy test verifies that the evaluation routine passes the bounds to the strategy implementation.
+
 Not every strategy supports both buying and selling. Only the first seven
 strategies in the list can be used for buying. All eight strategies can be
 used for selling.
