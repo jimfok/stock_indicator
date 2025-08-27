@@ -110,19 +110,29 @@ class StockShell(cmd.Cmd):
 
     # TODO: review
     def do_start_simulate(self, argument_line: str) -> None:  # noqa: D401
-        """start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]
+        """start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]
         Evaluate trading strategies using cached data.
 
         STOP_LOSS defaults to 1.0 when not provided."""
         argument_parts: List[str] = argument_line.split()
         starting_cash_value = 3000.0
         withdraw_amount = 0.0
+        start_date_string: str | None = None
         while argument_parts and (
             argument_parts[0].startswith("starting_cash=")
             or argument_parts[0].startswith("withdraw=")
+            or argument_parts[0].startswith("start=")
         ):
             parameter_part = argument_parts.pop(0)
             name, value = parameter_part.split("=", 1)
+            if name == "start":
+                try:
+                    datetime.date.fromisoformat(value)
+                except ValueError:
+                    self.stdout.write("invalid start date\n")
+                    return
+                start_date_string = value
+                continue
             try:
                 numeric_value = float(value)
             except ValueError:
@@ -134,7 +144,7 @@ class StockShell(cmd.Cmd):
                 withdraw_amount = numeric_value
         if len(argument_parts) not in (3, 4):
             self.stdout.write(
-                "usage: start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]\n"
+                "usage: start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]\n"
             )
             return
         volume_filter, buy_strategy_name, sell_strategy_name = argument_parts[:3]
@@ -204,7 +214,8 @@ class StockShell(cmd.Cmd):
             self.stdout.write("unsupported strategies\n")
             return
 
-        start_date_string = determine_start_date(DATA_DIRECTORY)
+        if start_date_string is None:
+            start_date_string = determine_start_date(DATA_DIRECTORY)
         evaluation_metrics = strategy.evaluate_combined_strategy(
             DATA_DIRECTORY,
             buy_strategy_name,
@@ -215,6 +226,7 @@ class StockShell(cmd.Cmd):
             starting_cash=starting_cash_value,
             withdraw_amount=withdraw_amount,
             stop_loss_percentage=stop_loss_percentage,
+            start_date=start_date_string,
         )
         self.stdout.write(
             f"Simulation start date: {start_date_string}\n"
@@ -274,11 +286,12 @@ class StockShell(cmd.Cmd):
         available_buy = ", ".join(sorted(strategy.BUY_STRATEGIES.keys()))
         available_sell = ", ".join(sorted(strategy.SELL_STRATEGIES.keys()))
         self.stdout.write(
-            "start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]\n"
+            "start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]\n"
             "Evaluate trading strategies using cached data.\n"
             "Parameters:\n"
             "  starting_cash: Initial cash balance for the simulation. Defaults to 3000.\n"
             "  withdraw: Amount deducted from cash at each year end. Defaults to 0.\n"
+            "  start: Date in YYYY-MM-DD format to begin the simulation. Defaults to the earliest available date.\n"
             "  DOLLAR_VOLUME_FILTER: Use dollar_volume>NUMBER (in millions),\n"
             "    dollar_volume>N% to require the 50-day average dollar volume to\n"
             "    exceed N percent of the total market, dollar_volume=Nth to\n"

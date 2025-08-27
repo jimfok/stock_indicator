@@ -486,6 +486,7 @@ def evaluate_combined_strategy(
     starting_cash: float = 3000.0,
     withdraw_amount: float = 0.0,
     stop_loss_percentage: float = 1.0,
+    start_date: str | None = None,
 ) -> StrategyMetrics:
     """Evaluate a combination of strategies for entry and exit signals.
 
@@ -521,6 +522,9 @@ def evaluate_combined_strategy(
         Fractional loss from the entry price that triggers an exit on the next
         bar's opening price. Values greater than or equal to ``1.0`` disable
         the stop-loss mechanism.
+    start_date: str | None, optional
+        ISO formatted date string marking the first day of the simulation.
+        When ``None``, all available historical data is used.
     """
     # TODO: review
 
@@ -547,6 +551,10 @@ def evaluate_combined_strategy(
     simulation_start_date: pandas.Timestamp | None = None
     trade_details_by_year: Dict[int, List[TradeDetail]] = {}  # TODO: review
 
+    start_timestamp: pandas.Timestamp | None = None
+    if start_date is not None:
+        start_timestamp = pandas.Timestamp(start_date)
+
     symbol_frames: List[tuple[Path, pandas.DataFrame]] = []
     for csv_file_path in data_directory.glob("*.csv"):
         if csv_file_path.stem == SP500_SYMBOL:
@@ -568,6 +576,12 @@ def evaluate_combined_strategy(
                     "Volume column is required to compute dollar volume metrics"
                 )
             price_data_frame["simple_moving_average_dollar_volume"] = float("nan")
+        if start_timestamp is not None:
+            price_data_frame = price_data_frame.loc[
+                price_data_frame.index >= start_timestamp
+            ]
+            if price_data_frame.empty:
+                continue
         symbol_frames.append((csv_file_path, price_data_frame))
 
     if symbol_frames:
@@ -642,6 +656,8 @@ def evaluate_combined_strategy(
 
     if first_eligible_dates:
         simulation_start_date = min(first_eligible_dates)
+    if simulation_start_date is None and start_timestamp is not None:
+        simulation_start_date = start_timestamp
 
     for csv_file_path, price_data_frame, symbol_mask in selected_symbol_data:
         BUY_STRATEGIES[buy_strategy_name](price_data_frame)
