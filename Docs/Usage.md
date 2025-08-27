@@ -78,10 +78,17 @@ The `start_simulate` command accepts the following strategies:
 * `20_50_sma_cross`
 * `ema_sma_cross_and_rsi`
 * `ftd_ema_sma_cross`
-* `ema_sma_cross_with_slope`
+* `ema_sma_cross_with_slope` *(use `ema_sma_cross_with_slope_N` to set a custom EMA/SMA window size; `N` defaults to 50)*
 * `ema_sma_cross_with_slope_and_volume`
 * `ema_sma_double_cross`
 * `kalman_filtering` *(sell only)*
+
+To change the EMA and SMA window size, append `_N` to `ema_sma_cross_with_slope`,
+where `N` sets the number of days and defaults to `50`:
+
+```
+start_simulate dollar_volume>1 ema_sma_cross_with_slope_40 ema_sma_cross_with_slope_40
+```
 
 Not every strategy supports both buying and selling. Only the first seven
 strategies in the list can be used for buying. All eight strategies can be
