@@ -3,7 +3,7 @@
 To evaluate the FTD EMA and SMA cross strategy in the management shell, call:
 
 ```
-start_simulate dollar_volume>50 ftd_ema_sma_cross ftd_ema_sma_cross
+start_simulate start=1990-01-01 dollar_volume>50 ftd_ema_sma_cross ftd_ema_sma_cross
 ```
 
 To require that a symbol's 50-day average dollar volume exceeds one percent of
@@ -26,13 +26,14 @@ To apply both a minimum dollar volume and a ranking filter, combine them:
 start_simulate starting_cash=5000 withdraw=1000 dollar_volume>10000,6th ftd_ema_sma_cross ftd_ema_sma_cross
 ```
 
-The optional `starting_cash` argument sets the initial portfolio balance, and
-`withdraw` deducts a fixed amount at each year end. The `dollar_volume` clause
-accepts a `>` threshold expressed in millions or as a percentage using `%`, and
-an `=Nth` ranking. When both are separated by a comma, the parser applies them
-sequentially. The command above first filters symbols to those whose 50-day
-average dollar volume exceeds 10,000 million and then selects the six symbols
-with the highest remaining averages. The tests
+The optional `start` argument sets the simulation start date, `starting_cash`
+sets the initial portfolio balance, and `withdraw` deducts a fixed amount at
+each year end. The `dollar_volume` clause accepts a `>` threshold expressed in
+millions or as a percentage using `%`, and an `=Nth` ranking. When both are
+separated by a comma, the parser applies them sequentially. The command above
+first filters symbols to those whose 50-day average dollar volume exceeds
+10,000 million and then selects the six symbols with the highest remaining
+averages. The tests
 `tests/test_manage.py::test_start_simulate_dollar_volume_threshold_and_rank` and
 `tests/test_strategy.py::test_evaluate_combined_strategy_dollar_volume_filter_and_rank`
 exercise this combined syntax.
