@@ -514,6 +514,62 @@ def test_evaluate_combined_strategy_rejects_sell_only_buy(tmp_path: Path) -> Non
         evaluate_combined_strategy(tmp_path, "kalman_filtering", "ema_sma_cross")
 
 
+def test_evaluate_combined_strategy_passes_window_size_and_renames_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The function should pass the window size and append it to signal names."""
+
+    date_index = pandas.date_range("2020-01-01", periods=2, freq="D")
+    price_data_frame = pandas.DataFrame(
+        {"Date": date_index, "open": [10.0, 10.0], "close": [10.0, 10.0]}
+    )
+    csv_path = tmp_path / "window.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    captured_arguments: dict[str, int | None] = {"window_size": None}
+    captured_column_names: list[str] = []
+
+    def fake_attach_signals(frame: pandas.DataFrame, window_size: int = 50) -> None:
+        captured_arguments["window_size"] = window_size
+        frame["ema_sma_cross_with_slope_entry_signal"] = [True, False]
+        frame["ema_sma_cross_with_slope_exit_signal"] = [False, True]
+
+    def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
+        passed_frame: pandas.DataFrame = kwargs["data"]
+        captured_column_names.extend(passed_frame.columns)
+        trade = Trade(
+            entry_date=date_index[0],
+            exit_date=date_index[1],
+            entry_price=10.0,
+            exit_price=10.0,
+            profit=0.0,
+            holding_period=1,
+        )
+        return SimulationResult(trades=[trade], total_profit=0.0)
+
+    monkeypatch.setattr(
+        strategy, "attach_ema_sma_cross_with_slope_signals", fake_attach_signals
+    )
+    monkeypatch.setitem(
+        strategy.BUY_STRATEGIES, "ema_sma_cross_with_slope", fake_attach_signals
+    )
+    monkeypatch.setitem(
+        strategy.SELL_STRATEGIES, "ema_sma_cross_with_slope", fake_attach_signals
+    )
+    monkeypatch.setattr(strategy, "simulate_trades", fake_simulate_trades)
+
+    try:
+        evaluate_combined_strategy(
+            tmp_path, "ema_sma_cross_with_slope_40", "ema_sma_cross_with_slope_40"
+        )
+    except ValueError as error:
+        pytest.fail(f"Unexpected ValueError: {error}")
+
+    assert captured_arguments["window_size"] == 40
+    assert "ema_sma_cross_with_slope_40_entry_signal" in captured_column_names
+    assert "ema_sma_cross_with_slope_40_exit_signal" in captured_column_names
+
+
 def test_evaluate_combined_strategy_dollar_volume_filter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
