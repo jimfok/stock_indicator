@@ -310,7 +310,9 @@ class StockShell(cmd.Cmd):
             "  SELL_STRATEGY: Name of the selling strategy.\n"
             "  STOP_LOSS: Fractional loss that triggers an exit on the next day's open. Defaults to 1.0.\n"
             "Strategies may be suffixed with _N to set the window size to N; the default window size is 40 when no suffix is provided.\n"
+            "Slope-aware strategies follow the ema_sma_signal_with_slope_n_k pattern and accept _LOWER_UPPER bounds after the optional window size; bounds may be negative or positive floats.\n"
             "Example: start_simulate start=1990-01-01 dollar_volume>50 ema_sma_cross_20 ema_sma_cross_20\n"
+            "Another example: start_simulate dollar_volume>1 ema_sma_cross_with_slope_-0.1_1.2 ema_sma_cross_with_slope_-0.1_1.2\n"
             f"Available buy strategies: {available_buy}.\n"
             f"Available sell strategies: {available_sell}.\n"
         )

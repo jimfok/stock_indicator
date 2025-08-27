@@ -78,16 +78,27 @@ The `start_simulate` command accepts the following strategies:
 * `20_50_sma_cross`
 * `ema_sma_cross_and_rsi`
 * `ftd_ema_sma_cross`
-* `ema_sma_cross_with_slope` *(use `ema_sma_cross_with_slope_N` to set a custom EMA/SMA window size; `N` defaults to 40)*
+* `ema_sma_cross_with_slope` *(use `ema_sma_cross_with_slope_N` to set a custom EMA/SMA window size; `N` defaults to 40. Append `_LOWER_UPPER` to constrain the simple moving average slope to a range.)*
 * `ema_sma_cross_with_slope_and_volume`
 * `ema_sma_double_cross`
 * `kalman_filtering` *(sell only)*
 
-To change the EMA and SMA window size, append `_N` to `ema_sma_cross_with_slope`,
-where `N` sets the number of days and defaults to `40`:
+To change the EMA and SMA window size, append `_N` to `ema_sma_cross_with_slope`, where `N` sets the number of days and defaults to `40`:
 
 ```
 start_simulate dollar_volume>1 ema_sma_cross_with_slope_40 ema_sma_cross_with_slope_40
+```
+
+To limit the slope of the simple moving average, add two numeric bounds after the optional window size. Both bounds may be negative or positive floating-point numbers. These strategies follow the generic `ema_sma_signal_with_slope_n_k` pattern and use the format `ema_sma_cross_with_slope[_N]_LOWER_UPPER`:
+
+```
+start_simulate dollar_volume>1 ema_sma_cross_with_slope_-0.1_1.2 ema_sma_cross_with_slope_-0.1_1.2
+```
+
+The window size and slope range can be combined by placing the integer before the slope bounds:
+
+```
+start_simulate dollar_volume>1 ema_sma_cross_with_slope_40_-0.1_1.2 ema_sma_cross_with_slope_40_-0.1_1.2
 ```
 
 Not every strategy supports both buying and selling. Only the first seven
