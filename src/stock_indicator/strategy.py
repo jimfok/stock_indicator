@@ -126,7 +126,7 @@ def load_price_data(csv_file_path: Path) -> pandas.DataFrame:
 
 def attach_ema_sma_cross_signals(
     price_data_frame: pandas.DataFrame,
-    window_size: int = 50,
+    window_size: int = 40,
     require_close_above_long_term_sma: bool = True,
 ) -> None:
     """Attach EMA/SMA cross entry and exit signals to ``price_data_frame``.
@@ -204,7 +204,7 @@ def attach_20_50_sma_cross_signals(price_data_frame: pandas.DataFrame) -> None:
 
 def attach_ema_sma_cross_and_rsi_signals(
     price_data_frame: pandas.DataFrame,
-    window_size: int = 50,
+    window_size: int = 40,
     rsi_window_size: int = 14,
 ) -> None:
     """Attach EMA/SMA cross signals filtered by RSI to ``price_data_frame``."""
@@ -224,7 +224,7 @@ def attach_ema_sma_cross_and_rsi_signals(
 
 
 def attach_ftd_ema_sma_cross_signals(
-    price_data_frame: pandas.DataFrame, window_size: int = 50
+    price_data_frame: pandas.DataFrame, window_size: int = 40
 ) -> None:
     """Attach EMA/SMA cross signals gated by recent FTD signals."""
     # TODO: review
@@ -251,7 +251,7 @@ def attach_ftd_ema_sma_cross_signals(
 
 def attach_ema_sma_cross_with_slope_signals(
     price_data_frame: pandas.DataFrame,
-    window_size: int = 50,
+    window_size: int = 40,
     slope_range: tuple[float, float] = (-0.3, 1.0),
 ) -> None:
     """Attach EMA/SMA cross signals filtered by SMA slope to ``price_data_frame``.
@@ -285,7 +285,7 @@ def attach_ema_sma_cross_with_slope_signals(
 
 def attach_ema_sma_cross_with_slope_and_volume_signals(
     price_data_frame: pandas.DataFrame,
-    window_size: int = 50,
+    window_size: int = 40,
     slope_range: tuple[float, float] = (-0.3, 1.0),
 ) -> None:
     """Attach EMA/SMA cross signals filtered by SMA slope and dollar volume."""
@@ -317,7 +317,7 @@ def attach_ema_sma_cross_with_slope_and_volume_signals(
 
 def attach_ema_sma_double_cross_signals(
     price_data_frame: pandas.DataFrame,
-    window_size: int = 50,
+    window_size: int = 40,
 ) -> None:
     """Attach EMA/SMA cross signals requiring long-term EMA above SMA."""
     # TODO: review
