@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import cmd
+import datetime
 import logging
 import re
 from pathlib import Path
@@ -292,19 +293,36 @@ class StockShell(cmd.Cmd):
     def do_find_signal(self, argument_line: str) -> None:  # noqa: D401
         """find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS
         Display the entry and exit signals generated for DATE."""
-        argument_parts: List[str] = argument_line.split()
-        if len(argument_parts) != 5 or not re.fullmatch(
-            r"\d{4}-\d{2}-\d{2}", argument_parts[0]
-        ):
-            self.stdout.write(
-                "usage: find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS\n"
-            )
-            return
-        date_string, dollar_volume_filter, buy_strategy, sell_strategy, stop_loss = (
-            argument_parts
+        usage_message = (
+            "usage: find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS\n"
         )
+        argument_parts: List[str] = argument_line.split()
+        if len(argument_parts) != 5:
+            self.stdout.write(usage_message)
+            return
+        (
+            date_string,
+            dollar_volume_filter,
+            buy_strategy_name,
+            sell_strategy_name,
+            stop_loss_string,
+        ) = argument_parts
+        try:
+            datetime.date.fromisoformat(date_string)
+        except ValueError:
+            self.stdout.write(usage_message)
+            return
+        try:
+            stop_loss_value = float(stop_loss_string)
+        except ValueError:
+            self.stdout.write("invalid stop loss\n")
+            return
         signal_data: Dict[str, List[str]] = daily_job.find_signal(
-            date_string, dollar_volume_filter, buy_strategy, sell_strategy, float(stop_loss)
+            date_string,
+            dollar_volume_filter,
+            buy_strategy_name,
+            sell_strategy_name,
+            stop_loss_value,
         )
         entry_signal_list: List[str] = signal_data.get("entry_signals", [])
         exit_signal_list: List[str] = signal_data.get("exit_signals", [])
