@@ -1578,6 +1578,22 @@ def test_attach_ema_sma_cross_with_slope_requires_close_above_long_term_sma_and_
     ]
 
 
+def test_attach_ema_sma_cross_with_slope_signals_raises_value_error_for_invalid_slope_range() -> None:
+    """``attach_ema_sma_cross_with_slope_signals`` should validate the slope range."""
+    # TODO: review
+
+    import stock_indicator.strategy as strategy_module
+
+    price_data_frame = pandas.DataFrame({"open": [1.0], "close": [1.0]})
+
+    with pytest.raises(
+        ValueError, match="lower bound cannot exceed upper bound"
+    ):
+        strategy_module.attach_ema_sma_cross_with_slope_signals(
+            price_data_frame, slope_range=(1.0, -1.0)
+        )
+
+
 def test_attach_ema_sma_cross_with_slope_and_volume_requires_higher_ema_volume(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1622,6 +1638,24 @@ def test_attach_ema_sma_cross_with_slope_and_volume_requires_higher_ema_volume(
     assert list(
         price_data_frame["ema_sma_cross_with_slope_and_volume_exit_signal"]
     ) == [False, False, False, False, True]
+
+
+def test_attach_ema_sma_cross_with_slope_and_volume_signals_raises_value_error_for_invalid_slope_range() -> None:
+    """``attach_ema_sma_cross_with_slope_and_volume_signals`` should validate the slope range."""
+    # TODO: review
+
+    import stock_indicator.strategy as strategy_module
+
+    price_data_frame = pandas.DataFrame(
+        {"open": [1.0], "close": [1.0], "volume": [1.0]}
+    )
+
+    with pytest.raises(
+        ValueError, match="lower bound cannot exceed upper bound"
+    ):
+        strategy_module.attach_ema_sma_cross_with_slope_and_volume_signals(
+            price_data_frame, slope_range=(1.0, -1.0)
+        )
 
 
 def test_attach_ema_sma_double_cross_requires_long_term_ema(
