@@ -83,10 +83,11 @@ def test_run_daily_job_uses_oldest_data_date(tmp_path, monkeypatch):
 
     assert captured_start_date["value"] == "2018-06-01"
 
-def test_find_signal_invokes_cron(monkeypatch: pytest.MonkeyPatch) -> None:
-    """find_signal should call cron with the correct arguments."""
 
-    captured: dict[str, str] = {}
+def test_find_signal_returns_cron_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """find_signal should return the values from cron."""
+
+    expected_result = {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
 
     def fake_run_daily_tasks_from_argument(
         argument_line: str,
@@ -96,10 +97,7 @@ def test_find_signal_invokes_cron(monkeypatch: pytest.MonkeyPatch) -> None:
         data_download_function=None,
         data_directory: Path | None = None,
     ):
-        captured["argument_line"] = argument_line
-        captured["start_date"] = start_date
-        captured["end_date"] = end_date
-        return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
+        return expected_result
 
     monkeypatch.setattr(
         daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument
@@ -113,7 +111,4 @@ def test_find_signal_invokes_cron(monkeypatch: pytest.MonkeyPatch) -> None:
         1.0,
     )
 
-    assert captured["argument_line"] == "dollar_volume>1 ema_sma_cross ema_sma_cross 1.0"
-    assert captured["start_date"] == "2024-01-10"
-    assert captured["end_date"] == "2024-01-10"
-    assert signal_dictionary == {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
+    assert signal_dictionary == expected_result

@@ -100,8 +100,8 @@ def test_update_all_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
 
 # TODO: review
-def test_find_signal(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The command should display entry and exit signals for a date."""
+def test_find_signal_prints_recalculated_signals(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command should display recalculated entry and exit signals for a date."""
     import stock_indicator.manage as manage_module
 
     recorded_arguments: dict[str, object] = {}
