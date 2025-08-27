@@ -9,8 +9,28 @@ from typing import Callable, Dict, Iterable, List
 
 import pandas
 
-# TODO: review
-TRADE_COMMISSION: float = 1.0
+
+def calc_commission(shares: float, price: float) -> float:
+    """Calculate the commission for a trade.
+
+    Parameters
+    ----------
+    shares:
+        Number of shares traded.
+    price:
+        Price per share.
+
+    Returns
+    -------
+    float
+        Commission charged for the trade side. The commission is ``0.0049``
+        dollars per share with a minimum charge of ``0.99`` dollars and a
+        maximum of ``0.5`` percent of the trade value.
+    """
+    basic_commission = shares * 0.0049
+    commission_with_minimum = max(0.99, basic_commission)
+    commission_cap = 0.005 * shares * price
+    return min(commission_with_minimum, commission_cap)
 
 @dataclass(frozen=True)
 class Trade:
@@ -30,6 +50,14 @@ class SimulationResult:
 
     trades: List[Trade]
     total_profit: float
+
+
+@dataclass
+class OpenPosition:
+    """Track details for an active portfolio position."""
+
+    invested_amount: float
+    share_count: float
 
 
 def simulate_trades(
@@ -60,8 +88,8 @@ def simulate_trades(
         Fractional loss from the entry price that triggers an exit on the next
         bar's opening price. Values greater than or equal to ``1.0`` disable
         the stop-loss mechanism.
-    A fixed commission defined by ``TRADE_COMMISSION`` is subtracted from each
-    trade's profit.
+    Commissions are calculated separately on entry and exit using
+    :func:`calc_commission` and deducted from each trade's profit.
 
     Returns
     -------
@@ -92,7 +120,11 @@ def simulate_trades(
                     exit_price_column if exit_price_column is not None else entry_price_column
                 )
                 exit_price = float(current_row[price_column_name])
-                profit_value = exit_price - entry_price - TRADE_COMMISSION
+                entry_commission = calc_commission(1, entry_price)
+                exit_commission = calc_commission(1, exit_price)
+                profit_value = (
+                    exit_price - entry_price - entry_commission - exit_commission
+                )
                 holding_period_value = row_index - entry_row_index
                 trades.append(
                     Trade(
@@ -115,7 +147,11 @@ def simulate_trades(
                     exit_price_column if exit_price_column is not None else entry_price_column
                 )
                 exit_price = float(current_row[price_column_name])
-                profit_value = exit_price - entry_price - TRADE_COMMISSION
+                entry_commission = calc_commission(1, entry_price)
+                exit_commission = calc_commission(1, exit_price)
+                profit_value = (
+                    exit_price - entry_price - entry_commission - exit_commission
+                )
                 holding_period_value = row_index - entry_row_index
                 trades.append(
                     Trade(
@@ -143,7 +179,9 @@ def simulate_trades(
         final_row = data.iloc[-1]
         entry_price = float(entry_row[entry_price_column])
         exit_price = float(final_row[price_column_name])
-        profit_value = exit_price - entry_price - TRADE_COMMISSION
+        entry_commission = calc_commission(1, entry_price)
+        exit_commission = calc_commission(1, exit_price)
+        profit_value = exit_price - entry_price - entry_commission - exit_commission
         holding_period_value = len(data) - entry_row_index - 1
         trades.append(
             Trade(
@@ -208,7 +246,7 @@ def simulate_portfolio_balance(
         dictionary, the key is the trading date and the value represents the
         number of eligible symbols on that day. This mirrors the values
         produced by :func:`stock_indicator.volume.count_symbols_with_average_dollar_volume_above`.
-        Each trade closure deducts ``TRADE_COMMISSION`` from the cash balance.
+        Entry and exit commissions are deducted using :func:`calc_commission`.
     withdraw_amount : float, optional
         Cash amount removed from the balance at the end of each calendar year.
         Defaults to ``0.0``.
@@ -224,7 +262,7 @@ def simulate_portfolio_balance(
         events.append((trade.exit_date, 0, trade))
     events.sort(key=lambda event_tuple: (event_tuple[0], event_tuple[1]))
     cash_balance = starting_cash
-    open_trades: dict[Trade, float] = {}
+    open_trades: dict[Trade, OpenPosition] = {}
     current_year: int | None = None
 
     def get_symbol_count(current_date: pandas.Timestamp) -> int:
@@ -240,11 +278,12 @@ def simulate_portfolio_balance(
             current_year += 1
         if event_type == 0:
             if trade in open_trades:
-                invested_amount = open_trades.pop(trade)
-                cash_balance += invested_amount * (
-                    trade.exit_price / trade.entry_price
+                position_details = open_trades.pop(trade)
+                proceeds = position_details.share_count * trade.exit_price
+                exit_commission = calc_commission(
+                    position_details.share_count, trade.exit_price
                 )
-                cash_balance -= TRADE_COMMISSION
+                cash_balance += proceeds - exit_commission
         else:
             remaining_slots = get_symbol_count(event_timestamp) - len(open_trades)
             if remaining_slots <= 0 or cash_balance <= 0:
@@ -257,8 +296,11 @@ def simulate_portfolio_balance(
             if cash_balance - invested_amount >= trade.entry_price:
                 share_count += 1
                 invested_amount = share_count * trade.entry_price
-            open_trades[trade] = invested_amount
-            cash_balance -= invested_amount
+            entry_commission = calc_commission(share_count, trade.entry_price)
+            open_trades[trade] = OpenPosition(
+                invested_amount=invested_amount, share_count=share_count
+            )
+            cash_balance -= invested_amount + entry_commission
     if current_year is not None:
         cash_balance -= withdraw_amount
     return cash_balance
@@ -313,7 +355,7 @@ def calculate_max_drawdown(
         return eligible_symbol_counts_by_date
 
     cash_balance = starting_cash
-    open_trades: dict[Trade, float] = {}
+    open_trades: dict[Trade, OpenPosition] = {}
     maximum_portfolio_value = starting_cash
     maximum_drawdown_value = 0.0
     current_year = events[0][0].year
@@ -328,11 +370,12 @@ def calculate_max_drawdown(
             _, event_type, trade = events[event_index]
             if event_type == 0:
                 if trade in open_trades:
-                    invested_amount = open_trades.pop(trade)
-                    cash_balance += invested_amount * (
-                        trade.exit_price / trade.entry_price
+                    position_details = open_trades.pop(trade)
+                    proceeds = position_details.share_count * trade.exit_price
+                    exit_commission = calc_commission(
+                        position_details.share_count, trade.exit_price
                     )
-                    cash_balance -= TRADE_COMMISSION
+                    cash_balance += proceeds - exit_commission
             else:
                 remaining_slots = get_symbol_count(current_date) - len(open_trades)
                 if remaining_slots > 0 and cash_balance > 0:
@@ -343,11 +386,16 @@ def calculate_max_drawdown(
                         if cash_balance - invested_amount >= trade.entry_price:
                             share_count += 1
                             invested_amount = share_count * trade.entry_price
-                        open_trades[trade] = invested_amount
-                        cash_balance -= invested_amount
+                        entry_commission = calc_commission(share_count, trade.entry_price)
+                        open_trades[trade] = OpenPosition(
+                            invested_amount=invested_amount, share_count=share_count
+                        )
+                        cash_balance -= invested_amount + entry_commission
             event_index += 1
 
-        portfolio_value = cash_balance + sum(open_trades.values())
+        portfolio_value = cash_balance + sum(
+            position_details.invested_amount for position_details in open_trades.values()
+        )
         if portfolio_value > maximum_portfolio_value:
             maximum_portfolio_value = portfolio_value
         elif maximum_portfolio_value > 0:
@@ -359,7 +407,9 @@ def calculate_max_drawdown(
         if next_day.year > current_year:
             cash_balance -= withdraw_amount
             maximum_portfolio_value = max(0.0, maximum_portfolio_value - withdraw_amount)
-            portfolio_value = cash_balance + sum(open_trades.values())
+            portfolio_value = cash_balance + sum(
+                position_details.invested_amount for position_details in open_trades.values()
+            )
             if portfolio_value > maximum_portfolio_value:
                 maximum_portfolio_value = portfolio_value
             elif maximum_portfolio_value > 0:
@@ -420,7 +470,7 @@ def calculate_annual_returns(
     events.sort(key=lambda event_tuple: (event_tuple[0], event_tuple[1]))
 
     cash_balance = starting_cash
-    open_trades: dict[Trade, float] = {}
+    open_trades: dict[Trade, OpenPosition] = {}
     annual_returns: Dict[int, float] = {}
 
     current_year = simulation_start.year
@@ -433,7 +483,9 @@ def calculate_annual_returns(
 
     for event_timestamp, event_type, completed_trade in events:
         while event_timestamp.year > current_year:
-            year_end_value = cash_balance + sum(open_trades.values())
+            year_end_value = cash_balance + sum(
+                position_details.invested_amount for position_details in open_trades.values()
+            )
             if year_start_value == 0:
                 annual_returns[current_year] = 0.0
             else:
@@ -441,16 +493,19 @@ def calculate_annual_returns(
                     (year_end_value - year_start_value) / year_start_value
                 )
             cash_balance -= withdraw_amount
-            year_start_value = cash_balance + sum(open_trades.values())
+            year_start_value = cash_balance + sum(
+                position_details.invested_amount for position_details in open_trades.values()
+            )
             current_year += 1
 
         if event_type == 0:
             if completed_trade in open_trades:
-                invested_amount = open_trades.pop(completed_trade)
-                cash_balance += invested_amount * (
-                    completed_trade.exit_price / completed_trade.entry_price
+                position_details = open_trades.pop(completed_trade)
+                proceeds = position_details.share_count * completed_trade.exit_price
+                exit_commission = calc_commission(
+                    position_details.share_count, completed_trade.exit_price
                 )
-                cash_balance -= TRADE_COMMISSION
+                cash_balance += proceeds - exit_commission
         else:
             remaining_slots = get_symbol_count(event_timestamp) - len(open_trades)
             if remaining_slots <= 0 or cash_balance <= 0:
@@ -465,10 +520,15 @@ def calculate_annual_returns(
             if cash_balance - invested_amount >= completed_trade.entry_price:
                 share_count += 1
                 invested_amount = share_count * completed_trade.entry_price
-            open_trades[completed_trade] = invested_amount
-            cash_balance -= invested_amount
+            entry_commission = calc_commission(share_count, completed_trade.entry_price)
+            open_trades[completed_trade] = OpenPosition(
+                invested_amount=invested_amount, share_count=share_count
+            )
+            cash_balance -= invested_amount + entry_commission
 
-    year_end_value = cash_balance + sum(open_trades.values())
+    year_end_value = cash_balance + sum(
+        position_details.invested_amount for position_details in open_trades.values()
+    )
     if year_start_value == 0:
         annual_returns[current_year] = 0.0
     else:
