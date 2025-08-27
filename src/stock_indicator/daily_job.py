@@ -105,62 +105,45 @@ def run_daily_job(
 
 
 def find_signal(
-    date_string: str, log_directory: Path | None = None
+    date_string: str,
+    dollar_volume_filter: str,
+    buy_strategy: str,
+    sell_strategy: str,
+    stop_loss: float,
 ) -> Dict[str, List[str]]:
-    """Return entry and exit signals stored in the log file.
+    """Run daily tasks for a single date and return the signals.
 
     Parameters
     ----------
     date_string:
-        Date string in ISO format representing the log file to parse.
-    log_directory: Path | None, optional
-        Directory where the log file is stored. When ``None`` the module's
-        ``LOG_DIRECTORY`` value is used.
+        ISO formatted date string representing the day to evaluate.
+    dollar_volume_filter:
+        Filter applied to select symbols based on dollar volume.
+    buy_strategy:
+        Name of the strategy used to generate entry signals.
+    sell_strategy:
+        Name of the strategy used to generate exit signals.
+    stop_loss:
+        Fractional loss that triggers an exit on the next day's open.
 
     Returns
     -------
     Dict[str, List[str]]
         Dictionary containing two keys: ``"entry_signals"`` and
-        ``"exit_signals"``. Each key maps to the list of symbols parsed from
-        the corresponding line in the log file. Missing lines result in empty
-        lists.
-
-    Raises
-    ------
-    FileNotFoundError
-        Raised when the log file for ``date_string`` does not exist.
+        ``"exit_signals"``. Each maps to the list of symbols produced by
+        the strategies.
     """
-    if log_directory is None:
-        log_directory = LOG_DIRECTORY
-    log_file_path = log_directory / f"{date_string}.log"
-    if not log_file_path.exists():
-        error_message = f"Log file {log_file_path} does not exist"
-        LOGGER.error(error_message)
-        raise FileNotFoundError(error_message)
-
-    entry_signal_list: List[str] = []
-    exit_signal_list: List[str] = []
-    with log_file_path.open("r", encoding="utf-8") as log_file:
-        for line in log_file:
-            stripped_line = line.strip()
-            if stripped_line.startswith("entry_signals:"):
-                symbol_list = stripped_line.split(":", 1)[1]
-                entry_signal_list = [
-                    symbol.strip()
-                    for symbol in symbol_list.split(",")
-                    if symbol.strip()
-                ]
-            elif stripped_line.startswith("exit_signals:"):
-                symbol_list = stripped_line.split(":", 1)[1]
-                exit_signal_list = [
-                    symbol.strip()
-                    for symbol in symbol_list.split(",")
-                    if symbol.strip()
-                ]
-    return {
-        "entry_signals": entry_signal_list,
-        "exit_signals": exit_signal_list,
-    }
+    # TODO: review
+    argument_line = (
+        f"{dollar_volume_filter} {buy_strategy} {sell_strategy} {stop_loss}"
+    )
+    signal_result: Dict[str, List[str]] = cron.run_daily_tasks_from_argument(
+        argument_line,
+        start_date=date_string,
+        end_date=date_string,
+        data_directory=DATA_DIRECTORY,
+    )
+    return signal_result
 
 
 def main() -> None:

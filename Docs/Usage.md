@@ -37,23 +37,22 @@ selling strategies instead.
 
 Each execution of the daily job records entry and exit signals in a log file in
 the project's `logs` directory. The files follow the `<YYYY-MM-DD>.log` naming
-convention, for example `logs/2024-01-10.log`. The management shell can parse a
-log file with:
+The management shell can compute signals for a specific day with:
 
 ```
-find_signal 2024-01-10
+find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS
 ```
 
 The command prints the entry signal list on the first line and the exit signal
-list on the second line:
+list on the second line. For example:
 
 ```
+find_signal 2024-01-10 dollar_volume>1 ema_sma_cross ema_sma_cross 1.0
 ['AAA', 'BBB']
 ['CCC', 'DDD']
 ```
 
-Developers may call `daily_job.find_signal("2024-01-10")` to obtain the same
-data from Python code.
+Developers may call `daily_job.find_signal("2024-01-10", "dollar_volume>1", "ema_sma_cross", "ema_sma_cross", 1.0)` to obtain the same data from Python code.
 
 ## Available strategies
 

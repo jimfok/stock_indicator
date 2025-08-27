@@ -64,20 +64,18 @@ python -m stock_indicator.manage
 * `update_data SYMBOL START END` saves historical data for the given symbol to
   `data/<SYMBOL>.csv`.
 * `update_all_data START END` performs the download for every cached symbol.
-* `find_signal DATE` prints the entry and exit signals stored in
-  `logs/<DATE>.log`.
+* `find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS`
+  prints the entry and exit signals for `DATE` using the provided strategies.
 
-Log files reside in the project's `logs` directory and are named after the
-recorded date. To view the signals from `logs/2024-01-10.log`, run:
+For example:
 
 ```bash
-(stock-indicator) find_signal 2024-01-10
+(stock-indicator) find_signal 2024-01-10 dollar_volume>1 ema_sma_cross ema_sma_cross 1.0
 ['AAA', 'BBB']
 ['CCC', 'DDD']
 ```
 
-Developers can also call `daily_job.find_signal("2024-01-10")` to retrieve the
-same data from Python code.
+Developers can also call `daily_job.find_signal("2024-01-10", "dollar_volume>1", "ema_sma_cross", "ema_sma_cross", 1.0)` to compute the same data from Python code.
 
 The shell can also simulate trading strategies. The `dollar_volume` filter
 accepts both a minimum threshold and a ranking when the two are separated by a
