@@ -2,6 +2,7 @@ import datetime
 from pathlib import Path
 
 import pytest
+import pandas
 
 from stock_indicator import daily_job
 
@@ -112,3 +113,62 @@ def test_find_signal_returns_cron_output(monkeypatch: pytest.MonkeyPatch) -> Non
     )
 
     assert signal_dictionary == expected_result
+
+
+def test_find_signal_detects_previous_day_crossover(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """find_signal should detect signals when the crossover is one day earlier."""
+
+    data_directory = tmp_path
+    csv_lines = ["Date,open,close,volume\n"]
+    start_day = datetime.date(2024, 1, 1)
+    for day_index in range(52):
+        current_day = start_day + datetime.timedelta(days=day_index)
+        price_value = 1.0 if day_index < 50 else 2.0
+        csv_lines.append(
+            f"{current_day.isoformat()},{price_value},{price_value},1000000\n"
+        )
+    (data_directory / "AAA.csv").write_text("".join(csv_lines), encoding="utf-8")
+
+    monkeypatch.setattr(daily_job, "DATA_DIRECTORY", data_directory)
+    monkeypatch.setattr(daily_job.cron, "update_symbol_cache", lambda: None)
+    monkeypatch.setattr(daily_job.cron, "load_symbols", lambda: ["AAA"])
+
+    original_run = daily_job.cron.run_daily_tasks_from_argument
+
+    def fake_download_history(
+        symbol: str, start: str, end: str, cache_path: Path | None = None
+    ):
+        return pandas.read_csv(cache_path, parse_dates=["Date"], index_col="Date")
+
+    def patched_run_daily_tasks_from_argument(
+        argument_line: str,
+        start_date: str,
+        end_date: str,
+        symbol_list=None,
+        data_download_function=None,
+        data_directory: Path | None = None,
+    ):
+        return original_run(
+            argument_line,
+            start_date,
+            end_date,
+            symbol_list=symbol_list,
+            data_download_function=fake_download_history,
+            data_directory=data_directory,
+        )
+
+    monkeypatch.setattr(
+        daily_job.cron, "run_daily_tasks_from_argument", patched_run_daily_tasks_from_argument
+    )
+
+    signal_dictionary = daily_job.find_signal(
+        "2024-02-21",
+        "dollar_volume>1",
+        "20_50_sma_cross",
+        "20_50_sma_cross",
+        1.0,
+    )
+
+    assert signal_dictionary["entry_signals"] == ["AAA"]
