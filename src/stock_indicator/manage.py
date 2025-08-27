@@ -290,19 +290,22 @@ class StockShell(cmd.Cmd):
 
     # TODO: review
     def do_find_signal(self, argument_line: str) -> None:  # noqa: D401
-        """find_signal DATE
-        Display the entry and exit signals logged for DATE."""
+        """find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS
+        Display the entry and exit signals generated for DATE."""
         argument_parts: List[str] = argument_line.split()
-        if len(argument_parts) != 1 or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", argument_parts[0]):
-            self.stdout.write("usage: find_signal DATE\n")
+        if len(argument_parts) != 5 or not re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}", argument_parts[0]
+        ):
+            self.stdout.write(
+                "usage: find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS\n"
+            )
             return
-        date_string = argument_parts[0]
-        try:
-            signal_data: Dict[str, List[str]] = daily_job.find_signal(date_string)
-        except FileNotFoundError as error:
-            LOGGER.error("%s", error)
-            self.stdout.write(f"{error}\n")
-            return
+        date_string, dollar_volume_filter, buy_strategy, sell_strategy, stop_loss = (
+            argument_parts
+        )
+        signal_data: Dict[str, List[str]] = daily_job.find_signal(
+            date_string, dollar_volume_filter, buy_strategy, sell_strategy, float(stop_loss)
+        )
         entry_signal_list: List[str] = signal_data.get("entry_signals", [])
         exit_signal_list: List[str] = signal_data.get("exit_signals", [])
         self.stdout.write(f"{entry_signal_list}\n")
@@ -312,8 +315,8 @@ class StockShell(cmd.Cmd):
     def help_find_signal(self) -> None:
         """Display help for the find_signal command."""
         self.stdout.write(
-            "find_signal DATE\n"
-            "Display entry and exit signals stored in the log for DATE in YYYY-MM-DD format.\n"
+            "find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS\n"
+            "Display entry and exit signals for DATE using the provided strategies.\n"
         )
 
 
