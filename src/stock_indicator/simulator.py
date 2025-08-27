@@ -58,6 +58,8 @@ class OpenPosition:
 
     invested_amount: float
     share_count: float
+    symbol: str | None = None
+    last_known_price: float | None = None
 
 
 def simulate_trades(
@@ -310,6 +312,8 @@ def calculate_max_drawdown(
     trades: Iterable[Trade],
     starting_cash: float,
     eligible_symbol_counts_by_date: int | Dict[pandas.Timestamp, int],
+    trade_symbol_lookup: Dict[Trade, str],
+    closing_price_series_by_symbol: Dict[str, pandas.Series],
     withdraw_amount: float = 0.0,
 ) -> float:
     """Compute the maximum portfolio drawdown across the simulation period.
@@ -331,6 +335,11 @@ def calculate_max_drawdown(
         dictionary, keys are trading dates and values represent the counts of
         eligible symbols on those dates. This mirrors the values produced by
         :func:`stock_indicator.volume.count_symbols_with_average_dollar_volume_above`.
+    trade_symbol_lookup: Dict[Trade, str]
+        Mapping from each trade to its associated trading symbol.
+    closing_price_series_by_symbol: Dict[str, pandas.Series]
+        Mapping of symbol to a series of daily closing prices used to revalue
+        open positions.
     withdraw_amount: float, optional
         Cash amount removed from the balance at the end of each calendar year.
         Defaults to ``0.0``.
@@ -368,6 +377,7 @@ def calculate_max_drawdown(
     while current_date <= end_date:
         while event_index < len(events) and events[event_index][0] == current_date:
             _, event_type, trade = events[event_index]
+            symbol_name = trade_symbol_lookup.get(trade, "")
             if event_type == 0:
                 if trade in open_trades:
                     position_details = open_trades.pop(trade)
@@ -388,13 +398,22 @@ def calculate_max_drawdown(
                             invested_amount = share_count * trade.entry_price
                         entry_commission = calc_commission(share_count, trade.entry_price)
                         open_trades[trade] = OpenPosition(
-                            invested_amount=invested_amount, share_count=share_count
+                            invested_amount=invested_amount,
+                            share_count=share_count,
+                            symbol=symbol_name,
+                            last_known_price=trade.entry_price,
                         )
                         cash_balance -= invested_amount + entry_commission
             event_index += 1
 
+        for position_details in open_trades.values():
+            price_series = closing_price_series_by_symbol.get(position_details.symbol)
+            if price_series is not None and current_date in price_series.index:
+                position_details.last_known_price = float(price_series.loc[current_date])
+
         portfolio_value = cash_balance + sum(
-            position_details.invested_amount for position_details in open_trades.values()
+            position_details.share_count * (position_details.last_known_price or 0.0)
+            for position_details in open_trades.values()
         )
         if portfolio_value > maximum_portfolio_value:
             maximum_portfolio_value = portfolio_value
@@ -408,7 +427,8 @@ def calculate_max_drawdown(
             cash_balance -= withdraw_amount
             maximum_portfolio_value = max(0.0, maximum_portfolio_value - withdraw_amount)
             portfolio_value = cash_balance + sum(
-                position_details.invested_amount for position_details in open_trades.values()
+                position_details.share_count * (position_details.last_known_price or 0.0)
+                for position_details in open_trades.values()
             )
             if portfolio_value > maximum_portfolio_value:
                 maximum_portfolio_value = portfolio_value

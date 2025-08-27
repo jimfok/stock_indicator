@@ -23,6 +23,7 @@ from stock_indicator.simulator import (
     calculate_annual_trade_counts,
     simulate_trades,
     simulate_portfolio_balance,
+    calculate_max_drawdown,
 )
 
 
@@ -488,3 +489,39 @@ def test_calculate_annual_trade_counts_counts_trades_per_year() -> None:
         [trade_alpha, trade_beta, trade_gamma]
     )
     assert trade_counts == {2023: 1, 2024: 2}
+
+
+def test_calculate_max_drawdown_marks_to_market() -> None:
+    """calculate_max_drawdown should revalue open positions using closing prices."""
+    trade = Trade(
+        entry_date=pandas.Timestamp("2020-01-01"),
+        exit_date=pandas.Timestamp("2020-01-04"),
+        entry_price=10.0,
+        exit_price=12.0,
+        profit=2.0 - calc_commission(1, 10.0) - calc_commission(1, 12.0),
+        holding_period=3,
+    )
+    trade_symbol_lookup = {trade: "AAA"}
+    closing_price_series_by_symbol = {
+        "AAA": pandas.Series(
+            [10.0, 8.0, 12.0],
+            index=pandas.to_datetime([
+                "2020-01-01",
+                "2020-01-03",
+                "2020-01-04",
+            ]),
+        )
+    }
+    maximum_drawdown_value = calculate_max_drawdown(
+        [trade],
+        starting_cash=1000.0,
+        eligible_symbol_counts_by_date=1,
+        trade_symbol_lookup=trade_symbol_lookup,
+        closing_price_series_by_symbol=closing_price_series_by_symbol,
+        withdraw_amount=0.0,
+    )
+    entry_commission = calc_commission(100, 10.0)
+    cash_after_entry = 1000.0 - 100 * 10.0 - entry_commission
+    lowest_portfolio_value = cash_after_entry + 100 * 8.0
+    expected_drawdown = (1000.0 - lowest_portfolio_value) / 1000.0
+    assert maximum_drawdown_value == pytest.approx(expected_drawdown)

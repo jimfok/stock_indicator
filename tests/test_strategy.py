@@ -446,33 +446,25 @@ def test_evaluate_combined_strategy_reports_max_drawdown(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """evaluate_combined_strategy should report the largest portfolio decline."""
-
     date_index = pandas.date_range("2020-01-01", periods=200, freq="D")
+    closing_prices = [10.0] * 200
+    closing_prices[1] = 8.0
+    closing_prices[2] = 12.0
     price_data_frame = pandas.DataFrame(
-        {"Date": date_index, "open": [10.0] * 200, "close": [10.0] * 200}
+        {"Date": date_index, "open": [10.0] * 200, "close": closing_prices}
     )
     csv_path = tmp_path / "AAA.csv"
     price_data_frame.to_csv(csv_path, index=False)
 
-    trades = [
-        Trade(
-            entry_date=pandas.Timestamp("2020-01-01"),
-            exit_date=pandas.Timestamp("2020-01-02"),
-            entry_price=10.0,
-            exit_price=20.0,
-            profit=10.0,
-            holding_period=1,
-        ),
-        Trade(
-            entry_date=pandas.Timestamp("2020-01-03"),
-            exit_date=pandas.Timestamp("2020-01-04"),
-            entry_price=20.0,
-            exit_price=10.0,
-            profit=-10.0,
-            holding_period=1,
-        ),
-    ]
-    simulation_result = SimulationResult(trades=trades, total_profit=0.0)
+    trade = Trade(
+        entry_date=pandas.Timestamp("2020-01-01"),
+        exit_date=pandas.Timestamp("2020-01-03"),
+        entry_price=10.0,
+        exit_price=12.0,
+        profit=2.0 - calc_commission(1, 10.0) - calc_commission(1, 12.0),
+        holding_period=2,
+    )
+    simulation_result = SimulationResult(trades=[trade], total_profit=trade.profit)
 
     def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
         return simulation_result
@@ -480,25 +472,16 @@ def test_evaluate_combined_strategy_reports_max_drawdown(
     monkeypatch.setattr(strategy, "simulate_trades", fake_simulate_trades)
     monkeypatch.setattr(strategy, "calculate_annual_returns", lambda *a, **k: {})
     monkeypatch.setattr(strategy, "calculate_annual_trade_counts", lambda *a, **k: {})
-    monkeypatch.setattr(strategy, "simulate_portfolio_balance", lambda *a, **k: 1008.0)
+    monkeypatch.setattr(strategy, "simulate_portfolio_balance", lambda *a, **k: 1000.0)
 
     result = evaluate_combined_strategy(
         tmp_path, "ema_sma_cross", "ema_sma_cross", starting_cash=1000.0
     )
 
-    peak_value = (
-        1000.0 * (20.0 / 10.0)
-        - calc_commission(100, 10.0)
-        - calc_commission(100, 20.0)
-    )
-    final_value = (
-        peak_value
-        - 99 * 20.0
-        - calc_commission(99, 20.0)
-        + 99 * 10.0
-        - calc_commission(99, 10.0)
-    )
-    expected_drawdown = (peak_value - final_value) / peak_value
+    entry_commission = calc_commission(100, 10.0)
+    cash_after_entry = 1000.0 - 100 * 10.0 - entry_commission
+    lowest_portfolio_value = cash_after_entry + 100 * 8.0
+    expected_drawdown = (1000.0 - lowest_portfolio_value) / 1000.0
     assert result.maximum_drawdown == pytest.approx(expected_drawdown)
 
 
