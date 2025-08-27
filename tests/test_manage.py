@@ -988,3 +988,64 @@ def test_start_simulate_rejects_sell_only_buy_strategy() -> None:
         "start_simulate dollar_volume>0 kalman_filtering ema_sma_cross"
     )
     assert "unsupported strategies" in output_buffer.getvalue()
+
+def test_start_simulate_accepts_windowed_strategy_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command should accept strategies with numeric window suffixes."""
+    # TODO: review
+
+    import stock_indicator.manage as manage_module
+    import stock_indicator.strategy as strategy_module
+
+    output_buffer = io.StringIO()
+
+    monkeypatch.setattr(
+        strategy_module,
+        "BUY_STRATEGIES",
+        {"noop": lambda frame: None},
+    )
+    monkeypatch.setattr(
+        strategy_module,
+        "SELL_STRATEGIES",
+        {"noop": lambda frame: None},
+    )
+
+    from stock_indicator.strategy import StrategyMetrics
+
+    def fake_evaluate(
+        data_directory: Path,
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        minimum_average_dollar_volume: float | None,
+        top_dollar_volume_rank: int | None = None,
+        minimum_average_dollar_volume_ratio: float | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
+        stop_loss_percentage: float = 1.0,
+        start_date: pandas.Timestamp | None = None,
+    ) -> StrategyMetrics:
+        return StrategyMetrics(
+            total_trades=0,
+            win_rate=0.0,
+            mean_profit_percentage=0.0,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.0,
+            loss_percentage_standard_deviation=0.0,
+            mean_holding_period=0.0,
+            holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=0,
+            maximum_drawdown=0.0,
+            final_balance=0.0,
+            compound_annual_growth_rate=0.0,
+            annual_returns={},
+            annual_trade_counts={},
+        )
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "evaluate_combined_strategy",
+        fake_evaluate,
+    )
+
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd("start_simulate dollar_volume>0 noop_5 noop_10")
+    assert "unsupported strategies" not in output_buffer.getvalue()

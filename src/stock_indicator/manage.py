@@ -208,10 +208,16 @@ class StockShell(cmd.Cmd):
                                 "dollar_volume>NUMBER%,RANKth\n",
                             )
                             return
-        if buy_strategy_name not in strategy.BUY_STRATEGIES:
+        try:  # TODO: review
+            buy_base_name, _ = strategy.parse_strategy_name(buy_strategy_name)
+            sell_base_name, _ = strategy.parse_strategy_name(sell_strategy_name)
+        except ValueError:
             self.stdout.write("unsupported strategies\n")
             return
-        if sell_strategy_name not in strategy.SELL_STRATEGIES:
+        if (
+            buy_base_name not in strategy.BUY_STRATEGIES
+            or sell_base_name not in strategy.SELL_STRATEGIES
+        ):
             self.stdout.write("unsupported strategies\n")
             return
 
