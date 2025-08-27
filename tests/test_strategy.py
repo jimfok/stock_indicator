@@ -475,7 +475,11 @@ def test_evaluate_combined_strategy_reports_max_drawdown(
     monkeypatch.setattr(strategy, "simulate_portfolio_balance", lambda *a, **k: 1000.0)
 
     result = evaluate_combined_strategy(
-        tmp_path, "ema_sma_cross", "ema_sma_cross", starting_cash=1000.0
+        tmp_path,
+        "ema_sma_cross",
+        "ema_sma_cross",
+        starting_cash=1000.0,
+        maximum_position_count=1,
     )
 
     entry_commission = calc_commission(100, 10.0)
@@ -1011,7 +1015,7 @@ def test_evaluate_combined_strategy_dollar_volume_filter_and_rank(
         ).to_csv(tmp_path / f"{symbol_name}.csv", index=False)
 
     processed_symbols: list[str] = []
-    captured_counts: list[dict[pandas.Timestamp, int]] = []
+    captured_counts: list[int] = []
 
     def fake_simulate_trades(
         data: pandas.DataFrame, *args: object, **kwargs: object
@@ -1022,12 +1026,11 @@ def test_evaluate_combined_strategy_dollar_volume_filter_and_rank(
     def fake_simulate_portfolio_balance(
         trades: Iterable[Trade],
         starting_cash: float,
-        eligible_symbol_count: dict[pandas.Timestamp, int] | int,
+        maximum_position_count: int,
         withdraw_amount: float = 0.0,
     ) -> float:
         assert withdraw_amount == 0.0
-        assert isinstance(eligible_symbol_count, dict)
-        captured_counts.append(eligible_symbol_count)
+        captured_counts.append(maximum_position_count)
         return starting_cash
 
     monkeypatch.setattr(strategy_module, "simulate_trades", fake_simulate_trades)
@@ -1048,11 +1051,10 @@ def test_evaluate_combined_strategy_dollar_volume_filter_and_rank(
         "noop",
         minimum_average_dollar_volume=150,
         top_dollar_volume_rank=2,
+        maximum_position_count=2,
     )
     assert set(processed_symbols) == {"CCC", "DDD"}
-    assert len(captured_counts) == 1
-    positive_counts = [value for value in captured_counts[0].values() if value > 0]
-    assert set(positive_counts) == {2}
+    assert captured_counts == [2]
 
 
 def test_evaluate_combined_strategy_filters_low_average_dollar_volume_rows(

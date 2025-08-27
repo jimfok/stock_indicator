@@ -232,8 +232,9 @@ def calculate_maximum_concurrent_positions(
 def simulate_portfolio_balance(
     trades: Iterable[Trade],
     starting_cash: float,
-    eligible_symbol_count: int | Dict[pandas.Timestamp, int],
+    maximum_position_count: int,
     withdraw_amount: float = 0.0,
+    maximum_position_weight: float = 1.0,
 ) -> float:
     """Simulate capital allocation across multiple trades.
 
@@ -243,15 +244,15 @@ def simulate_portfolio_balance(
         Collection of trades containing entry and exit information.
     starting_cash : float
         Initial cash available for trading.
-    eligible_symbol_count : int | Dict[pandas.Timestamp, int]
-        Total number of symbols considered for trading. When provided as a
-        dictionary, the key is the trading date and the value represents the
-        number of eligible symbols on that day. This mirrors the values
-        produced by :func:`stock_indicator.volume.count_symbols_with_average_dollar_volume_above`.
-        Entry and exit commissions are deducted using :func:`calc_commission`.
+    maximum_position_count : int
+        Maximum number of concurrent open positions allowed.
     withdraw_amount : float, optional
         Cash amount removed from the balance at the end of each calendar year.
         Defaults to ``0.0``.
+    maximum_position_weight : float, optional
+        Upper bound on the fraction of equity allocated to a single position.
+        Defaults to ``1.0`` which indicates no additional cap beyond the slot
+        sizing limit.
 
     Returns
     -------
@@ -267,10 +268,7 @@ def simulate_portfolio_balance(
     open_trades: dict[Trade, OpenPosition] = {}
     current_year: int | None = None
 
-    def get_symbol_count(current_date: pandas.Timestamp) -> int:
-        if isinstance(eligible_symbol_count, dict):
-            return eligible_symbol_count.get(current_date, 0)
-        return eligible_symbol_count
+    slot_weight = min(1.0 / maximum_position_count, maximum_position_weight)
 
     for event_timestamp, event_type, trade in events:
         if current_year is None:
@@ -287,17 +285,16 @@ def simulate_portfolio_balance(
                 )
                 cash_balance += proceeds - exit_commission
         else:
-            remaining_slots = get_symbol_count(event_timestamp) - len(open_trades)
-            if remaining_slots <= 0 or cash_balance <= 0:
+            if len(open_trades) >= maximum_position_count or cash_balance <= 0:
                 continue
-            budget_per_position = cash_balance / remaining_slots
+            equity = cash_balance + sum(
+                position.invested_amount for position in open_trades.values()
+            )
+            budget_per_position = equity * slot_weight
             share_count = math.floor(budget_per_position / trade.entry_price)
             if share_count <= 0:
                 continue
             invested_amount = share_count * trade.entry_price
-            if cash_balance - invested_amount >= trade.entry_price:
-                share_count += 1
-                invested_amount = share_count * trade.entry_price
             entry_commission = calc_commission(share_count, trade.entry_price)
             open_trades[trade] = OpenPosition(
                 invested_amount=invested_amount, share_count=share_count
@@ -311,10 +308,11 @@ def simulate_portfolio_balance(
 def calculate_max_drawdown(
     trades: Iterable[Trade],
     starting_cash: float,
-    eligible_symbol_counts_by_date: int | Dict[pandas.Timestamp, int],
+    maximum_position_count: int,
     trade_symbol_lookup: Dict[Trade, str],
     closing_price_series_by_symbol: Dict[str, pandas.Series],
     withdraw_amount: float = 0.0,
+    maximum_position_weight: float = 1.0,
 ) -> float:
     """Compute the maximum portfolio drawdown across the simulation period.
 
@@ -330,11 +328,8 @@ def calculate_max_drawdown(
         Collection of trades with entry and exit information.
     starting_cash: float
         Initial cash available for trading.
-    eligible_symbol_counts_by_date: int | Dict[pandas.Timestamp, int]
-        Total number of symbols considered for trading. When provided as a
-        dictionary, keys are trading dates and values represent the counts of
-        eligible symbols on those dates. This mirrors the values produced by
-        :func:`stock_indicator.volume.count_symbols_with_average_dollar_volume_above`.
+    maximum_position_count: int
+        Maximum number of concurrent open positions allowed.
     trade_symbol_lookup: Dict[Trade, str]
         Mapping from each trade to its associated trading symbol.
     closing_price_series_by_symbol: Dict[str, pandas.Series]
@@ -343,6 +338,10 @@ def calculate_max_drawdown(
     withdraw_amount: float, optional
         Cash amount removed from the balance at the end of each calendar year.
         Defaults to ``0.0``.
+    maximum_position_weight: float, optional
+        Upper bound on the fraction of equity allocated to a single position.
+        Defaults to ``1.0`` which indicates no additional cap beyond the slot
+        sizing limit.
 
     Returns
     -------
@@ -358,16 +357,12 @@ def calculate_max_drawdown(
     if not events:
         return 0.0
 
-    def get_symbol_count(current_date: pandas.Timestamp) -> int:
-        if isinstance(eligible_symbol_counts_by_date, dict):
-            return eligible_symbol_counts_by_date.get(current_date, 0)
-        return eligible_symbol_counts_by_date
-
     cash_balance = starting_cash
     open_trades: dict[Trade, OpenPosition] = {}
     maximum_portfolio_value = starting_cash
     maximum_drawdown_value = 0.0
     current_year = events[0][0].year
+    slot_weight = min(1.0 / maximum_position_count, maximum_position_weight)
 
     start_date = events[0][0]
     end_date = events[-1][0]
@@ -387,15 +382,15 @@ def calculate_max_drawdown(
                     )
                     cash_balance += proceeds - exit_commission
             else:
-                remaining_slots = get_symbol_count(current_date) - len(open_trades)
-                if remaining_slots > 0 and cash_balance > 0:
-                    budget_per_position = cash_balance / remaining_slots
+                if len(open_trades) < maximum_position_count and cash_balance > 0:
+                    equity = cash_balance + sum(
+                        position.share_count * (position.last_known_price or 0.0)
+                        for position in open_trades.values()
+                    )
+                    budget_per_position = equity * slot_weight
                     share_count = math.floor(budget_per_position / trade.entry_price)
                     if share_count > 0:
                         invested_amount = share_count * trade.entry_price
-                        if cash_balance - invested_amount >= trade.entry_price:
-                            share_count += 1
-                            invested_amount = share_count * trade.entry_price
                         entry_commission = calc_commission(share_count, trade.entry_price)
                         open_trades[trade] = OpenPosition(
                             invested_amount=invested_amount,
@@ -448,9 +443,10 @@ def calculate_max_drawdown(
 def calculate_annual_returns(
     trades: Iterable[Trade],
     starting_cash: float,
-    eligible_symbol_count: int | Dict[pandas.Timestamp, int],
+    maximum_position_count: int,
     simulation_start: pandas.Timestamp,
     withdraw_amount: float = 0.0,
+    maximum_position_weight: float = 1.0,
 ) -> Dict[int, float]:
     """Compute yearly portfolio returns for a series of trades.
 
@@ -465,17 +461,18 @@ def calculate_annual_returns(
         Collection of trades containing entry and exit information.
     starting_cash: float
         Initial cash available for trading.
-    eligible_symbol_count: int | Dict[pandas.Timestamp, int]
-        Total number of symbols considered for trading. When provided as a
-        dictionary, keys are trading dates and values are the counts of
-        eligible symbols on those dates. This mirrors the values produced by
-        :func:`stock_indicator.volume.count_symbols_with_average_dollar_volume_above`.
+    maximum_position_count: int
+        Maximum number of concurrent open positions allowed.
     simulation_start: pandas.Timestamp
         Timestamp indicating the first day of the simulation. Years prior to
         the first trade will be emitted with a zero return.
     withdraw_amount: float, optional
         Cash amount removed from the balance at the end of each calendar year.
         Defaults to ``0.0``.
+    maximum_position_weight: float, optional
+        Upper bound on the fraction of equity allocated to a single position.
+        Defaults to ``1.0`` which indicates no additional cap beyond the slot
+        sizing limit.
 
     Returns
     -------
@@ -495,11 +492,7 @@ def calculate_annual_returns(
 
     current_year = simulation_start.year
     year_start_value = cash_balance
-
-    def get_symbol_count(current_date: pandas.Timestamp) -> int:
-        if isinstance(eligible_symbol_count, dict):
-            return eligible_symbol_count.get(current_date, 0)
-        return eligible_symbol_count
+    slot_weight = min(1.0 / maximum_position_count, maximum_position_weight)
 
     for event_timestamp, event_type, completed_trade in events:
         while event_timestamp.year > current_year:
@@ -527,19 +520,18 @@ def calculate_annual_returns(
                 )
                 cash_balance += proceeds - exit_commission
         else:
-            remaining_slots = get_symbol_count(event_timestamp) - len(open_trades)
-            if remaining_slots <= 0 or cash_balance <= 0:
+            if len(open_trades) >= maximum_position_count or cash_balance <= 0:
                 continue
-            budget_per_position = cash_balance / remaining_slots
+            equity = cash_balance + sum(
+                position_details.invested_amount for position_details in open_trades.values()
+            )
+            budget_per_position = equity * slot_weight
             share_count = math.floor(
                 budget_per_position / completed_trade.entry_price
             )
             if share_count <= 0:
                 continue
             invested_amount = share_count * completed_trade.entry_price
-            if cash_balance - invested_amount >= completed_trade.entry_price:
-                share_count += 1
-                invested_amount = share_count * completed_trade.entry_price
             entry_commission = calc_commission(share_count, completed_trade.entry_price)
             open_trades[completed_trade] = OpenPosition(
                 invested_amount=invested_amount, share_count=share_count
