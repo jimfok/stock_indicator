@@ -292,7 +292,7 @@ def attach_ema_sma_cross_with_slope_and_volume_signals(
     # TODO: review
 
     attach_ema_sma_cross_with_slope_signals(
-        price_data_frame, window_size, slope_range
+        price_data_frame, window_size, slope_range=slope_range
     )
     price_data_frame["dollar_volume_value"] = (
         price_data_frame["close"] * price_data_frame["volume"]
@@ -564,9 +564,12 @@ def evaluate_combined_strategy(
     data_directory: Path
         Directory containing price data in CSV format.
     buy_strategy_name: str
-        Strategy name used to generate entry signals.
+        Strategy name used to generate entry signals. The name may include a
+        numeric window size or a pair of slope bounds, for example
+        ``"ema_sma_cross_with_slope_40_-0.5_0.5"``.
     sell_strategy_name: str
-        Strategy name used to generate exit signals.
+        Strategy name used to generate exit signals. The same conventions as
+        ``buy_strategy_name`` apply.
     minimum_average_dollar_volume: float | None, optional
         Minimum 50-day moving average dollar volume, in millions, required for a
         symbol to be included in the evaluation. When ``None``, no filter is
@@ -595,8 +598,12 @@ def evaluate_combined_strategy(
     """
     # TODO: review
 
-    buy_base_name, buy_window_size, _ = parse_strategy_name(buy_strategy_name)
-    sell_base_name, sell_window_size, _ = parse_strategy_name(sell_strategy_name)
+    buy_base_name, buy_window_size, buy_slope_range = parse_strategy_name(
+        buy_strategy_name
+    )
+    sell_base_name, sell_window_size, sell_slope_range = parse_strategy_name(
+        sell_strategy_name
+    )
     if buy_base_name not in BUY_STRATEGIES:
         raise ValueError(f"Unsupported strategy: {buy_strategy_name}")
     if sell_base_name not in SELL_STRATEGIES:
@@ -745,17 +752,33 @@ def evaluate_combined_strategy(
 
     for csv_file_path, price_data_frame, symbol_mask in selected_symbol_data:
         buy_function = BUY_STRATEGIES[buy_base_name]
-        if buy_window_size is None:
-            buy_function(price_data_frame)
-        else:
+        if buy_window_size is not None and buy_slope_range is not None:
+            buy_function(
+                price_data_frame,
+                window_size=buy_window_size,
+                slope_range=buy_slope_range,
+            )
+        elif buy_window_size is not None:
             buy_function(price_data_frame, window_size=buy_window_size)
+        elif buy_slope_range is not None:
+            buy_function(price_data_frame, slope_range=buy_slope_range)
+        else:
+            buy_function(price_data_frame)
         rename_signal_columns(price_data_frame, buy_base_name, buy_strategy_name)
         if buy_strategy_name != sell_strategy_name:
             sell_function = SELL_STRATEGIES[sell_base_name]
-            if sell_window_size is None:
-                sell_function(price_data_frame)
-            else:
+            if sell_window_size is not None and sell_slope_range is not None:
+                sell_function(
+                    price_data_frame,
+                    window_size=sell_window_size,
+                    slope_range=sell_slope_range,
+                )
+            elif sell_window_size is not None:
                 sell_function(price_data_frame, window_size=sell_window_size)
+            elif sell_slope_range is not None:
+                sell_function(price_data_frame, slope_range=sell_slope_range)
+            else:
+                sell_function(price_data_frame)
             rename_signal_columns(price_data_frame, sell_base_name, sell_strategy_name)
 
         def entry_rule(current_row: pandas.Series) -> bool:
