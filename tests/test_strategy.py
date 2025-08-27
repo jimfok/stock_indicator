@@ -1508,20 +1508,46 @@ def test_supported_strategies_includes_ema_sma_double_cross() -> None:
     )
 
 
-def test_parse_strategy_name_with_suffix() -> None:
-    """``parse_strategy_name`` should separate base name and window size."""
+def test_parse_strategy_name_with_window_size() -> None:
+    """``parse_strategy_name`` should parse the window size suffix."""
 
-    base_name, window_size = parse_strategy_name("ema_sma_cross_with_slope_40")
+    base_name, window_size, slope_range = parse_strategy_name(
+        "ema_sma_cross_with_slope_40"
+    )
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size == 40
+    assert slope_range is None
+
+
+def test_parse_strategy_name_with_window_and_slope_range() -> None:
+    """The parser should extract both window size and slope range."""
+
+    base_name, window_size, slope_range = parse_strategy_name(
+        "ema_sma_cross_with_slope_40_-0.5_0.5"
+    )
+    assert base_name == "ema_sma_cross_with_slope"
+    assert window_size == 40
+    assert slope_range == (-0.5, 0.5)
+
+
+def test_parse_strategy_name_with_slope_range_only() -> None:
+    """The parser should handle slope range without window size."""
+
+    base_name, window_size, slope_range = parse_strategy_name(
+        "ema_sma_cross_with_slope_-0.5_0.5"
+    )
+    assert base_name == "ema_sma_cross_with_slope"
+    assert window_size is None
+    assert slope_range == (-0.5, 0.5)
 
 
 def test_parse_strategy_name_without_suffix() -> None:
     """``parse_strategy_name`` should return ``None`` when no suffix is given."""
 
-    base_name, window_size = parse_strategy_name("ema_sma_cross")
+    base_name, window_size, slope_range = parse_strategy_name("ema_sma_cross")
     assert base_name == "ema_sma_cross"
     assert window_size is None
+    assert slope_range is None
 
 
 def test_parse_strategy_name_rejects_malformed_suffix() -> None:

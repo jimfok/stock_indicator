@@ -209,8 +209,8 @@ class StockShell(cmd.Cmd):
                             )
                             return
         try:  # TODO: review
-            buy_base_name, _ = strategy.parse_strategy_name(buy_strategy_name)
-            sell_base_name, _ = strategy.parse_strategy_name(sell_strategy_name)
+            buy_base_name, _, _ = strategy.parse_strategy_name(buy_strategy_name)
+            sell_base_name, _, _ = strategy.parse_strategy_name(sell_strategy_name)
         except ValueError:
             self.stdout.write("unsupported strategies\n")
             return

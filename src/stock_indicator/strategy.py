@@ -400,24 +400,30 @@ SUPPORTED_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
 }
 
 
-def parse_strategy_name(strategy_name: str) -> tuple[str, int | None]:
-    """Split ``strategy_name`` into base name and optional window size.
+def parse_strategy_name(
+    strategy_name: str,
+) -> tuple[str, int | None, tuple[float, float] | None]:
+    """Split ``strategy_name`` into base name, window size, and slope range.
 
-    Strategy identifiers may include a numeric suffix separated by an
-    underscore. For example, ``"ema_sma_cross_with_slope_40"`` is interpreted
-    as the base strategy ``"ema_sma_cross_with_slope"`` with a window size of
-    ``40``.
+    Strategy identifiers may include a numeric window size suffix or a pair of
+    floating-point numbers representing a slope range. These components are
+    separated from the base name by underscores. For example,
+    ``"ema_sma_cross_with_slope_40_-0.5_0.5"`` is interpreted as the base
+    strategy ``"ema_sma_cross_with_slope"`` with a window size of ``40`` and a
+    slope range from ``-0.5`` to ``0.5``.
 
     Parameters
     ----------
     strategy_name:
-        The full strategy name possibly containing a numeric suffix.
+        The full strategy name possibly containing a numeric suffix and an
+        optional slope range.
 
     Returns
     -------
-    tuple[str, int | None]
-        The base strategy name and the integer window size. When the strategy
-        name has no suffix, the window size is ``None``.
+    tuple[str, int | None, tuple[float, float] | None]
+        The base strategy name, the integer window size, and the slope range as
+        a ``(lower, upper)`` tuple. When a component is not present, its value
+        is ``None``.
 
     Raises
     ------
@@ -428,16 +434,35 @@ def parse_strategy_name(strategy_name: str) -> tuple[str, int | None]:
     name_parts = strategy_name.split("_")
     if "" in name_parts:
         raise ValueError(f"Malformed strategy name: {strategy_name}")
-    last_part = name_parts[-1]
-    if last_part.isdigit():
-        base_name = "_".join(name_parts[:-1])
-        window_size = int(last_part)
-        if window_size <= 0:
-            raise ValueError(
-                f"Window size must be a positive integer in strategy name: {strategy_name}"
-            )
-        return base_name, window_size
-    return strategy_name, None
+
+    window_size: int | None = None
+    slope_range: tuple[float, float] | None = None
+
+    if len(name_parts) >= 3:
+        possible_lower = name_parts[-2]
+        possible_upper = name_parts[-1]
+        try:
+            lower_slope = float(possible_lower)
+            upper_slope = float(possible_upper)
+        except ValueError:
+            pass
+        else:
+            slope_range = (lower_slope, upper_slope)
+            name_parts = name_parts[:-2]
+
+    if name_parts:
+        last_part = name_parts[-1]
+        if last_part.isdigit():
+            window_size = int(last_part)
+            if window_size <= 0:
+                raise ValueError(
+                    "Window size must be a positive integer in strategy name: "
+                    f"{strategy_name}"
+                )
+            name_parts = name_parts[:-1]
+
+    base_name = "_".join(name_parts)
+    return base_name, window_size, slope_range
 
 
 def calculate_metrics(
@@ -570,8 +595,8 @@ def evaluate_combined_strategy(
     """
     # TODO: review
 
-    buy_base_name, buy_window_size = parse_strategy_name(buy_strategy_name)
-    sell_base_name, sell_window_size = parse_strategy_name(sell_strategy_name)
+    buy_base_name, buy_window_size, _ = parse_strategy_name(buy_strategy_name)
+    sell_base_name, sell_window_size, _ = parse_strategy_name(sell_strategy_name)
     if buy_base_name not in BUY_STRATEGIES:
         raise ValueError(f"Unsupported strategy: {buy_strategy_name}")
     if sell_base_name not in SELL_STRATEGIES:
