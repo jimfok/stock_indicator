@@ -697,6 +697,66 @@ def test_evaluate_combined_strategy_passes_slope_range_with_volume(
 
     assert captured_arguments["slope_range"] == (-0.5, 0.5)
 
+
+def test_evaluate_combined_strategy_renames_columns_with_slope_range(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Signal column names should include the slope range suffix."""
+
+    date_index = pandas.date_range("2020-01-01", periods=2, freq="D")
+    price_data_frame = pandas.DataFrame(
+        {"Date": date_index, "open": [10.0, 10.0], "close": [10.0, 10.0]}
+    )
+    csv_path = tmp_path / "slope_rename.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    captured_column_names: list[str] = []
+
+    def fake_attach_signals(
+        frame: pandas.DataFrame,
+        window_size: int = 40,
+        slope_range: tuple[float, float] = (-0.3, 1.0),
+    ) -> None:
+        frame["ema_sma_cross_with_slope_entry_signal"] = [True, False]
+        frame["ema_sma_cross_with_slope_exit_signal"] = [False, True]
+
+    def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
+        passed_frame: pandas.DataFrame = kwargs["data"]
+        captured_column_names.extend(passed_frame.columns)
+        trade = Trade(
+            entry_date=date_index[0],
+            exit_date=date_index[1],
+            entry_price=10.0,
+            exit_price=10.0,
+            profit=0.0,
+            holding_period=1,
+        )
+        return SimulationResult(trades=[trade], total_profit=0.0)
+
+    monkeypatch.setattr(
+        strategy, "attach_ema_sma_cross_with_slope_signals", fake_attach_signals
+    )
+    monkeypatch.setitem(
+        strategy.BUY_STRATEGIES, "ema_sma_cross_with_slope", fake_attach_signals
+    )
+    monkeypatch.setitem(
+        strategy.SELL_STRATEGIES, "ema_sma_cross_with_slope", fake_attach_signals
+    )
+    monkeypatch.setattr(strategy, "simulate_trades", fake_simulate_trades)
+
+    evaluate_combined_strategy(
+        tmp_path,
+        "ema_sma_cross_with_slope_-0.5_0.5",
+        "ema_sma_cross_with_slope_-0.5_0.5",
+    )
+
+    assert (
+        "ema_sma_cross_with_slope_-0.5_0.5_entry_signal" in captured_column_names
+    )
+    assert (
+        "ema_sma_cross_with_slope_-0.5_0.5_exit_signal" in captured_column_names
+    )
+
 def test_evaluate_combined_strategy_dollar_volume_filter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1666,6 +1726,17 @@ def test_parse_strategy_name_with_slope_range_only() -> None:
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size is None
     assert slope_range == (-0.5, 0.5)
+
+
+def test_parse_strategy_name_with_integer_slope_values() -> None:
+    """``parse_strategy_name`` should convert integer slope bounds to floats."""
+
+    base_name, window_size, slope_range = parse_strategy_name(
+        "ema_sma_cross_with_slope_-1_2"
+    )
+    assert base_name == "ema_sma_cross_with_slope"
+    assert window_size is None
+    assert slope_range == (-1.0, 2.0)
 
 
 def test_parse_strategy_name_without_suffix() -> None:
