@@ -256,6 +256,20 @@ def attach_ema_sma_cross_with_slope_signals(
 ) -> None:
     """Attach EMA/SMA cross signals filtered by SMA slope to ``price_data_frame``.
 
+    Parameters
+    ----------
+    price_data_frame:
+        DataFrame containing ``open`` and ``close`` price columns.
+    window_size:
+        Number of periods for both EMA and SMA calculations.
+    slope_range:
+        Inclusive range ``(lower_bound, upper_bound)`` for the SMA slope.
+
+    Raises
+    ------
+    ValueError
+        If ``slope_range`` has a lower bound greater than its upper bound.
+
     Entry signals are generated only when the previous closing price is greater
     than the long-term simple moving average and the slope of the simple moving
     average lies within ``slope_range``.
@@ -263,6 +277,12 @@ def attach_ema_sma_cross_with_slope_signals(
     The default ``slope_range`` is ``(-0.3, 1.0)``.
     """
     # TODO: review
+
+    slope_lower_bound, slope_upper_bound = slope_range
+    if slope_lower_bound > slope_upper_bound:
+        raise ValueError(
+            "Invalid slope_range: lower bound cannot exceed upper bound"
+        )
 
     attach_ema_sma_cross_signals(
         price_data_frame,
@@ -272,7 +292,6 @@ def attach_ema_sma_cross_with_slope_signals(
     price_data_frame["sma_slope"] = (
         price_data_frame["sma_value"] - price_data_frame["sma_previous"]
     )
-    slope_lower_bound, slope_upper_bound = slope_range
     price_data_frame["ema_sma_cross_with_slope_entry_signal"] = (
         price_data_frame["ema_sma_cross_entry_signal"]
         & (price_data_frame["sma_slope"] >= slope_lower_bound)
@@ -288,8 +307,29 @@ def attach_ema_sma_cross_with_slope_and_volume_signals(
     window_size: int = 40,
     slope_range: tuple[float, float] = (-0.3, 1.0),
 ) -> None:
-    """Attach EMA/SMA cross signals filtered by SMA slope and dollar volume."""
+    """Attach EMA/SMA cross signals filtered by SMA slope and dollar volume.
+
+    Parameters
+    ----------
+    price_data_frame:
+        DataFrame containing ``open``, ``close``, and ``volume`` columns.
+    window_size:
+        Number of periods for both EMA and SMA calculations.
+    slope_range:
+        Inclusive range ``(lower_bound, upper_bound)`` for the SMA slope.
+
+    Raises
+    ------
+    ValueError
+        If ``slope_range`` has a lower bound greater than its upper bound.
+    """
     # TODO: review
+
+    slope_lower_bound, slope_upper_bound = slope_range
+    if slope_lower_bound > slope_upper_bound:
+        raise ValueError(
+            "Invalid slope_range: lower bound cannot exceed upper bound"
+        )
 
     attach_ema_sma_cross_with_slope_signals(
         price_data_frame, window_size, slope_range=slope_range
