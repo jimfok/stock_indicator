@@ -27,8 +27,10 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[
     """Parse a cron job argument string.
 
     The expected format is ``dollar_volume>NUMBER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``,
-    ``dollar_volume=Nth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``, or
-    ``dollar_volume>NUMBER,Nth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``.
+    ``dollar_volume>NUMBER% BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``,
+    ``dollar_volume=Nth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``,
+    ``dollar_volume>NUMBER,Nth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``, or
+    ``dollar_volume>NUMBER%,Nth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``.
 
     Parameters
     ----------
@@ -38,43 +40,78 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[
     Returns
     -------
     Tuple[float | None, int | None, str, str, float]
-        Tuple containing either a minimum dollar volume threshold or a ranking
-        position, followed by the buy strategy name, sell strategy name, and
-        stop loss percentage.
+        Tuple containing either a minimum dollar volume threshold in millions
+        or a ratio of the total market, followed by the ranking position, the
+        buy strategy name, the sell strategy name, and the stop loss
+        percentage.
     """
     argument_parts = argument_line.split()
     if len(argument_parts) not in (3, 4):
         raise ValueError(
             "argument_line must be 'dollar_volume>NUMBER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', "
-            "'dollar_volume=RANKth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', or "
-            "'dollar_volume>NUMBER,RANKth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]'",
+            "'dollar_volume>NUMBER% BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', "
+            "'dollar_volume=RANKth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', "
+            "'dollar_volume>NUMBER,RANKth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', or "
+            "'dollar_volume>NUMBER%,RANKth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]'",
         )
     volume_filter, buy_strategy_name, sell_strategy_name = argument_parts[:3]
-    stop_loss_percentage = float(argument_parts[3]) if len(argument_parts) == 4 else 1.0
+    stop_loss_percentage = (
+        float(argument_parts[3]) if len(argument_parts) == 4 else 1.0
+    )
     minimum_average_dollar_volume: float | None = None
+    minimum_average_dollar_volume_ratio: float | None = None
     top_dollar_volume_rank: int | None = None
-    combined_match = re.fullmatch(
-        r"dollar_volume>(\d+(?:\.\d+)?),(\d+)th",
+    combined_percentage_match = re.fullmatch(
+        r"dollar_volume>(\d+(?:\.\d{1,2})?)%,(\d+)th",
         volume_filter,
     )
-    if combined_match is not None:
-        minimum_average_dollar_volume = float(combined_match.group(1))
-        top_dollar_volume_rank = int(combined_match.group(2))
+    if combined_percentage_match is not None:
+        minimum_average_dollar_volume_ratio = (
+            float(combined_percentage_match.group(1)) / 100
+        )
+        top_dollar_volume_rank = int(combined_percentage_match.group(2))
     else:
-        volume_match = re.fullmatch(r"dollar_volume>(\d+(?:\.\d+)?)", volume_filter)
-        if volume_match is not None:
-            minimum_average_dollar_volume = float(volume_match.group(1))
+        combined_match = re.fullmatch(
+            r"dollar_volume>(\d+(?:\.\d+)?),(\d+)th",
+            volume_filter,
+        )
+        if combined_match is not None:
+            minimum_average_dollar_volume = float(combined_match.group(1))
+            top_dollar_volume_rank = int(combined_match.group(2))
         else:
-            rank_match = re.fullmatch(r"dollar_volume=(\d+)th", volume_filter)
-            if rank_match is not None:
-                top_dollar_volume_rank = int(rank_match.group(1))
-            else:
-                raise ValueError(
-                    "Unsupported filter format. Expected 'dollar_volume>NUMBER', "
-                    "'dollar_volume=RANKth', or 'dollar_volume>NUMBER,RANKth'.",
+            percentage_match = re.fullmatch(
+                r"dollar_volume>(\d+(?:\.\d{1,2})?)%",
+                volume_filter,
+            )
+            if percentage_match is not None:
+                minimum_average_dollar_volume_ratio = (
+                    float(percentage_match.group(1)) / 100
                 )
+            else:
+                volume_match = re.fullmatch(
+                    r"dollar_volume>(\d+(?:\.\d+)?)",
+                    volume_filter,
+                )
+                if volume_match is not None:
+                    minimum_average_dollar_volume = float(volume_match.group(1))
+                else:
+                    rank_match = re.fullmatch(
+                        r"dollar_volume=(\d+)th",
+                        volume_filter,
+                    )
+                    if rank_match is not None:
+                        top_dollar_volume_rank = int(rank_match.group(1))
+                    else:
+                        raise ValueError(
+                            "Unsupported filter format. Expected 'dollar_volume>NUMBER', "
+                            "'dollar_volume>NUMBER%', 'dollar_volume=RANKth', "
+                            "'dollar_volume>NUMBER,RANKth', or "
+                            "'dollar_volume>NUMBER%,RANKth'.",
+                        )
     return (
-        minimum_average_dollar_volume,
+        minimum_average_dollar_volume_ratio
+        if minimum_average_dollar_volume_ratio is not None
+        else minimum_average_dollar_volume,
         top_dollar_volume_rank,
         buy_strategy_name,
         sell_strategy_name,

@@ -96,6 +96,40 @@ def test_parse_daily_task_arguments_accepts_threshold_and_rank() -> None:
     assert stop_loss_percentage == 1.0
 
 
+def test_parse_daily_task_arguments_accepts_percentage() -> None:
+    """The parser should accept percentage-based dollar volume filters."""
+    argument_line = "dollar_volume>2.41% ema_sma_cross ema_sma_cross"
+    (
+        minimum_average_dollar_volume,
+        top_dollar_volume_rank,
+        buy_strategy_name,
+        sell_strategy_name,
+        stop_loss_percentage,
+    ) = cron.parse_daily_task_arguments(argument_line)
+    assert minimum_average_dollar_volume == pytest.approx(0.0241)
+    assert top_dollar_volume_rank is None
+    assert buy_strategy_name == "ema_sma_cross"
+    assert sell_strategy_name == "ema_sma_cross"
+    assert stop_loss_percentage == 1.0
+
+
+def test_parse_daily_task_arguments_accepts_percentage_and_rank() -> None:
+    """The parser should accept percentage filters combined with ranking."""
+    argument_line = "dollar_volume>2.41%,5th ema_sma_cross ema_sma_cross"
+    (
+        minimum_average_dollar_volume,
+        top_dollar_volume_rank,
+        buy_strategy_name,
+        sell_strategy_name,
+        stop_loss_percentage,
+    ) = cron.parse_daily_task_arguments(argument_line)
+    assert minimum_average_dollar_volume == pytest.approx(0.0241)
+    assert top_dollar_volume_rank == 5
+    assert buy_strategy_name == "ema_sma_cross"
+    assert sell_strategy_name == "ema_sma_cross"
+    assert stop_loss_percentage == 1.0
+
+
 def test_run_daily_tasks_skips_symbol_update_errors(monkeypatch):
     """run_daily_tasks should continue when the symbol cache update fails."""
 

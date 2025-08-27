@@ -44,6 +44,88 @@ def test_run_daily_job_writes_log_file(tmp_path, monkeypatch):
     )
 
 
+def test_run_daily_job_accepts_percentage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_daily_job should parse percentage-based filters."""
+
+    captured_arguments: dict[str, float | int | None] = {}
+
+    def fake_run_daily_tasks(
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        start_date: str,
+        end_date: str,
+        symbol_list=None,
+        data_download_function=None,
+        data_directory: Path | None = None,
+        minimum_average_dollar_volume: float | None = None,
+        top_dollar_volume_rank: int | None = None,
+    ):
+        captured_arguments["minimum_average_dollar_volume"] = minimum_average_dollar_volume
+        captured_arguments["top_dollar_volume_rank"] = top_dollar_volume_rank
+        return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
+
+    monkeypatch.setattr(daily_job.cron, "run_daily_tasks", fake_run_daily_tasks)
+
+    log_directory = tmp_path / "logs"
+    data_directory = tmp_path / "data"
+    current_date = datetime.date(2024, 1, 10)
+
+    log_file_path = daily_job.run_daily_job(
+        "dollar_volume>2.41% ema_sma_cross ema_sma_cross",
+        data_directory=data_directory,
+        log_directory=log_directory,
+        current_date=current_date,
+    )
+
+    assert captured_arguments["minimum_average_dollar_volume"] == pytest.approx(0.0241)
+    assert captured_arguments["top_dollar_volume_rank"] is None
+    assert log_file_path.read_text(encoding="utf-8") == (
+        "entry_signals: AAA\nexit_signals: BBB\n"
+    )
+
+
+def test_run_daily_job_accepts_percentage_and_rank(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_daily_job should parse combined percentage and ranking filters."""
+
+    captured_arguments: dict[str, float | int | None] = {}
+
+    def fake_run_daily_tasks(
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        start_date: str,
+        end_date: str,
+        symbol_list=None,
+        data_download_function=None,
+        data_directory: Path | None = None,
+        minimum_average_dollar_volume: float | None = None,
+        top_dollar_volume_rank: int | None = None,
+    ):
+        captured_arguments["minimum_average_dollar_volume"] = minimum_average_dollar_volume
+        captured_arguments["top_dollar_volume_rank"] = top_dollar_volume_rank
+        return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
+
+    monkeypatch.setattr(daily_job.cron, "run_daily_tasks", fake_run_daily_tasks)
+
+    log_directory = tmp_path / "logs"
+    data_directory = tmp_path / "data"
+    current_date = datetime.date(2024, 1, 10)
+
+    log_file_path = daily_job.run_daily_job(
+        "dollar_volume>2.41%,5th ema_sma_cross ema_sma_cross",
+        data_directory=data_directory,
+        log_directory=log_directory,
+        current_date=current_date,
+    )
+
+    assert captured_arguments["minimum_average_dollar_volume"] == pytest.approx(0.0241)
+    assert captured_arguments["top_dollar_volume_rank"] == 5
+    assert log_file_path.read_text(encoding="utf-8") == (
+        "entry_signals: AAA\nexit_signals: BBB\n"
+    )
+
+
 def test_run_daily_job_uses_oldest_data_date(tmp_path, monkeypatch):
     """run_daily_job should start from the oldest available data date."""
 
