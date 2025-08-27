@@ -264,6 +264,117 @@ def simulate_portfolio_balance(
     return cash_balance
 
 
+def calculate_max_drawdown(
+    trades: Iterable[Trade],
+    starting_cash: float,
+    eligible_symbol_counts_by_date: int | Dict[pandas.Timestamp, int],
+    withdraw_amount: float = 0.0,
+) -> float:
+    """Compute the maximum portfolio drawdown across the simulation period.
+
+    The function simulates the portfolio balance for each calendar day using
+    the same allocation logic as :func:`simulate_portfolio_balance`. It tracks
+    the running peak balance and records the greatest percentage decline from
+    that peak. The drawdown is expressed as a decimal where ``0.25`` denotes a
+    twenty-five percent drop.
+
+    Parameters
+    ----------
+    trades: Iterable[Trade]
+        Collection of trades with entry and exit information.
+    starting_cash: float
+        Initial cash available for trading.
+    eligible_symbol_counts_by_date: int | Dict[pandas.Timestamp, int]
+        Total number of symbols considered for trading. When provided as a
+        dictionary, keys are trading dates and values represent the counts of
+        eligible symbols on those dates. This mirrors the values produced by
+        :func:`stock_indicator.volume.count_symbols_with_average_dollar_volume_above`.
+    withdraw_amount: float, optional
+        Cash amount removed from the balance at the end of each calendar year.
+        Defaults to ``0.0``.
+
+    Returns
+    -------
+    float
+        Largest fractional decline from any previous portfolio peak.
+    """
+
+    events: List[tuple[pandas.Timestamp, int, Trade]] = []
+    for current_trade in trades:
+        events.append((current_trade.entry_date, 1, current_trade))
+        events.append((current_trade.exit_date, 0, current_trade))
+    events.sort(key=lambda event_tuple: (event_tuple[0], event_tuple[1]))
+    if not events:
+        return 0.0
+
+    def get_symbol_count(current_date: pandas.Timestamp) -> int:
+        if isinstance(eligible_symbol_counts_by_date, dict):
+            return eligible_symbol_counts_by_date.get(current_date, 0)
+        return eligible_symbol_counts_by_date
+
+    cash_balance = starting_cash
+    open_trades: dict[Trade, float] = {}
+    maximum_portfolio_value = starting_cash
+    maximum_drawdown_value = 0.0
+    current_year = events[0][0].year
+
+    start_date = events[0][0]
+    end_date = events[-1][0]
+    event_index = 0
+    current_date = start_date
+
+    while current_date <= end_date:
+        while event_index < len(events) and events[event_index][0] == current_date:
+            _, event_type, trade = events[event_index]
+            if event_type == 0:
+                if trade in open_trades:
+                    invested_amount = open_trades.pop(trade)
+                    cash_balance += invested_amount * (
+                        trade.exit_price / trade.entry_price
+                    )
+                    cash_balance -= TRADE_COMMISSION
+            else:
+                remaining_slots = get_symbol_count(current_date) - len(open_trades)
+                if remaining_slots > 0 and cash_balance > 0:
+                    budget_per_position = cash_balance / remaining_slots
+                    share_count = math.floor(budget_per_position / trade.entry_price)
+                    if share_count > 0:
+                        invested_amount = share_count * trade.entry_price
+                        if cash_balance - invested_amount >= trade.entry_price:
+                            share_count += 1
+                            invested_amount = share_count * trade.entry_price
+                        open_trades[trade] = invested_amount
+                        cash_balance -= invested_amount
+            event_index += 1
+
+        portfolio_value = cash_balance + sum(open_trades.values())
+        if portfolio_value > maximum_portfolio_value:
+            maximum_portfolio_value = portfolio_value
+        elif maximum_portfolio_value > 0:
+            drawdown = (maximum_portfolio_value - portfolio_value) / maximum_portfolio_value
+            if drawdown > maximum_drawdown_value:
+                maximum_drawdown_value = drawdown
+
+        next_day = current_date + pandas.Timedelta(days=1)
+        if next_day.year > current_year:
+            cash_balance -= withdraw_amount
+            maximum_portfolio_value = max(0.0, maximum_portfolio_value - withdraw_amount)
+            portfolio_value = cash_balance + sum(open_trades.values())
+            if portfolio_value > maximum_portfolio_value:
+                maximum_portfolio_value = portfolio_value
+            elif maximum_portfolio_value > 0:
+                drawdown = (
+                    (maximum_portfolio_value - portfolio_value) / maximum_portfolio_value
+                )
+                if drawdown > maximum_drawdown_value:
+                    maximum_drawdown_value = drawdown
+            current_year = next_day.year
+
+        current_date = next_day
+
+    return maximum_drawdown_value
+
+
 def calculate_annual_returns(
     trades: Iterable[Trade],
     starting_cash: float,

@@ -441,6 +441,54 @@ def test_evaluate_combined_strategy_calculates_compound_annual_growth_rate(
     )
 
 
+def test_evaluate_combined_strategy_reports_max_drawdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """evaluate_combined_strategy should report the largest portfolio decline."""
+
+    date_index = pandas.date_range("2020-01-01", periods=200, freq="D")
+    price_data_frame = pandas.DataFrame(
+        {"Date": date_index, "open": [10.0] * 200, "close": [10.0] * 200}
+    )
+    csv_path = tmp_path / "AAA.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    trades = [
+        Trade(
+            entry_date=pandas.Timestamp("2020-01-01"),
+            exit_date=pandas.Timestamp("2020-01-02"),
+            entry_price=10.0,
+            exit_price=20.0,
+            profit=10.0,
+            holding_period=1,
+        ),
+        Trade(
+            entry_date=pandas.Timestamp("2020-01-03"),
+            exit_date=pandas.Timestamp("2020-01-04"),
+            entry_price=20.0,
+            exit_price=10.0,
+            profit=-10.0,
+            holding_period=1,
+        ),
+    ]
+    simulation_result = SimulationResult(trades=trades, total_profit=0.0)
+
+    def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
+        return simulation_result
+
+    monkeypatch.setattr(strategy, "simulate_trades", fake_simulate_trades)
+    monkeypatch.setattr(strategy, "calculate_annual_returns", lambda *a, **k: {})
+    monkeypatch.setattr(strategy, "calculate_annual_trade_counts", lambda *a, **k: {})
+    monkeypatch.setattr(strategy, "simulate_portfolio_balance", lambda *a, **k: 1008.0)
+
+    result = evaluate_combined_strategy(
+        tmp_path, "ema_sma_cross", "ema_sma_cross", starting_cash=1000.0
+    )
+
+    expected_drawdown = (1999.0 - 1008.0) / 1999.0
+    assert result.maximum_drawdown == pytest.approx(expected_drawdown)
+
+
 def test_evaluate_combined_strategy_unsupported_name(tmp_path: Path) -> None:
     """evaluate_combined_strategy should raise for unknown strategies."""
     with pytest.raises(ValueError, match="Unsupported strategy"):

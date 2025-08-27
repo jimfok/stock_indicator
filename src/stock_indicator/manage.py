@@ -231,7 +231,8 @@ class StockShell(cmd.Cmd):
                 f"Holding period Std Dev: {evaluation_metrics.holding_period_standard_deviation:.2f} bars, "
                 f"Max concurrent positions: {evaluation_metrics.maximum_concurrent_positions}, "
                 f"Final balance: {evaluation_metrics.final_balance:.2f}, "
-                f"CAGR: {evaluation_metrics.compound_annual_growth_rate:.2%}\n"
+                f"CAGR: {evaluation_metrics.compound_annual_growth_rate:.2%}, "
+                f"Max drawdown: {evaluation_metrics.maximum_drawdown:.2%}\n"
             )
         )
         for year, annual_return in sorted(

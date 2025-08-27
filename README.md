@@ -96,6 +96,10 @@ selects the six highest-volume symbols from the remainder. The tests
 `tests/test_strategy.py::test_evaluate_combined_strategy_dollar_volume_filter_and_rank`
 demonstrate this combined syntax.
 
+The summary printed after each simulation includes the maximum drawdown. This
+value represents the largest peak-to-trough decline in portfolio value over the
+test period and is expressed as a percentage.
+
 To express the threshold as a percentage of total market dollar volume, use a
 percent sign. For example `dollar_volume>1%` retains only symbols whose
 50-day average dollar volume is greater than one percent of the combined
