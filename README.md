@@ -96,6 +96,20 @@ selects the six highest-volume symbols from the remainder. The tests
 `tests/test_strategy.py::test_evaluate_combined_strategy_dollar_volume_filter_and_rank`
 demonstrate this combined syntax.
 
+Strategies may also limit the simple moving average slope. These identifiers follow the `ema_sma_signal_with_slope_n_k` pattern where `n` and `k` are the lower and upper slope bounds. The bounds accept negative or positive floating-point numbers. For example:
+
+```bash
+(stock-indicator) start_simulate dollar_volume>1 ema_sma_cross_with_slope_-0.1_1.2 ema_sma_cross_with_slope_-0.1_1.2
+```
+
+You can combine slope bounds with a custom EMA/SMA window size by placing the integer before the bounds:
+
+```bash
+(stock-indicator) start_simulate dollar_volume>1 ema_sma_cross_with_slope_40_-0.1_1.2 ema_sma_cross_with_slope_40_-0.1_1.2
+```
+
+When omitted, the window size defaults to 40 days.
+
 The summary printed after each simulation includes the maximum drawdown. This
 value represents the largest peak-to-trough decline in portfolio value over the
 test period and is expressed as a percentage.
