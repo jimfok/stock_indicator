@@ -477,41 +477,74 @@ def parse_strategy_name(
     Raises
     ------
     ValueError
-        If the strategy name ends with an underscore or specifies a non-positive
-        window size.
+        If the strategy name ends with an underscore, specifies a non-positive
+        window size, or contains an unexpected number of numeric segments.
     """
     name_parts = strategy_name.split("_")
     if "" in name_parts:
         raise ValueError(f"Malformed strategy name: {strategy_name}")
 
-    window_size: int | None = None
-    slope_range: tuple[float, float] | None = None
-
-    if len(name_parts) >= 3:
-        possible_lower = name_parts[-2]
-        possible_upper = name_parts[-1]
+    numeric_segments: list[str] = []
+    while name_parts:
+        segment = name_parts[-1]
         try:
-            lower_slope = float(possible_lower)
-            upper_slope = float(possible_upper)
+            float(segment)
         except ValueError:
-            pass
-        else:
-            slope_range = (lower_slope, upper_slope)
-            name_parts = name_parts[:-2]
+            break
+        numeric_segments.append(segment)
+        name_parts.pop()
+    numeric_segments.reverse()
 
-    if name_parts:
-        last_part = name_parts[-1]
-        if last_part.isdigit():
-            window_size = int(last_part)
+    base_name = "_".join(name_parts)
+    segment_count = len(numeric_segments)
+    if segment_count == 0:
+        return base_name, None, None
+
+    if segment_count == 1:
+        numeric_value = numeric_segments[0]
+        if numeric_value.isdigit():
+            window_size = int(numeric_value)
             if window_size <= 0:
                 raise ValueError(
                     "Window size must be a positive integer in strategy name: "
                     f"{strategy_name}"
                 )
-            name_parts = name_parts[:-1]
+            return base_name, window_size, None
+        raise ValueError(
+            "Malformed strategy name: expected two numeric segments for slope range "
+            f"but found {segment_count} in '{strategy_name}'"
+        )
 
-    base_name = "_".join(name_parts)
-    return base_name, window_size, slope_range
+    if segment_count == 2:
+        lower_bound, upper_bound = (
+            float(numeric_segments[0]),
+            float(numeric_segments[1]),
+        )
+        return base_name, None, (lower_bound, upper_bound)
+
+    if segment_count == 3:
+        window_value = numeric_segments[0]
+        if not window_value.isdigit():
+            raise ValueError(
+                "Malformed strategy name: expected two numeric segments for slope range "
+                f"but found {segment_count} in '{strategy_name}'"
+            )
+        window_size = int(window_value)
+        if window_size <= 0:
+            raise ValueError(
+                "Window size must be a positive integer in strategy name: "
+                f"{strategy_name}"
+            )
+        lower_bound, upper_bound = (
+            float(numeric_segments[1]),
+            float(numeric_segments[2]),
+        )
+        return base_name, window_size, (lower_bound, upper_bound)
+
+    raise ValueError(
+        "Malformed strategy name: expected up to three numeric segments but "
+        f"found {segment_count} in '{strategy_name}'"
+    )
 
 
 def calculate_metrics(

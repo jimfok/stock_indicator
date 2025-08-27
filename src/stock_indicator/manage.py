@@ -211,8 +211,8 @@ class StockShell(cmd.Cmd):
         try:  # TODO: review
             buy_base_name, _, _ = strategy.parse_strategy_name(buy_strategy_name)
             sell_base_name, _, _ = strategy.parse_strategy_name(sell_strategy_name)
-        except ValueError:
-            self.stdout.write("unsupported strategies\n")
+        except ValueError as error:
+            self.stdout.write(f"{error}\n")
             return
         if (
             buy_base_name not in strategy.BUY_STRATEGIES
