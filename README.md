@@ -81,9 +81,10 @@ the same data from Python code. This function recalculates signals rather than
 reading them from log files.
 
 The shell can also simulate trading strategies. The `dollar_volume` filter
-accepts both a minimum threshold and a ranking when the two are separated by a
-comma. The command below evaluates `ftd_ema_sma_cross` using only the six
-symbols whose 50-day average dollar volume exceeds 10,000 million:
+accepts a minimum threshold in millions, a percentage of total market volume,
+and a ranking when combined with a comma. The command below evaluates
+`ftd_ema_sma_cross` using only the six symbols whose 50-day average dollar
+volume exceeds 10,000 million:
 
 ```bash
 (stock-indicator) start_simulate starting_cash=5000 withdraw=1000 dollar_volume>10000,6th ftd_ema_sma_cross ftd_ema_sma_cross
@@ -94,6 +95,11 @@ selects the six highest-volume symbols from the remainder. The tests
 `tests/test_manage.py::test_start_simulate_dollar_volume_threshold_and_rank` and
 `tests/test_strategy.py::test_evaluate_combined_strategy_dollar_volume_filter_and_rank`
 demonstrate this combined syntax.
+
+To express the threshold as a percentage of total market dollar volume, use a
+percent sign. For example `dollar_volume>1%` retains only symbols whose
+50-day average dollar volume is greater than one percent of the combined
+volume across all symbols.
 
 ## Contribution Guidelines
 1. Fork the repository and create a new branch for each feature or bug fix.

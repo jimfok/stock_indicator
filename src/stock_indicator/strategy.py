@@ -473,6 +473,7 @@ def evaluate_combined_strategy(
     sell_strategy_name: str,
     minimum_average_dollar_volume: float | None = None,
     top_dollar_volume_rank: int | None = None,  # TODO: review
+    minimum_average_dollar_volume_ratio: float | None = None,
     starting_cash: float = 3000.0,
     withdraw_amount: float = 0.0,
     stop_loss_percentage: float = 1.0,
@@ -499,6 +500,10 @@ def evaluate_combined_strategy(
         Retain only the ``N`` symbols with the highest 50-day simple moving
         average dollar volume on each trading day. When ``None``, no ranking
         filter is applied.
+    minimum_average_dollar_volume_ratio: float | None, optional
+        Minimum fraction of the total market 50-day average dollar volume that
+        a symbol must exceed to be eligible. Specify values as decimals, for
+        example ``0.01`` for ``1%``. When ``None``, no ratio filter is applied.
     starting_cash: float, default 3000.0
         Initial amount of cash used for portfolio simulation.
     withdraw_amount: float, default 0.0
@@ -514,6 +519,15 @@ def evaluate_combined_strategy(
         raise ValueError(f"Unsupported strategy: {buy_strategy_name}")
     if sell_strategy_name not in SELL_STRATEGIES:
         raise ValueError(f"Unsupported strategy: {sell_strategy_name}")
+
+    if (
+        minimum_average_dollar_volume is not None
+        and minimum_average_dollar_volume_ratio is not None
+    ):
+        raise ValueError(
+            "Specify either minimum_average_dollar_volume or "
+            "minimum_average_dollar_volume_ratio, not both",
+        )
 
     trade_profit_list: List[float] = []
     profit_percentage_list: List[float] = []
@@ -558,6 +572,7 @@ def evaluate_combined_strategy(
         if (
             minimum_average_dollar_volume is None
             and top_dollar_volume_rank is None
+            and minimum_average_dollar_volume_ratio is None
         ):
             eligibility_mask = pandas.DataFrame(
                 True,
@@ -569,6 +584,14 @@ def evaluate_combined_strategy(
             if minimum_average_dollar_volume is not None:
                 eligibility_mask &= (
                     merged_volume_frame / 1_000_000 >= minimum_average_dollar_volume
+                )
+            if minimum_average_dollar_volume_ratio is not None:
+                total_volume_series = merged_volume_frame.sum(axis=1)
+                ratio_frame = merged_volume_frame.divide(
+                    total_volume_series, axis=0
+                )
+                eligibility_mask &= (
+                    ratio_frame >= minimum_average_dollar_volume_ratio
                 )
             if top_dollar_volume_rank is not None:
                 rank_frame = merged_volume_frame.rank(
