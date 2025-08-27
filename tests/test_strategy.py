@@ -18,6 +18,7 @@ from stock_indicator.strategy import (
     evaluate_ema_sma_cross_strategy,
     evaluate_kalman_channel_strategy,
     evaluate_combined_strategy,
+    parse_strategy_name,
 )
 
 
@@ -1449,3 +1450,82 @@ def test_supported_strategies_includes_ema_sma_double_cross() -> None:
         SUPPORTED_STRATEGIES["ema_sma_double_cross"]
         is attach_ema_sma_double_cross_signals
     )
+
+
+def test_parse_strategy_name_with_suffix() -> None:
+    """``parse_strategy_name`` should separate base name and window size."""
+
+    base_name, window_size = parse_strategy_name("ema_sma_cross_with_slope_40")
+    assert base_name == "ema_sma_cross_with_slope"
+    assert window_size == 40
+
+
+def test_parse_strategy_name_without_suffix() -> None:
+    """``parse_strategy_name`` should return ``None`` when no suffix is given."""
+
+    base_name, window_size = parse_strategy_name("ema_sma_cross")
+    assert base_name == "ema_sma_cross"
+    assert window_size is None
+
+
+def test_parse_strategy_name_rejects_malformed_suffix() -> None:
+    """``parse_strategy_name`` should raise ``ValueError`` for invalid suffixes."""
+
+    with pytest.raises(ValueError, match="Malformed strategy name"):
+        parse_strategy_name("ema_sma_cross_with_slope_")
+    with pytest.raises(ValueError, match="positive integer"):
+        parse_strategy_name("ema_sma_cross_with_slope_0")
+
+
+def test_evaluate_combined_strategy_uses_window_suffix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The function should parse window suffixes and rename signal columns."""
+
+    date_index = pandas.date_range("2020-01-01", periods=2, freq="D")
+    price_data_frame = pandas.DataFrame(
+        {"Date": date_index, "open": [10.0, 10.0], "close": [10.0, 10.0]}
+    )
+    csv_path = tmp_path / "suffix.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    captured_arguments: dict[str, int | None] = {"window_size": None}
+
+    def fake_attach_signals(frame: pandas.DataFrame, window_size: int = 50) -> None:
+        captured_arguments["window_size"] = window_size
+        frame["ema_sma_cross_with_slope_entry_signal"] = [True, False]
+        frame["ema_sma_cross_with_slope_exit_signal"] = [False, True]
+
+    def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
+        passed_frame: pandas.DataFrame = kwargs["data"]
+        assert "ema_sma_cross_with_slope_40_entry_signal" in passed_frame.columns
+        assert "ema_sma_cross_with_slope_40_exit_signal" in passed_frame.columns
+        trade = Trade(
+            entry_date=date_index[0],
+            exit_date=date_index[1],
+            entry_price=10.0,
+            exit_price=11.0,
+            profit=1.0,
+            holding_period=1,
+        )
+        return SimulationResult(trades=[trade], total_profit=1.0)
+
+    monkeypatch.setattr(
+        strategy, "attach_ema_sma_cross_with_slope_signals", fake_attach_signals
+    )
+    monkeypatch.setitem(
+        strategy.BUY_STRATEGIES, "ema_sma_cross_with_slope", fake_attach_signals
+    )
+    monkeypatch.setitem(
+        strategy.SELL_STRATEGIES, "ema_sma_cross_with_slope", fake_attach_signals
+    )
+    monkeypatch.setattr(strategy, "simulate_trades", fake_simulate_trades)
+
+    result = evaluate_combined_strategy(
+        tmp_path,
+        "ema_sma_cross_with_slope_40",
+        "ema_sma_cross_with_slope_40",
+    )
+
+    assert captured_arguments["window_size"] == 40
+    assert result.total_trades == 1

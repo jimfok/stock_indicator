@@ -400,6 +400,46 @@ SUPPORTED_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
 }
 
 
+def parse_strategy_name(strategy_name: str) -> tuple[str, int | None]:
+    """Split ``strategy_name`` into base name and optional window size.
+
+    Strategy identifiers may include a numeric suffix separated by an
+    underscore. For example, ``"ema_sma_cross_with_slope_40"`` is interpreted
+    as the base strategy ``"ema_sma_cross_with_slope"`` with a window size of
+    ``40``.
+
+    Parameters
+    ----------
+    strategy_name:
+        The full strategy name possibly containing a numeric suffix.
+
+    Returns
+    -------
+    tuple[str, int | None]
+        The base strategy name and the integer window size. When the strategy
+        name has no suffix, the window size is ``None``.
+
+    Raises
+    ------
+    ValueError
+        If the strategy name ends with an underscore or specifies a non-positive
+        window size.
+    """
+    name_parts = strategy_name.split("_")
+    if "" in name_parts:
+        raise ValueError(f"Malformed strategy name: {strategy_name}")
+    last_part = name_parts[-1]
+    if last_part.isdigit():
+        base_name = "_".join(name_parts[:-1])
+        window_size = int(last_part)
+        if window_size <= 0:
+            raise ValueError(
+                f"Window size must be a positive integer in strategy name: {strategy_name}"
+            )
+        return base_name, window_size
+    return strategy_name, None
+
+
 def calculate_metrics(
     trade_profit_list: List[float],
     profit_percentage_list: List[float],
@@ -530,9 +570,11 @@ def evaluate_combined_strategy(
     """
     # TODO: review
 
-    if buy_strategy_name not in BUY_STRATEGIES:
+    buy_base_name, buy_window_size = parse_strategy_name(buy_strategy_name)
+    sell_base_name, sell_window_size = parse_strategy_name(sell_strategy_name)
+    if buy_base_name not in BUY_STRATEGIES:
         raise ValueError(f"Unsupported strategy: {buy_strategy_name}")
-    if sell_strategy_name not in SELL_STRATEGIES:
+    if sell_base_name not in SELL_STRATEGIES:
         raise ValueError(f"Unsupported strategy: {sell_strategy_name}")
 
     if (
@@ -661,10 +703,35 @@ def evaluate_combined_strategy(
     else:
         simulation_start_date = start_date
 
+    def rename_signal_columns(
+        price_data_frame: pandas.DataFrame,
+        original_name: str,
+        new_name: str,
+    ) -> None:
+        if original_name == new_name:
+            return
+        price_data_frame.rename(
+            columns={
+                f"{original_name}_entry_signal": f"{new_name}_entry_signal",
+                f"{original_name}_exit_signal": f"{new_name}_exit_signal",
+            },
+            inplace=True,
+        )
+
     for csv_file_path, price_data_frame, symbol_mask in selected_symbol_data:
-        BUY_STRATEGIES[buy_strategy_name](price_data_frame)
+        buy_function = BUY_STRATEGIES[buy_base_name]
+        if buy_window_size is None:
+            buy_function(price_data_frame)
+        else:
+            buy_function(price_data_frame, window_size=buy_window_size)
+        rename_signal_columns(price_data_frame, buy_base_name, buy_strategy_name)
         if buy_strategy_name != sell_strategy_name:
-            SELL_STRATEGIES[sell_strategy_name](price_data_frame)
+            sell_function = SELL_STRATEGIES[sell_base_name]
+            if sell_window_size is None:
+                sell_function(price_data_frame)
+            else:
+                sell_function(price_data_frame, window_size=sell_window_size)
+            rename_signal_columns(price_data_frame, sell_base_name, sell_strategy_name)
 
         def entry_rule(current_row: pandas.Series) -> bool:
             symbol_is_eligible = bool(symbol_mask.loc[current_row.name])
