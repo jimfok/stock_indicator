@@ -125,6 +125,8 @@ def find_signal(
         Name of the strategy used to generate exit signals.
     stop_loss:
         Fractional loss that triggers an exit on the next day's open.
+    Historical data from the earliest available date in ``DATA_DIRECTORY`` is
+    used to ensure sufficient look-back.
 
     Returns
     -------
@@ -137,9 +139,10 @@ def find_signal(
     argument_line = (
         f"{dollar_volume_filter} {buy_strategy} {sell_strategy} {stop_loss}"
     )
+    start_date_string = determine_start_date(DATA_DIRECTORY)
     signal_result: Dict[str, List[str]] = cron.run_daily_tasks_from_argument(
         argument_line,
-        start_date=date_string,
+        start_date=start_date_string,
         end_date=date_string,
         data_directory=DATA_DIRECTORY,
     )
