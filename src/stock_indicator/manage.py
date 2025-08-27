@@ -309,6 +309,8 @@ class StockShell(cmd.Cmd):
             "  BUY_STRATEGY: Name of the buying strategy.\n"
             "  SELL_STRATEGY: Name of the selling strategy.\n"
             "  STOP_LOSS: Fractional loss that triggers an exit on the next day's open. Defaults to 1.0.\n"
+            "Strategies may be suffixed with _N to set the window size to N; the default window size is 50 when no suffix is provided.\n"
+            "Example: start_simulate start=1990-01-01 dollar_volume>50 ema_sma_cross_20 ema_sma_cross_20\n"
             f"Available buy strategies: {available_buy}.\n"
             f"Available sell strategies: {available_sell}.\n"
         )
