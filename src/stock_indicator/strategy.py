@@ -254,7 +254,14 @@ def attach_ema_sma_cross_with_slope_signals(
     window_size: int = 40,
     slope_range: tuple[float, float] = (-0.3, 1.0),
 ) -> None:
-    """Attach EMA/SMA cross signals filtered by SMA slope to ``price_data_frame``.
+    """Attach EMA/SMA cross signals filtered by simple moving average slope.
+
+    Entry signals require the previous closing price to be above the long-term
+    simple moving average and the simple moving average slope to fall within
+    ``slope_range``. Unless a slope range is provided in the strategy name,
+    this function uses the default range ``(-0.3, 1.0)``. The magnitude of the
+    slope depends on ``window_size``; larger windows produce smaller slope
+    values, so adjust ``slope_range`` accordingly when overriding the default.
 
     Parameters
     ----------
@@ -269,12 +276,6 @@ def attach_ema_sma_cross_with_slope_signals(
     ------
     ValueError
         If ``slope_range`` has a lower bound greater than its upper bound.
-
-    Entry signals are generated only when the previous closing price is greater
-    than the long-term simple moving average and the slope of the simple moving
-    average lies within ``slope_range``.
-
-    The default ``slope_range`` is ``(-0.3, 1.0)``.
     """
     # TODO: review
 
@@ -308,6 +309,14 @@ def attach_ema_sma_cross_with_slope_and_volume_signals(
     slope_range: tuple[float, float] = (-0.3, 1.0),
 ) -> None:
     """Attach EMA/SMA cross signals filtered by SMA slope and dollar volume.
+
+    These signals apply the same slope-based filter as
+    :func:`attach_ema_sma_cross_with_slope_signals` and additionally require
+    exponential dollar volume to exceed the simple moving average dollar
+    volume. Unless the strategy name specifies otherwise, the default slope
+    range ``(-0.3, 1.0)`` is used. Because the slope is computed from the
+    simple moving average over ``window_size`` periods, the acceptable slope
+    range should be tuned when the window size changes.
 
     Parameters
     ----------
