@@ -858,6 +858,40 @@ def test_start_simulate_accepts_slope_range_strategy_names(
     )
 
 
+def test_start_simulate_reports_missing_slope_bound() -> None:
+    """The command should report a missing slope bound in strategy names."""
+
+    import stock_indicator.manage as manage_module
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd(
+        "start_simulate dollar_volume>0 "
+        "ema_sma_cross_with_slope_-0.5 ema_sma_cross"
+    )
+    assert (
+        output_buffer.getvalue()
+        == "Malformed strategy name: expected two numeric segments for slope range but found 1 in 'ema_sma_cross_with_slope_-0.5'\n"
+    )
+
+
+def test_start_simulate_reports_extra_slope_bound() -> None:
+    """The command should report when too many slope bounds are provided."""
+
+    import stock_indicator.manage as manage_module
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd(
+        "start_simulate dollar_volume>0 "
+        "ema_sma_cross_with_slope_-0.5_0.5_1.0 ema_sma_cross"
+    )
+    assert (
+        output_buffer.getvalue()
+        == "Malformed strategy name: expected two numeric segments for slope range but found 3 in 'ema_sma_cross_with_slope_-0.5_0.5_1.0'\n"
+    )
+
+
 def test_start_simulate_supports_20_50_sma_cross_strategy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
