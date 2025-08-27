@@ -594,7 +594,7 @@ def test_evaluate_combined_strategy_passes_slope_range(
     def fake_attach_signals(
         frame: pandas.DataFrame,
         window_size: int = 40,
-        slope_range: tuple[float, float] = (-0.3, 1.0),
+        slope_range: tuple[float, float] = (-0.3, 2.14),
     ) -> None:
         captured_arguments["slope_range"] = slope_range
         frame["ema_sma_cross_with_slope_entry_signal"] = [True, False]
@@ -655,7 +655,7 @@ def test_evaluate_combined_strategy_passes_slope_range_with_volume(
     def fake_attach_signals(
         frame: pandas.DataFrame,
         window_size: int = 40,
-        slope_range: tuple[float, float] = (-0.3, 1.0),
+        slope_range: tuple[float, float] = (-0.3, 2.14),
     ) -> None:
         captured_arguments["slope_range"] = slope_range
         frame["ema_sma_cross_with_slope_and_volume_entry_signal"] = [True, False]
@@ -715,7 +715,7 @@ def test_evaluate_combined_strategy_renames_columns_with_slope_range(
     def fake_attach_signals(
         frame: pandas.DataFrame,
         window_size: int = 40,
-        slope_range: tuple[float, float] = (-0.3, 1.0),
+        slope_range: tuple[float, float] = (-0.3, 2.14),
     ) -> None:
         frame["ema_sma_cross_with_slope_entry_signal"] = [True, False]
         frame["ema_sma_cross_with_slope_exit_signal"] = [False, True]
@@ -775,7 +775,7 @@ def test_evaluate_combined_strategy_renames_columns_negative_positive_slope_rang
     def fake_attach_signals(
         frame: pandas.DataFrame,
         window_size: int = 40,
-        slope_range: tuple[float, float] = (-0.3, 1.0),
+        slope_range: tuple[float, float] = (-0.3, 2.14),
     ) -> None:
         frame["ema_sma_cross_with_slope_entry_signal"] = [True, False]
         frame["ema_sma_cross_with_slope_exit_signal"] = [False, True]
@@ -1613,7 +1613,7 @@ def test_attach_ema_sma_cross_with_slope_and_volume_requires_higher_ema_volume(
     def fake_attach_ema_sma_cross_with_slope_signals(
         data_frame: pandas.DataFrame,
         window_size: int = 50,
-        slope_range: tuple[float, float] = (-0.3, 1.0),
+        slope_range: tuple[float, float] = (-0.3, 2.14),
     ) -> None:
         data_frame["ema_sma_cross_with_slope_entry_signal"] = pandas.Series(
             [False, True, True, True, True]
