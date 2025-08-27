@@ -100,6 +100,48 @@ def test_update_all_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
 
 # TODO: review
+def test_find_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command should display entry and exit signals for a date."""
+    import stock_indicator.manage as manage_module
+
+    recorded_date: dict[str, str] = {}
+
+    def fake_find_signal(date_string: str) -> dict[str, list[str]]:
+        recorded_date["value"] = date_string
+        return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
+
+    monkeypatch.setattr(manage_module.daily_job, "find_signal", fake_find_signal)
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd("find_signal 2024-01-10")
+
+    assert recorded_date["value"] == "2024-01-10"
+    assert output_buffer.getvalue().splitlines() == ["['AAA']", "['BBB']"]
+
+
+# TODO: review
+def test_find_signal_invalid_argument(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command should require a single date argument."""
+    import stock_indicator.manage as manage_module
+
+    call_record = {"called": False}
+
+    def fake_find_signal(date_string: str) -> dict[str, list[str]]:
+        call_record["called"] = True
+        return {"entry_signals": [], "exit_signals": []}
+
+    monkeypatch.setattr(manage_module.daily_job, "find_signal", fake_find_signal)
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd("find_signal invalid-date")
+
+    assert call_record["called"] is False
+    assert output_buffer.getvalue() == "usage: find_signal DATE\n"
+
+
+# TODO: review
 def test_count_symbols_with_average_dollar_volume_above(monkeypatch: pytest.MonkeyPatch) -> None:
     """The command should report how many symbols exceed a dollar volume threshold."""
     import stock_indicator.manage as manage_module

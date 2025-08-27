@@ -8,11 +8,11 @@ import cmd
 import logging
 import re
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from pandas import DataFrame
 
-from . import data_loader, symbols, strategy, volume
+from . import data_loader, symbols, strategy, volume, daily_job
 from .daily_job import determine_start_date
 from .symbols import SP500_SYMBOL
 
@@ -286,6 +286,34 @@ class StockShell(cmd.Cmd):
         self.stdout.write(
             "count_symbols_with_average_dollar_volume_above THRESHOLD\n"
             "Count symbols whose 50-day average dollar volume is greater than THRESHOLD in millions.\n"
+        )
+
+    # TODO: review
+    def do_find_signal(self, argument_line: str) -> None:  # noqa: D401
+        """find_signal DATE
+        Display the entry and exit signals logged for DATE."""
+        argument_parts: List[str] = argument_line.split()
+        if len(argument_parts) != 1 or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", argument_parts[0]):
+            self.stdout.write("usage: find_signal DATE\n")
+            return
+        date_string = argument_parts[0]
+        try:
+            signal_data: Dict[str, List[str]] = daily_job.find_signal(date_string)
+        except FileNotFoundError as error:
+            LOGGER.error("%s", error)
+            self.stdout.write(f"{error}\n")
+            return
+        entry_signal_list: List[str] = signal_data.get("entry_signals", [])
+        exit_signal_list: List[str] = signal_data.get("exit_signals", [])
+        self.stdout.write(f"{entry_signal_list}\n")
+        self.stdout.write(f"{exit_signal_list}\n")
+
+    # TODO: review
+    def help_find_signal(self) -> None:
+        """Display help for the find_signal command."""
+        self.stdout.write(
+            "find_signal DATE\n"
+            "Display entry and exit signals stored in the log for DATE in YYYY-MM-DD format.\n"
         )
 
 
