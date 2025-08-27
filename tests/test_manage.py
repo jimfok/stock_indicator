@@ -298,6 +298,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
             mean_holding_period=2.0,
             holding_period_standard_deviation=1.0,
             maximum_concurrent_positions=2,
+            maximum_drawdown=0.25,
             final_balance=123.45,
             compound_annual_growth_rate=0.1,
             annual_returns={2023: 0.1, 2024: -0.05},
@@ -321,7 +322,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (
         "Trades: 3, Win rate: 50.00%, Mean profit %: 10.00%, Profit % Std Dev: 0.00%, "
         "Mean loss %: 5.00%, Loss % Std Dev: 0.00%, Mean holding period: 2.00 bars, "
-        "Holding period Std Dev: 1.00 bars, Max concurrent positions: 2, Final balance: 123.45, CAGR: 10.00%"
+        "Holding period Std Dev: 1.00 bars, Max concurrent positions: 2, Final balance: 123.45, CAGR: 10.00%, Max drawdown: 25.00%"
         in output_buffer.getvalue()
     )
     assert "Year 2023: 10.00%, trade: 2" in output_buffer.getvalue()
@@ -380,6 +381,7 @@ def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) ->
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
+            maximum_drawdown=0.0,
             final_balance=0.0,
             compound_annual_growth_rate=0.0,
             annual_returns={},
@@ -434,6 +436,7 @@ def test_start_simulate_dollar_volume_rank(monkeypatch: pytest.MonkeyPatch) -> N
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
+            maximum_drawdown=0.0,
             final_balance=0.0,
             compound_annual_growth_rate=0.0,
             annual_returns={},
@@ -481,6 +484,7 @@ def test_start_simulate_dollar_volume_ratio(monkeypatch: pytest.MonkeyPatch) -> 
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
+            maximum_drawdown=0.0,
             final_balance=0.0,
             compound_annual_growth_rate=0.0,
             annual_returns={},
@@ -533,6 +537,7 @@ def test_start_simulate_dollar_volume_threshold_and_rank(
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
+            maximum_drawdown=0.0,
             final_balance=0.0,
             compound_annual_growth_rate=0.0,
             annual_returns={},
@@ -587,6 +592,7 @@ def test_start_simulate_supports_rsi_strategy(
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
+            maximum_drawdown=0.0,
             final_balance=0.0,
             compound_annual_growth_rate=0.0,
             annual_returns={},
@@ -646,6 +652,7 @@ def test_start_simulate_supports_slope_strategy(
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
+            maximum_drawdown=0.0,
             final_balance=0.0,
             compound_annual_growth_rate=0.0,
             annual_returns={},
@@ -705,6 +712,7 @@ def test_start_simulate_supports_slope_and_volume_strategy(
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
+            maximum_drawdown=0.0,
             final_balance=0.0,
             compound_annual_growth_rate=0.0,
             annual_returns={},
@@ -765,6 +773,7 @@ def test_start_simulate_supports_20_50_sma_cross_strategy(
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
+            maximum_drawdown=0.0,
             final_balance=0.0,
             compound_annual_growth_rate=0.0,
             annual_returns={},
@@ -821,6 +830,7 @@ def test_start_simulate_accepts_stop_loss_argument(
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
+            maximum_drawdown=0.0,
             final_balance=0.0,
             compound_annual_growth_rate=0.0,
             annual_returns={},
@@ -873,6 +883,7 @@ def test_start_simulate_accepts_cash_and_withdraw(
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
+            maximum_drawdown=0.0,
             final_balance=0.0,
             compound_annual_growth_rate=0.0,
             annual_returns={},

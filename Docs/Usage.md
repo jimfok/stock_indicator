@@ -37,6 +37,9 @@ with the highest remaining averages. The tests
 `tests/test_strategy.py::test_evaluate_combined_strategy_dollar_volume_filter_and_rank`
 exercise this combined syntax.
 
+The simulation report lists the maximum drawdown alongside other metrics. This
+percentage indicates the greatest decline from any previous portfolio peak.
+
 The previous `start_ftd_ema_sma_cross` command has been removed.
 Use `start_simulate` with `ftd_ema_sma_cross` for both the buying and
 selling strategies instead.

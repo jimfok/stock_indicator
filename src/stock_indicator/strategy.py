@@ -18,6 +18,7 @@ from .simulator import (
     calculate_annual_returns,
     calculate_annual_trade_counts,
     calculate_maximum_concurrent_positions,
+    calculate_max_drawdown,
     simulate_portfolio_balance,
     simulate_trades,
 )
@@ -68,6 +69,7 @@ class StrategyMetrics:
     mean_holding_period: float
     holding_period_standard_deviation: float
     maximum_concurrent_positions: int
+    maximum_drawdown: float
     final_balance: float
     compound_annual_growth_rate: float
     annual_returns: Dict[int, float]
@@ -404,6 +406,7 @@ def calculate_metrics(
     loss_percentage_list: List[float],
     holding_period_list: List[int],
     maximum_concurrent_positions: int = 0,
+    maximum_drawdown: float = 0.0,
     final_balance: float = 0.0,
     compound_annual_growth_rate: float = 0.0,
     annual_returns: Dict[int, float] | None = None,
@@ -425,6 +428,7 @@ def calculate_metrics(
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=maximum_concurrent_positions,
+            maximum_drawdown=maximum_drawdown,
             final_balance=final_balance,
             compound_annual_growth_rate=compound_annual_growth_rate,
             annual_returns={} if annual_returns is None else annual_returns,
@@ -462,6 +466,7 @@ def calculate_metrics(
             [float(value) for value in holding_period_list]
         ),
         maximum_concurrent_positions=maximum_concurrent_positions,
+        maximum_drawdown=maximum_drawdown,
         final_balance=final_balance,
         compound_annual_growth_rate=compound_annual_growth_rate,
         annual_returns={} if annual_returns is None else annual_returns,
@@ -747,6 +752,9 @@ def evaluate_combined_strategy(
     final_balance = simulate_portfolio_balance(
         all_trades, starting_cash, eligible_symbol_counts_by_date, withdraw_amount
     )
+    maximum_drawdown = calculate_max_drawdown(
+        all_trades, starting_cash, eligible_symbol_counts_by_date, withdraw_amount
+    )
     if all_trades:
         last_trade_exit_date = max(
             completed_trade.exit_date for completed_trade in all_trades
@@ -770,9 +778,10 @@ def evaluate_combined_strategy(
     return calculate_metrics(
         trade_profit_list,
         profit_percentage_list,
-        loss_percentage_list,
+       loss_percentage_list,
         holding_period_list,
         maximum_concurrent_positions,
+        maximum_drawdown,
         final_balance,
         compound_annual_growth_rate_value,
         annual_returns,
@@ -927,6 +936,7 @@ def evaluate_ema_sma_cross_strategy(
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=maximum_concurrent_positions,
+            maximum_drawdown=0.0,
             final_balance=0.0,
             compound_annual_growth_rate=0.0,
             annual_returns={},
@@ -960,6 +970,7 @@ def evaluate_ema_sma_cross_strategy(
             [float(value) for value in holding_period_list]
         ),
         maximum_concurrent_positions=maximum_concurrent_positions,
+        maximum_drawdown=0.0,
         final_balance=0.0,
         compound_annual_growth_rate=0.0,
         annual_returns={},
@@ -1106,6 +1117,7 @@ def evaluate_kalman_channel_strategy(
             mean_holding_period=0.0,
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=maximum_concurrent_positions,
+            maximum_drawdown=0.0,
             final_balance=0.0,
             compound_annual_growth_rate=0.0,
             annual_returns={},
@@ -1141,6 +1153,7 @@ def evaluate_kalman_channel_strategy(
             [float(value) for value in holding_period_list]
         ),
         maximum_concurrent_positions=maximum_concurrent_positions,
+        maximum_drawdown=0.0,
         final_balance=0.0,
         compound_annual_growth_rate=0.0,
         annual_returns={},
