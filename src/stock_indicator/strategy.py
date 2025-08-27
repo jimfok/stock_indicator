@@ -708,6 +708,8 @@ def evaluate_combined_strategy(
     all_trades: List[Trade] = []
     simulation_start_date: pandas.Timestamp | None = None
     trade_details_by_year: Dict[int, List[TradeDetail]] = {}  # TODO: review
+    trade_symbol_lookup: Dict[Trade, str] = {}
+    closing_price_series_by_symbol: Dict[str, pandas.Series] = {}
 
     symbol_frames: List[tuple[Path, pandas.DataFrame]] = []
     for csv_file_path in data_directory.glob("*.csv"):
@@ -881,10 +883,12 @@ def evaluate_combined_strategy(
         simulation_results.append(simulation_result)
         all_trades.extend(simulation_result.trades)
         symbol_name = csv_file_path.stem
+        closing_price_series_by_symbol[symbol_name] = price_data_frame["close"].copy()
         symbol_volume_lookup = simple_moving_average_dollar_volume_by_symbol_and_date.get(
             symbol_name, {},
         )
         for completed_trade in simulation_result.trades:
+            trade_symbol_lookup[completed_trade] = symbol_name
             trade_profit_list.append(completed_trade.profit)
             holding_period_list.append(completed_trade.holding_period)
             percentage_change = completed_trade.profit / completed_trade.entry_price
@@ -968,7 +972,12 @@ def evaluate_combined_strategy(
         all_trades, starting_cash, eligible_symbol_counts_by_date, withdraw_amount
     )
     maximum_drawdown = calculate_max_drawdown(
-        all_trades, starting_cash, eligible_symbol_counts_by_date, withdraw_amount
+        all_trades,
+        starting_cash,
+        eligible_symbol_counts_by_date,
+        trade_symbol_lookup,
+        closing_price_series_by_symbol,
+        withdraw_amount,
     )
     if all_trades:
         last_trade_exit_date = max(
