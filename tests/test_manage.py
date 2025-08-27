@@ -299,6 +299,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
             holding_period_standard_deviation=1.0,
             maximum_concurrent_positions=2,
             final_balance=123.45,
+            apr=0.1,
             annual_returns={2023: 0.1, 2024: -0.05},
             annual_trade_counts={2023: 2, 2024: 1},
             trade_details_by_year=trade_details_by_year,
@@ -320,7 +321,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (
         "Trades: 3, Win rate: 50.00%, Mean profit %: 10.00%, Profit % Std Dev: 0.00%, "
         "Mean loss %: 5.00%, Loss % Std Dev: 0.00%, Mean holding period: 2.00 bars, "
-        "Holding period Std Dev: 1.00 bars, Max concurrent positions: 2, Final balance: 123.45" in output_buffer.getvalue()
+        "Holding period Std Dev: 1.00 bars, Max concurrent positions: 2, Final balance: 123.45, APR: 10.00%" in output_buffer.getvalue()
     )
     assert "Year 2023: 10.00%, trade: 2" in output_buffer.getvalue()
     assert "Year 2024: -5.00%, trade: 1" in output_buffer.getvalue()
@@ -379,6 +380,7 @@ def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) ->
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
             final_balance=0.0,
+            apr=0.0,
             annual_returns={},
             annual_trade_counts={},
         )
@@ -432,6 +434,7 @@ def test_start_simulate_dollar_volume_rank(monkeypatch: pytest.MonkeyPatch) -> N
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
             final_balance=0.0,
+            apr=0.0,
             annual_returns={},
             annual_trade_counts={},
         )
@@ -478,6 +481,7 @@ def test_start_simulate_dollar_volume_ratio(monkeypatch: pytest.MonkeyPatch) -> 
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
             final_balance=0.0,
+            apr=0.0,
             annual_returns={},
             annual_trade_counts={},
         )
@@ -529,6 +533,7 @@ def test_start_simulate_dollar_volume_threshold_and_rank(
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
             final_balance=0.0,
+            apr=0.0,
             annual_returns={},
             annual_trade_counts={},
         )
@@ -582,6 +587,7 @@ def test_start_simulate_supports_rsi_strategy(
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
             final_balance=0.0,
+            apr=0.0,
             annual_returns={},
             annual_trade_counts={},
         )
@@ -640,6 +646,7 @@ def test_start_simulate_supports_slope_strategy(
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
             final_balance=0.0,
+            apr=0.0,
             annual_returns={},
             annual_trade_counts={},
         )
@@ -698,6 +705,7 @@ def test_start_simulate_supports_slope_and_volume_strategy(
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
             final_balance=0.0,
+            apr=0.0,
             annual_returns={},
             annual_trade_counts={},
         )
@@ -757,6 +765,7 @@ def test_start_simulate_supports_20_50_sma_cross_strategy(
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
             final_balance=0.0,
+            apr=0.0,
             annual_returns={},
             annual_trade_counts={},
         )
@@ -812,6 +821,7 @@ def test_start_simulate_accepts_stop_loss_argument(
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
             final_balance=0.0,
+            apr=0.0,
             annual_returns={},
             annual_trade_counts={},
         )
@@ -863,6 +873,7 @@ def test_start_simulate_accepts_cash_and_withdraw(
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=0,
             final_balance=0.0,
+            apr=0.0,
             annual_returns={},
             annual_trade_counts={},
         )

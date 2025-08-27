@@ -230,7 +230,8 @@ class StockShell(cmd.Cmd):
                 f"Mean holding period: {evaluation_metrics.mean_holding_period:.2f} bars, "
                 f"Holding period Std Dev: {evaluation_metrics.holding_period_standard_deviation:.2f} bars, "
                 f"Max concurrent positions: {evaluation_metrics.maximum_concurrent_positions}, "
-                f"Final balance: {evaluation_metrics.final_balance:.2f}\n"
+                f"Final balance: {evaluation_metrics.final_balance:.2f}, "
+                f"APR: {evaluation_metrics.apr:.2%}\n"
             )
         )
         for year, annual_return in sorted(
