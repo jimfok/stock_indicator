@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 from typing import Dict, List
 
+import pandas
 from pandas import DataFrame
 
 from . import data_loader, symbols, strategy, volume, daily_job
@@ -216,6 +217,7 @@ class StockShell(cmd.Cmd):
 
         if start_date_string is None:
             start_date_string = determine_start_date(DATA_DIRECTORY)
+        start_timestamp = pandas.Timestamp(start_date_string)
         evaluation_metrics = strategy.evaluate_combined_strategy(
             DATA_DIRECTORY,
             buy_strategy_name,
@@ -226,7 +228,7 @@ class StockShell(cmd.Cmd):
             starting_cash=starting_cash_value,
             withdraw_amount=withdraw_amount,
             stop_loss_percentage=stop_loss_percentage,
-            start_date=start_date_string,
+            start_date=start_timestamp,
         )
         self.stdout.write(
             f"Simulation start date: {start_date_string}\n"
