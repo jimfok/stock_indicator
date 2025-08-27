@@ -397,6 +397,48 @@ def test_evaluate_combined_strategy_different_names(
     assert result.win_rate == 0.5
 
 
+def test_evaluate_combined_strategy_calculates_apr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The function should compute APR based on final balance and duration."""
+
+    date_index = pandas.date_range("2020-01-01", periods=370, freq="D")
+    price_data_frame = pandas.DataFrame(
+        {"Date": date_index, "open": [10.0] * 370, "close": [10.0] * 370}
+    )
+    csv_path = tmp_path / "apr_test.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    trade = Trade(
+        entry_date=date_index[0],
+        exit_date=date_index[365],
+        entry_price=10.0,
+        exit_price=11.0,
+        profit=1.0,
+        holding_period=365,
+    )
+    simulation_result = SimulationResult(trades=[trade], total_profit=1.0)
+
+    def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
+        return simulation_result
+
+    def fake_simulate_portfolio_balance(*args: object, **kwargs: object) -> float:
+        return 3300.0
+
+    monkeypatch.setattr(strategy, "simulate_trades", fake_simulate_trades)
+    monkeypatch.setattr(
+        strategy, "simulate_portfolio_balance", fake_simulate_portfolio_balance
+    )
+    monkeypatch.setattr(strategy, "calculate_annual_returns", lambda *a, **k: {})
+    monkeypatch.setattr(strategy, "calculate_annual_trade_counts", lambda *a, **k: {})
+
+    result = evaluate_combined_strategy(tmp_path, "ema_sma_cross", "ema_sma_cross")
+
+    duration_years = (trade.exit_date - trade.entry_date).days / 365.25
+    expected_apr = (3300.0 / 3000.0) ** (1 / duration_years) - 1
+    assert result.apr == pytest.approx(expected_apr)
+
+
 def test_evaluate_combined_strategy_unsupported_name(tmp_path: Path) -> None:
     """evaluate_combined_strategy should raise for unknown strategies."""
     with pytest.raises(ValueError, match="Unsupported strategy"):

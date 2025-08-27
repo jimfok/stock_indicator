@@ -69,6 +69,7 @@ class StrategyMetrics:
     holding_period_standard_deviation: float
     maximum_concurrent_positions: int
     final_balance: float
+    apr: float
     annual_returns: Dict[int, float]
     annual_trade_counts: Dict[int, int]
     trade_details_by_year: Dict[int, List[TradeDetail]] = field(default_factory=dict)
@@ -404,11 +405,12 @@ def calculate_metrics(
     holding_period_list: List[int],
     maximum_concurrent_positions: int = 0,
     final_balance: float = 0.0,
+    apr: float = 0.0,
     annual_returns: Dict[int, float] | None = None,
     annual_trade_counts: Dict[int, int] | None = None,
     trade_details_by_year: Dict[int, List[TradeDetail]] | None = None,
 ) -> StrategyMetrics:
-    """Compute summary metrics for a list of simulated trades."""
+    """Compute summary metrics for a list of simulated trades, including APR."""
     # TODO: review
 
     total_trades = len(trade_profit_list)
@@ -424,6 +426,7 @@ def calculate_metrics(
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=maximum_concurrent_positions,
             final_balance=final_balance,
+            apr=apr,
             annual_returns={} if annual_returns is None else annual_returns,
             annual_trade_counts={} if annual_trade_counts is None else annual_trade_counts,
             trade_details_by_year=
@@ -460,6 +463,7 @@ def calculate_metrics(
         ),
         maximum_concurrent_positions=maximum_concurrent_positions,
         final_balance=final_balance,
+        apr=apr,
         annual_returns={} if annual_returns is None else annual_returns,
         annual_trade_counts={} if annual_trade_counts is None else annual_trade_counts,
         trade_details_by_year=
@@ -743,6 +747,24 @@ def evaluate_combined_strategy(
     final_balance = simulate_portfolio_balance(
         all_trades, starting_cash, eligible_symbol_counts_by_date, withdraw_amount
     )
+    if all_trades:
+        last_trade_exit_date = max(
+            completed_trade.exit_date for completed_trade in all_trades
+        )
+    else:
+        last_trade_exit_date = simulation_start_date
+    apr_value = 0.0
+    if (
+        simulation_start_date is not None
+        and last_trade_exit_date is not None
+        and starting_cash > 0
+    ):
+        duration_days = (last_trade_exit_date - simulation_start_date).days
+        if duration_days > 0:
+            duration_years = duration_days / 365.25
+            apr_value = (final_balance / starting_cash) ** (
+                1 / duration_years
+            ) - 1
     for year_trades in trade_details_by_year.values():
         year_trades.sort(key=lambda detail: detail.date)
     return calculate_metrics(
@@ -752,6 +774,7 @@ def evaluate_combined_strategy(
         holding_period_list,
         maximum_concurrent_positions,
         final_balance,
+        apr_value,
         annual_returns,
         annual_trade_counts,
         trade_details_by_year,
@@ -905,6 +928,7 @@ def evaluate_ema_sma_cross_strategy(
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=maximum_concurrent_positions,
             final_balance=0.0,
+            apr=0.0,
             annual_returns={},
             annual_trade_counts={},
         )
@@ -937,6 +961,7 @@ def evaluate_ema_sma_cross_strategy(
         ),
         maximum_concurrent_positions=maximum_concurrent_positions,
         final_balance=0.0,
+        apr=0.0,
         annual_returns={},
         annual_trade_counts={},
     )
@@ -1082,6 +1107,7 @@ def evaluate_kalman_channel_strategy(
             holding_period_standard_deviation=0.0,
             maximum_concurrent_positions=maximum_concurrent_positions,
             final_balance=0.0,
+            apr=0.0,
             annual_returns={},
             annual_trade_counts={},
         )
@@ -1116,6 +1142,7 @@ def evaluate_kalman_channel_strategy(
         ),
         maximum_concurrent_positions=maximum_concurrent_positions,
         final_balance=0.0,
+        apr=0.0,
         annual_returns={},
         annual_trade_counts={},
     )
