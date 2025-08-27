@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 import stock_indicator.strategy as strategy
-from stock_indicator.simulator import SimulationResult, Trade
+from stock_indicator.simulator import SimulationResult, Trade, calc_commission
 
 from stock_indicator.strategy import (
     evaluate_ema_sma_cross_strategy,
@@ -485,7 +485,19 @@ def test_evaluate_combined_strategy_reports_max_drawdown(
         tmp_path, "ema_sma_cross", "ema_sma_cross", starting_cash=1000.0
     )
 
-    expected_drawdown = (1999.0 - 1008.0) / 1999.0
+    peak_value = (
+        1000.0 * (20.0 / 10.0)
+        - calc_commission(100, 10.0)
+        - calc_commission(100, 20.0)
+    )
+    final_value = (
+        peak_value
+        - 99 * 20.0
+        - calc_commission(99, 20.0)
+        + 99 * 10.0
+        - calc_commission(99, 10.0)
+    )
+    expected_drawdown = (peak_value - final_value) / peak_value
     assert result.maximum_drawdown == pytest.approx(expected_drawdown)
 
 

@@ -10,18 +10,31 @@ import pytest
 
 from stock_indicator.indicators import sma
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+)
 
 from stock_indicator.simulator import (
-    TRADE_COMMISSION,
     SimulationResult,
     Trade,
+    calc_commission,
     calculate_maximum_concurrent_positions,
     calculate_annual_returns,
     calculate_annual_trade_counts,
     simulate_trades,
     simulate_portfolio_balance,
 )
+
+
+def test_calc_commission_uses_minimum_when_share_count_is_small() -> None:
+    commission = calc_commission(shares=1, price=300.0)
+    assert commission == pytest.approx(0.99)
+
+
+def test_calc_commission_caps_at_percentage_of_trade_value() -> None:
+    commission = calc_commission(shares=1_000_000, price=0.5)
+    expected_commission = 0.005 * 1_000_000 * 0.5
+    assert commission == pytest.approx(expected_commission)
 
 
 def test_simulate_trades_executes_trade_flow_with_default_column() -> None:
@@ -46,7 +59,9 @@ def test_simulate_trades_executes_trade_flow_with_default_column() -> None:
     assert completed_trade.exit_date == expected_exit_date
     assert completed_trade.entry_price == 102.0
     assert completed_trade.exit_price == 106.0
-    expected_profit = 4.0 - TRADE_COMMISSION
+    expected_profit = (
+        4.0 - calc_commission(1, 102.0) - calc_commission(1, 106.0)
+    )
     assert completed_trade.profit == expected_profit
     assert completed_trade.holding_period == 3
     assert result.total_profit == expected_profit
@@ -94,7 +109,9 @@ def test_simulate_trades_with_sma_strategy_uses_aligned_labels() -> None:
     assert completed_trade.exit_date == expected_exit_date
     assert completed_trade.entry_price == 102.0
     assert completed_trade.exit_price == 103.0
-    expected_profit = 1.0 - TRADE_COMMISSION
+    expected_profit = (
+        1.0 - calc_commission(1, 102.0) - calc_commission(1, 103.0)
+    )
     assert completed_trade.profit == expected_profit
     assert completed_trade.holding_period == 2
     assert result.total_profit == expected_profit
@@ -128,7 +145,9 @@ def test_simulate_trades_handles_distinct_entry_and_exit_price_columns() -> None
     assert completed_trade.exit_date == expected_exit_date
     assert completed_trade.entry_price == 10.0
     assert completed_trade.exit_price == 13.0
-    expected_profit = 3.0 - TRADE_COMMISSION
+    expected_profit = (
+        3.0 - calc_commission(1, 10.0) - calc_commission(1, 13.0)
+    )
     assert completed_trade.profit == expected_profit
     assert completed_trade.holding_period == 1
     assert result.total_profit == expected_profit
@@ -182,7 +201,9 @@ def test_simulate_trades_applies_stop_loss_next_open() -> None:
     assert completed_trade.entry_price == 100.0
     assert completed_trade.exit_price == 96.0
     assert completed_trade.exit_date == price_data_frame.index[2]
-    expected_profit = -4.0 - TRADE_COMMISSION
+    expected_profit = (
+        -4.0 - calc_commission(1, 100.0) - calc_commission(1, 96.0)
+    )
     assert completed_trade.profit == expected_profit
     assert completed_trade.holding_period == 2
 
@@ -283,7 +304,7 @@ def test_simulate_portfolio_balance_allocates_budget_by_symbol_count() -> None:
     final_balance = simulate_portfolio_balance(
         [trade_alpha, trade_beta, trade_gamma], 100.0, 3
     )
-    expected_final_balance = 157.0
+    expected_final_balance = 158.8
     assert pytest.approx(final_balance, rel=1e-6) == expected_final_balance
 
 
@@ -308,7 +329,7 @@ def test_simulate_portfolio_balance_invests_additional_share_when_cash_available
     final_balance = simulate_portfolio_balance(
         [trade_primary, trade_secondary], 100.0, 2
     )
-    expected_final_balance = 159.0
+    expected_final_balance = 159.1
     assert pytest.approx(final_balance, rel=1e-6) == expected_final_balance
 
 
@@ -318,7 +339,9 @@ def test_calculate_annual_returns_computes_yearly_returns() -> None:
         exit_date=pandas.Timestamp("2023-03-10"),
         entry_price=100.0,
         exit_price=110.0,
-        profit=10.0 - TRADE_COMMISSION,
+        profit=10.0
+        - calc_commission(1, 100.0)
+        - calc_commission(1, 110.0),
         holding_period=1,
     )
     trade_two = Trade(
@@ -326,7 +349,9 @@ def test_calculate_annual_returns_computes_yearly_returns() -> None:
         exit_date=pandas.Timestamp("2024-06-15"),
         entry_price=200.0,
         exit_price=220.0,
-        profit=20.0 - TRADE_COMMISSION,
+        profit=20.0
+        - calc_commission(1, 200.0)
+        - calc_commission(1, 220.0),
         holding_period=1,
     )
     simulation_start = pandas.Timestamp("2018-01-01")
@@ -336,12 +361,19 @@ def test_calculate_annual_returns_computes_yearly_returns() -> None:
         eligible_symbol_count=1,
         simulation_start=simulation_start,
     )
-    first_year_end = 1000.0 * (110.0 / 100.0) - TRADE_COMMISSION
+    first_year_end = (
+        1000.0 * (110.0 / 100.0)
+        - calc_commission(10, 100.0)
+        - calc_commission(10, 110.0)
+    )
     expected_return_2023 = (first_year_end - 1000.0) / 1000.0
     share_count_year_two = math.floor(first_year_end / 200.0)
-    remaining_cash_year_two = first_year_end - share_count_year_two * 200.0
     second_year_end = (
-        remaining_cash_year_two + share_count_year_two * 220.0 - TRADE_COMMISSION
+        first_year_end
+        - share_count_year_two * 200.0
+        - calc_commission(share_count_year_two, 200.0)
+        + share_count_year_two * 220.0
+        - calc_commission(share_count_year_two, 220.0)
     )
     expected_return_2024 = (second_year_end - first_year_end) / first_year_end
     assert annual_returns[2018] == 0.0
@@ -376,7 +408,9 @@ def test_calculate_annual_returns_applies_withdraw() -> None:
         exit_date=pandas.Timestamp("2023-01-02"),
         entry_price=50.0,
         exit_price=60.0,
-        profit=10.0 - TRADE_COMMISSION,
+        profit=10.0
+        - calc_commission(1, 50.0)
+        - calc_commission(1, 60.0),
         holding_period=1,
     )
     trade_two = Trade(
@@ -384,7 +418,9 @@ def test_calculate_annual_returns_applies_withdraw() -> None:
         exit_date=pandas.Timestamp("2024-01-02"),
         entry_price=50.0,
         exit_price=60.0,
-        profit=10.0 - TRADE_COMMISSION,
+        profit=10.0
+        - calc_commission(1, 50.0)
+        - calc_commission(1, 60.0),
         holding_period=1,
     )
     simulation_start = pandas.Timestamp("2023-01-01")
@@ -395,13 +431,20 @@ def test_calculate_annual_returns_applies_withdraw() -> None:
         simulation_start=simulation_start,
         withdraw_amount=10.0,
     )
-    first_year_end = 100.0 * (60.0 / 50.0) - TRADE_COMMISSION
+    first_year_end = (
+        100.0 * (60.0 / 50.0)
+        - calc_commission(2, 50.0)
+        - calc_commission(2, 60.0)
+    )
     expected_return_2023 = (first_year_end - 100.0) / 100.0
     second_year_start = first_year_end - 10.0
     share_count_year_two = math.floor(second_year_start / 50.0)
-    remaining_cash_year_two = second_year_start - share_count_year_two * 50.0
     second_year_end = (
-        remaining_cash_year_two + share_count_year_two * 60.0 - TRADE_COMMISSION
+        second_year_start
+        - share_count_year_two * 50.0
+        - calc_commission(share_count_year_two, 50.0)
+        + share_count_year_two * 60.0
+        - calc_commission(share_count_year_two, 60.0)
     )
     expected_return_2024 = (
         (second_year_end - second_year_start) / second_year_start
@@ -416,7 +459,9 @@ def test_calculate_annual_trade_counts_counts_trades_per_year() -> None:
         exit_date=pandas.Timestamp("2023-02-01"),
         entry_price=10.0,
         exit_price=11.0,
-        profit=1.0 - TRADE_COMMISSION,
+        profit=1.0
+        - calc_commission(1, 10.0)
+        - calc_commission(1, 11.0),
         holding_period=1,
     )
     trade_beta = Trade(
@@ -424,7 +469,9 @@ def test_calculate_annual_trade_counts_counts_trades_per_year() -> None:
         exit_date=pandas.Timestamp("2024-04-01"),
         entry_price=10.0,
         exit_price=12.0,
-        profit=2.0 - TRADE_COMMISSION,
+        profit=2.0
+        - calc_commission(1, 10.0)
+        - calc_commission(1, 12.0),
         holding_period=1,
     )
     trade_gamma = Trade(
@@ -432,7 +479,9 @@ def test_calculate_annual_trade_counts_counts_trades_per_year() -> None:
         exit_date=pandas.Timestamp("2024-06-01"),
         entry_price=10.0,
         exit_price=9.0,
-        profit=-1.0 - TRADE_COMMISSION,
+        profit=-1.0
+        - calc_commission(1, 10.0)
+        - calc_commission(1, 9.0),
         holding_period=1,
     )
     trade_counts = calculate_annual_trade_counts(
