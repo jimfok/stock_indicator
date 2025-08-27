@@ -1016,6 +1016,56 @@ def test_evaluate_combined_strategy_skips_sp500_symbol(
     assert processed_symbol_names == ["AAA"]
 
 
+def test_evaluate_combined_strategy_ignores_trades_before_start_date(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """evaluate_combined_strategy should ignore trades before the start date."""
+
+    import stock_indicator.strategy as strategy_module
+
+    date_index = pandas.date_range("2020-01-01", periods=5, freq="D")
+    pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": [10.0, 10.0, 10.0, 10.0, 12.0],
+            "close": [10.0, 10.0, 10.0, 10.0, 12.0],
+            "volume": [1_000_000] * 5,
+        }
+    ).to_csv(tmp_path / "AAA.csv", index=False)
+
+    def fake_strategy(frame: pandas.DataFrame) -> None:
+        frame["test_entry_signal"] = False
+        frame["test_exit_signal"] = False
+        if pandas.Timestamp("2020-01-01") in frame.index:
+            frame.loc[pandas.Timestamp("2020-01-01"), "test_entry_signal"] = True
+        if pandas.Timestamp("2020-01-02") in frame.index:
+            frame.loc[pandas.Timestamp("2020-01-02"), "test_exit_signal"] = True
+        if pandas.Timestamp("2020-01-04") in frame.index:
+            frame.loc[pandas.Timestamp("2020-01-04"), "test_entry_signal"] = True
+        if pandas.Timestamp("2020-01-05") in frame.index:
+            frame.loc[pandas.Timestamp("2020-01-05"), "test_exit_signal"] = True
+
+    monkeypatch.setattr(strategy_module, "BUY_STRATEGIES", {"test": fake_strategy})
+    monkeypatch.setattr(strategy_module, "SELL_STRATEGIES", {"test": fake_strategy})
+    monkeypatch.setattr(strategy_module, "SUPPORTED_STRATEGIES", {"test": fake_strategy})
+
+    result_without_filter = strategy_module.evaluate_combined_strategy(
+        tmp_path, "test", "test"
+    )
+    result_with_filter = strategy_module.evaluate_combined_strategy(
+        tmp_path,
+        "test",
+        "test",
+        start_date=pandas.Timestamp("2020-01-03"),
+    )
+
+    assert result_without_filter.total_trades == 2
+    assert result_with_filter.total_trades == 1
+    for trade_details in result_with_filter.trade_details_by_year.values():
+        for detail in trade_details:
+            assert detail.date >= pandas.Timestamp("2020-01-03")
+
+
 def test_attach_20_50_sma_cross_signals_mark_crosses() -> None:
     """The 20/50 SMA cross signals should mark upward and downward crosses."""
     # TODO: review
