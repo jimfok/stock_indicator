@@ -9,6 +9,7 @@ import datetime
 import logging
 import re
 from pathlib import Path
+from statistics import mean, stdev
 from typing import Dict, List
 
 import pandas
@@ -236,6 +237,94 @@ class StockShell(cmd.Cmd):
             stop_loss_percentage=stop_loss_percentage,
             start_date=start_timestamp,
         )
+        earliest_valid_googl_date = datetime.date(2014, 4, 3)
+        filtered_trade_details_by_year: Dict[int, List[strategy.TradeDetail]] = {}
+        removed_any_trade = False
+        for year, trade_list in evaluation_metrics.trade_details_by_year.items():
+            cleaned_trade_list = []
+            for trade_detail in trade_list:
+                if (
+                    trade_detail.symbol == "GOOGL"
+                    and trade_detail.date.date() < earliest_valid_googl_date
+                ):
+                    removed_any_trade = True
+                    continue
+                cleaned_trade_list.append(trade_detail)
+            if cleaned_trade_list:
+                filtered_trade_details_by_year[year] = cleaned_trade_list
+        evaluation_metrics.trade_details_by_year = filtered_trade_details_by_year
+        if removed_any_trade:
+            all_trade_details = sorted(
+                (
+                    trade_detail
+                    for year_trades in filtered_trade_details_by_year.values()
+                    for trade_detail in year_trades
+                ),
+                key=lambda detail: detail.date,
+            )
+            close_trade_details = [
+                trade_detail
+                for trade_detail in all_trade_details
+                if trade_detail.action == "close"
+            ]
+            winning_changes = [
+                trade_detail.percentage_change
+                for trade_detail in close_trade_details
+                if trade_detail.result == "win"
+                and trade_detail.percentage_change is not None
+            ]
+            losing_changes = [
+                -trade_detail.percentage_change
+                for trade_detail in close_trade_details
+                if trade_detail.result == "lose"
+                and trade_detail.percentage_change is not None
+            ]
+            open_positions: Dict[str, pandas.Timestamp] = {}
+            holding_periods: List[int] = []
+            for trade_detail in all_trade_details:
+                if trade_detail.action == "open":
+                    open_positions[trade_detail.symbol] = trade_detail.date
+                elif trade_detail.action == "close":
+                    entry_date = open_positions.pop(trade_detail.symbol, None)
+                    if entry_date is not None:
+                        holding_periods.append(
+                            (trade_detail.date - entry_date).days
+                        )
+            evaluation_metrics.total_trades = len(close_trade_details)
+            evaluation_metrics.win_rate = (
+                len(winning_changes) / len(close_trade_details)
+                if close_trade_details
+                else 0.0
+            )
+            evaluation_metrics.mean_profit_percentage = (
+                mean(winning_changes) if winning_changes else 0.0
+            )
+            evaluation_metrics.profit_percentage_standard_deviation = (
+                stdev(winning_changes) if len(winning_changes) > 1 else 0.0
+            )
+            evaluation_metrics.mean_loss_percentage = (
+                mean(losing_changes) if losing_changes else 0.0
+            )
+            evaluation_metrics.loss_percentage_standard_deviation = (
+                stdev(losing_changes) if len(losing_changes) > 1 else 0.0
+            )
+            evaluation_metrics.mean_holding_period = (
+                mean(holding_periods) if holding_periods else 0.0
+            )
+            evaluation_metrics.holding_period_standard_deviation = (
+                stdev(holding_periods) if len(holding_periods) > 1 else 0.0
+            )
+            evaluation_metrics.annual_trade_counts = {
+                year: sum(
+                    1 for trade_detail in details if trade_detail.action == "close"
+                )
+                for year, details in filtered_trade_details_by_year.items()
+            }
+            evaluation_metrics.annual_returns = {
+                year: annual_return
+                for year, annual_return in evaluation_metrics.annual_returns.items()
+                if year in filtered_trade_details_by_year
+            }
         self.stdout.write(
             f"Simulation start date: {start_date_string}\n"
         )

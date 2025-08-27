@@ -346,6 +346,106 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def test_start_simulate_filters_early_googl_trades(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command should drop early GOOGL trades from reported metrics."""
+    import stock_indicator.manage as manage_module
+
+    from stock_indicator.strategy import StrategyMetrics, TradeDetail
+
+    def fake_evaluate(
+        data_directory: Path,
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        minimum_average_dollar_volume: float | None,
+        top_dollar_volume_rank: int | None = None,
+        minimum_average_dollar_volume_ratio: float | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
+        stop_loss_percentage: float = 1.0,
+        start_date: pandas.Timestamp | None = None,
+    ) -> StrategyMetrics:
+        trade_details_by_year = {
+            2013: [
+                TradeDetail(
+                    date=pandas.Timestamp("2013-01-02"),
+                    symbol="GOOGL",
+                    action="open",
+                    price=10.0,
+                    simple_moving_average_dollar_volume=1.0,
+                    total_simple_moving_average_dollar_volume=1.0,
+                    simple_moving_average_dollar_volume_ratio=1.0,
+                ),
+                TradeDetail(
+                    date=pandas.Timestamp("2013-01-10"),
+                    symbol="GOOGL",
+                    action="close",
+                    price=12.0,
+                    simple_moving_average_dollar_volume=1.0,
+                    total_simple_moving_average_dollar_volume=1.0,
+                    simple_moving_average_dollar_volume_ratio=1.0,
+                    result="win",
+                    percentage_change=0.2,
+                ),
+            ],
+            2015: [
+                TradeDetail(
+                    date=pandas.Timestamp("2015-06-01"),
+                    symbol="XYZ",
+                    action="open",
+                    price=20.0,
+                    simple_moving_average_dollar_volume=1.0,
+                    total_simple_moving_average_dollar_volume=1.0,
+                    simple_moving_average_dollar_volume_ratio=1.0,
+                ),
+                TradeDetail(
+                    date=pandas.Timestamp("2015-06-10"),
+                    symbol="XYZ",
+                    action="close",
+                    price=19.0,
+                    simple_moving_average_dollar_volume=1.0,
+                    total_simple_moving_average_dollar_volume=1.0,
+                    simple_moving_average_dollar_volume_ratio=1.0,
+                    result="lose",
+                    percentage_change=-0.05,
+                ),
+            ],
+        }
+        return StrategyMetrics(
+            total_trades=2,
+            win_rate=0.5,
+            mean_profit_percentage=0.2,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.05,
+            loss_percentage_standard_deviation=0.0,
+            mean_holding_period=4.0,
+            holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=1,
+            maximum_drawdown=0.1,
+            final_balance=100.0,
+            compound_annual_growth_rate=0.1,
+            annual_returns={2013: 0.05, 2015: -0.1},
+            annual_trade_counts={2013: 1, 2015: 1},
+            trade_details_by_year=trade_details_by_year,
+        )
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "evaluate_combined_strategy",
+        fake_evaluate,
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd("start_simulate dollar_volume>0 ema_sma_cross ema_sma_cross")
+    output_string = output_buffer.getvalue()
+    assert "GOOGL" not in output_string
+    assert "Year 2013" not in output_string
+    assert "Year 2015: -10.00%, trade: 1" in output_string
+    assert "Trades: 1," in output_string
+
+
 def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) -> None:
     """The command should support different buy and sell strategies."""
     import stock_indicator.manage as manage_module
