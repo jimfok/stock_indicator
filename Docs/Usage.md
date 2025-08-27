@@ -33,11 +33,13 @@ The previous `start_ftd_ema_sma_cross` command has been removed.
 Use `start_simulate` with `ftd_ema_sma_cross` for both the buying and
 selling strategies instead.
 
-## Inspecting logged signals
+## Recalculating signals
 
 Each execution of the daily job records entry and exit signals in a log file in
-the project's `logs` directory. The files follow the `<YYYY-MM-DD>.log` naming
-The management shell can compute signals for a specific day with:
+the project's `logs` directory using the `<YYYY-MM-DD>.log` naming convention.
+The `find_signal` command recalculates the signals for a specific date rather
+than reading the log files. The management shell can compute signals for a
+specific day with:
 
 ```
 find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS
@@ -52,7 +54,9 @@ find_signal 2024-01-10 dollar_volume>1 ema_sma_cross ema_sma_cross 1.0
 ['CCC', 'DDD']
 ```
 
-Developers may call `daily_job.find_signal("2024-01-10", "dollar_volume>1", "ema_sma_cross", "ema_sma_cross", 1.0)` to obtain the same data from Python code.
+Developers may call `daily_job.find_signal("2024-01-10", "dollar_volume>1", "ema_sma_cross", "ema_sma_cross", 1.0)` to compute
+the same values from Python code. This function also recalculates signals
+instead of reading log files.
 
 ## Available strategies
 
