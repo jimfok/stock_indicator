@@ -75,12 +75,20 @@ class StrategyMetrics:
 
 
 def load_price_data(csv_file_path: Path) -> pandas.DataFrame:
-    """Load price data from ``csv_file_path`` and normalize column names."""
+    """Load price data from ``csv_file_path`` and normalize column names.
+
+    Duplicate dates are removed and the index is sorted to ensure that the
+    resulting frame has unique, chronologically ordered entries.
+    """
     # TODO: review
 
     price_data_frame = pandas.read_csv(
         csv_file_path, parse_dates=["Date"], index_col="Date"
     )
+    price_data_frame = price_data_frame.loc[
+        ~price_data_frame.index.duplicated(keep="first")
+    ]
+    price_data_frame.sort_index(inplace=True)
     if isinstance(price_data_frame.columns, pandas.MultiIndex):
         price_data_frame.columns = price_data_frame.columns.get_level_values(0)
     price_data_frame.columns = [
