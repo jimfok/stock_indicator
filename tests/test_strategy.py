@@ -455,6 +455,52 @@ def test_evaluate_combined_strategy_dollar_volume_filter(
     assert simulate_called["called"] is True
 
 
+def test_evaluate_combined_strategy_dollar_volume_ratio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The function should skip symbols below the dollar volume ratio."""
+
+    volumes_by_symbol = {"AAA": 100_000_000, "BBB": 900_000_000}
+    for symbol_name, volume_value in volumes_by_symbol.items():
+        date_index = pandas.date_range("2020-01-01", periods=60, freq="D")
+        pandas.DataFrame(
+            {
+                "Date": date_index,
+                "open": [1.0] * 60,
+                "close": [1.0] * 60,
+                "volume": [volume_value] * 60,
+                "symbol": [symbol_name] * 60,
+            }
+        ).to_csv(tmp_path / f"{symbol_name}.csv", index=False)
+
+    processed_symbols: list[str] = []
+
+    def fake_simulate_trades(
+        data: pandas.DataFrame, *args: object, **kwargs: object
+    ) -> SimulationResult:
+        processed_symbols.append(data["symbol"].iloc[0])
+        return SimulationResult(trades=[], total_profit=0.0)
+
+    monkeypatch.setattr(strategy, "simulate_trades", fake_simulate_trades)
+
+    evaluate_combined_strategy(
+        tmp_path,
+        "ema_sma_cross",
+        "ema_sma_cross",
+        minimum_average_dollar_volume_ratio=0.2,
+    )
+    assert processed_symbols == ["BBB"]
+
+    processed_symbols.clear()
+    evaluate_combined_strategy(
+        tmp_path,
+        "ema_sma_cross",
+        "ema_sma_cross",
+        minimum_average_dollar_volume_ratio=0.05,
+    )
+    assert set(processed_symbols) == {"AAA", "BBB"}
+
+
 def test_evaluate_combined_strategy_dollar_volume_rank(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

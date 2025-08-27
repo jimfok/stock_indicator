@@ -147,28 +147,56 @@ class StockShell(cmd.Cmd):
         else:
             stop_loss_percentage = 1.0
         minimum_average_dollar_volume: float | None = None  # TODO: review
+        minimum_average_dollar_volume_ratio: float | None = None  # TODO: review
         top_dollar_volume_rank: int | None = None  # TODO: review
-        combined_match = re.fullmatch(
-            r"dollar_volume>(\d+(?:\.\d+)?),(\d+)th",
+        combined_percentage_match = re.fullmatch(
+            r"dollar_volume>(\d+(?:\.\d{1,2})?)%,(\d+)th",
             volume_filter,
         )
-        if combined_match is not None:
-            minimum_average_dollar_volume = float(combined_match.group(1))
-            top_dollar_volume_rank = int(combined_match.group(2))
+        if combined_percentage_match is not None:
+            minimum_average_dollar_volume_ratio = (
+                float(combined_percentage_match.group(1)) / 100
+            )
+            top_dollar_volume_rank = int(combined_percentage_match.group(2))
         else:
-            volume_match = re.fullmatch(r"dollar_volume>(\d+(?:\.\d+)?)", volume_filter)
-            if volume_match is not None:
-                minimum_average_dollar_volume = float(volume_match.group(1))
+            combined_match = re.fullmatch(
+                r"dollar_volume>(\d+(?:\.\d+)?),(\d+)th",
+                volume_filter,
+            )
+            if combined_match is not None:
+                minimum_average_dollar_volume = float(combined_match.group(1))
+                top_dollar_volume_rank = int(combined_match.group(2))
             else:
-                rank_match = re.fullmatch(r"dollar_volume=(\d+)th", volume_filter)
-                if rank_match is not None:
-                    top_dollar_volume_rank = int(rank_match.group(1))
-                else:
-                    self.stdout.write(
-                        "unsupported filter; expected dollar_volume>NUMBER, "
-                        "dollar_volume=RANKth, or dollar_volume>NUMBER,RANKth\n",
+                percentage_match = re.fullmatch(
+                    r"dollar_volume>(\d+(?:\.\d{1,2})?)%",
+                    volume_filter,
+                )
+                if percentage_match is not None:
+                    minimum_average_dollar_volume_ratio = (
+                        float(percentage_match.group(1)) / 100
                     )
-                    return
+                else:
+                    volume_match = re.fullmatch(
+                        r"dollar_volume>(\d+(?:\.\d+)?)",
+                        volume_filter,
+                    )
+                    if volume_match is not None:
+                        minimum_average_dollar_volume = float(volume_match.group(1))
+                    else:
+                        rank_match = re.fullmatch(
+                            r"dollar_volume=(\d+)th",
+                            volume_filter,
+                        )
+                        if rank_match is not None:
+                            top_dollar_volume_rank = int(rank_match.group(1))
+                        else:
+                            self.stdout.write(
+                                "unsupported filter; expected dollar_volume>NUMBER, "
+                                "dollar_volume>NUMBER%, dollar_volume=RANKth, "
+                                "dollar_volume>NUMBER,RANKth, or "
+                                "dollar_volume>NUMBER%,RANKth\n",
+                            )
+                            return
         if buy_strategy_name not in strategy.BUY_STRATEGIES:
             self.stdout.write("unsupported strategies\n")
             return
@@ -183,6 +211,7 @@ class StockShell(cmd.Cmd):
             sell_strategy_name,
             minimum_average_dollar_volume=minimum_average_dollar_volume,
             top_dollar_volume_rank=top_dollar_volume_rank,
+            minimum_average_dollar_volume_ratio=minimum_average_dollar_volume_ratio,
             starting_cash=starting_cash_value,
             withdraw_amount=withdraw_amount,
             stop_loss_percentage=stop_loss_percentage,
@@ -249,9 +278,11 @@ class StockShell(cmd.Cmd):
             "  starting_cash: Initial cash balance for the simulation. Defaults to 3000.\n"
             "  withdraw: Amount deducted from cash at each year end. Defaults to 0.\n"
             "  DOLLAR_VOLUME_FILTER: Use dollar_volume>NUMBER (in millions),\n"
-            "    dollar_volume=Nth to select the N symbols with the highest\n"
-            "    previous-day dollar volume, or dollar_volume>NUMBER,Nth to\n"
-            "    apply both filters.\n"
+            "    dollar_volume>N% to require the 50-day average dollar volume to\n"
+            "    exceed N percent of the total market, dollar_volume=Nth to\n"
+            "    select the N symbols with the highest previous-day dollar\n"
+            "    volume, or combine the threshold with ranking using\n"
+            "    dollar_volume>NUMBER,Nth or dollar_volume>N%,Nth.\n"
             "  BUY_STRATEGY: Name of the buying strategy.\n"
             "  SELL_STRATEGY: Name of the selling strategy.\n"
             "  STOP_LOSS: Fractional loss that triggers an exit on the next day's open. Defaults to 1.0.\n"
