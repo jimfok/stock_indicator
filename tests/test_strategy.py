@@ -397,16 +397,16 @@ def test_evaluate_combined_strategy_different_names(
     assert result.win_rate == 0.5
 
 
-def test_evaluate_combined_strategy_calculates_apr(
+def test_evaluate_combined_strategy_calculates_compound_annual_growth_rate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The function should compute APR based on final balance and duration."""
+    """The function should compute CAGR based on final balance and duration."""
 
     date_index = pandas.date_range("2020-01-01", periods=370, freq="D")
     price_data_frame = pandas.DataFrame(
         {"Date": date_index, "open": [10.0] * 370, "close": [10.0] * 370}
     )
-    csv_path = tmp_path / "apr_test.csv"
+    csv_path = tmp_path / "cagr_test.csv"
     price_data_frame.to_csv(csv_path, index=False)
 
     trade = Trade(
@@ -435,8 +435,10 @@ def test_evaluate_combined_strategy_calculates_apr(
     result = evaluate_combined_strategy(tmp_path, "ema_sma_cross", "ema_sma_cross")
 
     duration_years = (trade.exit_date - trade.entry_date).days / 365.25
-    expected_apr = (3300.0 / 3000.0) ** (1 / duration_years) - 1
-    assert result.apr == pytest.approx(expected_apr)
+    expected_growth_rate = (3300.0 / 3000.0) ** (1 / duration_years) - 1
+    assert result.compound_annual_growth_rate == pytest.approx(
+        expected_growth_rate
+    )
 
 
 def test_evaluate_combined_strategy_unsupported_name(tmp_path: Path) -> None:
