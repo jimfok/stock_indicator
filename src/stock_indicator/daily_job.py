@@ -7,7 +7,7 @@ import argparse
 import datetime
 import logging
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 import pandas
 
@@ -102,6 +102,65 @@ def run_daily_job(
         )
     LOGGER.info("Daily tasks completed; results written to %s", log_file_path)
     return log_file_path
+
+
+def find_signal(
+    date_string: str, log_directory: Path | None = None
+) -> Dict[str, List[str]]:
+    """Return entry and exit signals stored in the log file.
+
+    Parameters
+    ----------
+    date_string:
+        Date string in ISO format representing the log file to parse.
+    log_directory: Path | None, optional
+        Directory where the log file is stored. When ``None`` the module's
+        ``LOG_DIRECTORY`` value is used.
+
+    Returns
+    -------
+    Dict[str, List[str]]
+        Dictionary containing two keys: ``"entry_signals"`` and
+        ``"exit_signals"``. Each key maps to the list of symbols parsed from
+        the corresponding line in the log file. Missing lines result in empty
+        lists.
+
+    Raises
+    ------
+    FileNotFoundError
+        Raised when the log file for ``date_string`` does not exist.
+    """
+    if log_directory is None:
+        log_directory = LOG_DIRECTORY
+    log_file_path = log_directory / f"{date_string}.log"
+    if not log_file_path.exists():
+        error_message = f"Log file {log_file_path} does not exist"
+        LOGGER.error(error_message)
+        raise FileNotFoundError(error_message)
+
+    entry_signal_list: List[str] = []
+    exit_signal_list: List[str] = []
+    with log_file_path.open("r", encoding="utf-8") as log_file:
+        for line in log_file:
+            stripped_line = line.strip()
+            if stripped_line.startswith("entry_signals:"):
+                symbol_list = stripped_line.split(":", 1)[1]
+                entry_signal_list = [
+                    symbol.strip()
+                    for symbol in symbol_list.split(",")
+                    if symbol.strip()
+                ]
+            elif stripped_line.startswith("exit_signals:"):
+                symbol_list = stripped_line.split(":", 1)[1]
+                exit_signal_list = [
+                    symbol.strip()
+                    for symbol in symbol_list.split(",")
+                    if symbol.strip()
+                ]
+    return {
+        "entry_signals": entry_signal_list,
+        "exit_signals": exit_signal_list,
+    }
 
 
 def main() -> None:

@@ -1,6 +1,8 @@
 import datetime
 from pathlib import Path
 
+import pytest
+
 from stock_indicator import daily_job
 
 
@@ -80,3 +82,31 @@ def test_run_daily_job_uses_oldest_data_date(tmp_path, monkeypatch):
     )
 
     assert captured_start_date["value"] == "2018-06-01"
+
+
+def test_find_signal_reads_log_file(tmp_path):
+    """find_signal should return the symbols listed in the log file."""
+
+    log_directory = tmp_path / "logs"
+    log_directory.mkdir()
+    log_file_path = log_directory / "2024-01-10.log"
+    log_file_path.write_text(
+        "entry_signals: AAA, BBB\nexit_signals: CCC\n", encoding="utf-8"
+    )
+
+    signal_result = daily_job.find_signal("2024-01-10", log_directory=log_directory)
+
+    assert signal_result == {
+        "entry_signals": ["AAA", "BBB"],
+        "exit_signals": ["CCC"],
+    }
+
+
+def test_find_signal_raises_when_log_missing(tmp_path):
+    """find_signal should raise FileNotFoundError when log file is absent."""
+
+    log_directory = tmp_path / "logs"
+    log_directory.mkdir()
+
+    with pytest.raises(FileNotFoundError):
+        daily_job.find_signal("2024-01-10", log_directory=log_directory)
