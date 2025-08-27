@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+import pandas
 import pytest
 
 import stock_indicator.manage as manage_module
@@ -17,7 +18,7 @@ from stock_indicator.strategy import StrategyMetrics
 def test_start_simulate_accepts_start_date(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """``start_simulate`` should pass the supplied start date to evaluation."""
 
-    recorded_arguments: dict[str, str | None] = {"start_date": None}
+    recorded_arguments: dict[str, pandas.Timestamp | None] = {"start_date": None}
     start_date_called: dict[str, bool] = {"called": False}
 
     def fake_determine_start_date(data_directory: Path) -> str:  # pragma: no cover - defensive
@@ -34,7 +35,7 @@ def test_start_simulate_accepts_start_date(monkeypatch: pytest.MonkeyPatch, tmp_
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
-        start_date: str | None = None,
+        start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         recorded_arguments["start_date"] = start_date
         return StrategyMetrics(
@@ -64,7 +65,7 @@ def test_start_simulate_accepts_start_date(monkeypatch: pytest.MonkeyPatch, tmp_
     shell = manage_module.StockShell(stdout=output_buffer)
     shell.onecmd("start_simulate start=2020-05-06 dollar_volume>0 noop noop")
 
-    assert recorded_arguments["start_date"] == "2020-05-06"
+    assert recorded_arguments["start_date"] == pandas.Timestamp("2020-05-06")
     assert start_date_called["called"] is False
     assert "Simulation start date: 2020-05-06" in output_buffer.getvalue()
 

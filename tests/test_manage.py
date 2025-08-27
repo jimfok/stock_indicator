@@ -213,7 +213,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
-        start_date: str | None = None,
+        start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         call_record["strategies"] = (buy_strategy_name, sell_strategy_name)
         volume_record["threshold"] = minimum_average_dollar_volume
@@ -366,7 +366,7 @@ def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) ->
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
-        start_date: str | None = None,
+        start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
         threshold_record["threshold"] = minimum_average_dollar_volume
@@ -424,7 +424,7 @@ def test_start_simulate_dollar_volume_rank(monkeypatch: pytest.MonkeyPatch) -> N
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
-        start_date: str | None = None,
+        start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         rank_record["rank"] = top_dollar_volume_rank
         assert starting_cash == 3000.0
@@ -475,7 +475,7 @@ def test_start_simulate_dollar_volume_ratio(monkeypatch: pytest.MonkeyPatch) -> 
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
-        start_date: str | None = None,
+        start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         ratio_record["ratio"] = minimum_average_dollar_volume_ratio
         return StrategyMetrics(
@@ -526,7 +526,7 @@ def test_start_simulate_dollar_volume_threshold_and_rank(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
-        start_date: str | None = None,
+        start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         recorded_values["threshold"] = minimum_average_dollar_volume
         recorded_values["rank"] = top_dollar_volume_rank
@@ -583,7 +583,7 @@ def test_start_simulate_supports_rsi_strategy(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
-        start_date: str | None = None,
+        start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
         assert starting_cash == 3000.0
@@ -644,7 +644,7 @@ def test_start_simulate_supports_slope_strategy(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
-        start_date: str | None = None,
+        start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
         assert starting_cash == 3000.0
@@ -705,7 +705,7 @@ def test_start_simulate_supports_slope_and_volume_strategy(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
-        start_date: str | None = None,
+        start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
         assert starting_cash == 3000.0
@@ -767,7 +767,7 @@ def test_start_simulate_supports_20_50_sma_cross_strategy(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
-        start_date: str | None = None,
+        start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
         assert starting_cash == 3000.0
@@ -825,7 +825,7 @@ def test_start_simulate_accepts_stop_loss_argument(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
-        start_date: str | None = None,
+        start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         stop_loss_record["value"] = stop_loss_percentage
         assert starting_cash == 3000.0
@@ -880,7 +880,7 @@ def test_start_simulate_accepts_cash_and_withdraw(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
-        start_date: str | None = None,
+        start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         recorded_values["cash"] = starting_cash
         recorded_values["withdraw"] = withdraw_amount
