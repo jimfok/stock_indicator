@@ -8,3 +8,4 @@ src/stock_indicator/__pycache__
 run_daily_job.sh
 cron_logs
 data
+logs
