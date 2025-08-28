@@ -108,7 +108,10 @@ def extract_standard_industrial_classification(submission_data: Dict[str, Any]) 
 def map_tickers_to_central_index_and_classification(
     universe_data_frame: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Attach central index keys and SIC codes to ticker symbols."""
+    """Attach central index keys and SIC codes to ticker symbols.
+
+    Prints progress to standard output while processing each central index key.
+    """
     sec_mapping_data_frame = fetch_company_ticker_table()
     universe_copy = universe_data_frame.copy()
     universe_copy["ticker_normalized"] = universe_copy["ticker"].map(
@@ -123,12 +126,22 @@ def map_tickers_to_central_index_and_classification(
     central_index_key_values = sorted(
         value for value in merged_data_frame["cik"].dropna().unique()
     )
+    total_central_index_keys = len(central_index_key_values)
     classification_rows = []
-    for central_index_key_value in central_index_key_values:
-        submissions_json = fetch_submissions_json(int(central_index_key_value), use_cache=True)
+    for central_index_key_position, central_index_key_value in enumerate(
+        central_index_key_values, start=1
+    ):
+        print(
+            f"[{central_index_key_position}/{total_central_index_keys}] Processing CIK {central_index_key_value}"
+        )
+        submissions_json = fetch_submissions_json(
+            int(central_index_key_value), use_cache=True
+        )
         classification_code = None
         if submissions_json:
-            classification_code = extract_standard_industrial_classification(submissions_json)
+            classification_code = extract_standard_industrial_classification(
+                submissions_json
+            )
         classification_rows.append(
             {
                 "cik": int(central_index_key_value),
