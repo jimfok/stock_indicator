@@ -81,13 +81,18 @@ def load_price_data(csv_file_path: Path) -> pandas.DataFrame:
     """Load price data from ``csv_file_path`` and normalize column names.
 
     Duplicate dates are removed and the index is sorted to ensure that the
-    resulting frame has unique, chronologically ordered entries.
+    resulting frame has unique, chronologically ordered entries. When the CSV
+    file is empty, an empty data frame is returned so the caller can skip the
+    symbol gracefully.
     """
     # TODO: review
 
-    price_data_frame = pandas.read_csv(
-        csv_file_path, parse_dates=["Date"], index_col="Date"
-    )
+    try:
+        price_data_frame = pandas.read_csv(
+            csv_file_path, parse_dates=["Date"], index_col="Date"
+        )
+    except pandas.errors.EmptyDataError:
+        return pandas.DataFrame()
     price_data_frame = price_data_frame.loc[
         ~price_data_frame.index.duplicated(keep="first")
     ]

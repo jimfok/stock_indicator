@@ -1215,6 +1215,20 @@ def test_evaluate_combined_strategy_handles_empty_csv(tmp_path: Path) -> None:
     assert result.total_trades == 0
 
 
+def test_evaluate_combined_strategy_handles_blank_csv(tmp_path: Path) -> None:
+    """evaluate_combined_strategy should skip CSV files without content."""
+    csv_file_path = tmp_path / "blank.csv"
+    csv_file_path.touch()
+
+    result = evaluate_combined_strategy(
+        tmp_path,
+        "ema_sma_cross",
+        "ema_sma_cross",
+    )
+
+    assert result.total_trades == 0
+
+
 def test_evaluate_combined_strategy_reports_maximum_positions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
