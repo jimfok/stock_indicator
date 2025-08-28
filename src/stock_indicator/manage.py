@@ -23,6 +23,9 @@ from stock_indicator.sector_pipeline import pipeline
 LOGGER = logging.getLogger(__name__)
 
 DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "data"
+# Store downloaded per-symbol CSVs under a dedicated subfolder to avoid mixing
+# with other project CSVs (e.g., sector exports).
+STOCK_DATA_DIRECTORY = DATA_DIRECTORY / "stock_data"
 
 
 class StockShell(cmd.Cmd):
@@ -74,8 +77,8 @@ class StockShell(cmd.Cmd):
         data_frame_with_date: DataFrame = (
             data_frame.reset_index().rename(columns={"index": "Date"})
         )
-        DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
-        output_path = DATA_DIRECTORY / f"{symbol_name}.csv"
+        STOCK_DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
+        output_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
         data_frame_with_date.to_csv(output_path, index=False)
         self.stdout.write(f"Data written to {output_path}\n")
         # Also ensure S&P 500 index data is maintained separately when updating a single symbol
@@ -86,7 +89,7 @@ class StockShell(cmd.Cmd):
             sp_with_date: DataFrame = (
                 sp_frame.reset_index().rename(columns={"index": "Date"})
             )
-            sp_output = DATA_DIRECTORY / f"{SP500_SYMBOL}.csv"
+            sp_output = STOCK_DATA_DIRECTORY / f"{SP500_SYMBOL}.csv"
             sp_with_date.to_csv(sp_output, index=False)
             self.stdout.write(f"Data written to {sp_output}\n")
 
@@ -94,7 +97,7 @@ class StockShell(cmd.Cmd):
         """Display help for the update_data_from_yf command."""
         self.stdout.write(
             "update_data_from_yf SYMBOL START END\n"
-            "Download data from Yahoo Finance for SYMBOL and write CSV to data/<SYMBOL>.csv.\n"
+            "Download data from Yahoo Finance for SYMBOL and write CSV to data/stock_data/<SYMBOL>.csv.\n"
             "Parameters:\n"
             "  SYMBOL: Ticker symbol for the asset.\n"
             "  START: Start date in YYYY-MM-DD format.\n"
@@ -122,8 +125,8 @@ class StockShell(cmd.Cmd):
             data_frame_with_date: DataFrame = (
                 data_frame.reset_index().rename(columns={"index": "Date"})
             )
-            DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
-            output_path = DATA_DIRECTORY / f"{symbol_name}.csv"
+            STOCK_DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
+            output_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
             data_frame_with_date.to_csv(output_path, index=False)
             self.stdout.write(f"Data written to {output_path}\n")
 
@@ -131,7 +134,7 @@ class StockShell(cmd.Cmd):
         """Display help for the update_all_data_from_yf command."""
         self.stdout.write(
             "update_all_data_from_yf START END\n"
-            "Download data from Yahoo Finance for all cached symbols.\n"
+            "Download data from Yahoo Finance for all cached symbols and write CSVs to data/stock_data/.\n"
             "Parameters:\n"
             "  START: Start date in YYYY-MM-DD format.\n"
             "  END: End date in YYYY-MM-DD format.\n"
@@ -310,8 +313,9 @@ class StockShell(cmd.Cmd):
         if start_date_string is None:
             start_date_string = determine_start_date(DATA_DIRECTORY)
         start_timestamp = pandas.Timestamp(start_date_string)
+        # Load CSV price data from the dedicated stock data directory.
         evaluation_metrics = strategy.evaluate_combined_strategy(
-            DATA_DIRECTORY,
+            STOCK_DATA_DIRECTORY if STOCK_DATA_DIRECTORY.exists() else DATA_DIRECTORY,
             buy_strategy_name,
             sell_strategy_name,
             minimum_average_dollar_volume=minimum_average_dollar_volume,
@@ -456,9 +460,10 @@ class StockShell(cmd.Cmd):
                         (
                             f"  {trade_detail.date.date()} {trade_detail.symbol} "
                             f"{trade_detail.action} {trade_detail.price:.2f} "
-                            f"{trade_detail.simple_moving_average_dollar_volume_ratio:.4f} "
+                            # Show ratio within FF12 group and group total dollar volume
+                            f"{trade_detail.group_simple_moving_average_dollar_volume_ratio:.4f} "
                             f"{trade_detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
-                            f"{trade_detail.total_simple_moving_average_dollar_volume / 1_000_000:.2f}M"
+                            f"{trade_detail.group_total_simple_moving_average_dollar_volume / 1_000_000:.2f}M"
                             f"{result_suffix}\n"
                         )
                     )

@@ -25,6 +25,80 @@ from .simulator import (
 from .symbols import SP500_SYMBOL
 
 
+def load_symbols_excluded_by_industry() -> set[str]:
+    """Return symbols that should be excluded based on industry classification.
+
+    When the sector classification dataset is available (``data/symbols_with_sector``),
+    exclude any symbols whose Fama–French 12-industry group (``ff12``) equals 12
+    ("Other"). If the dataset is not present, return an empty set.
+    """
+    excluded_symbols: set[str] = set()
+    try:
+        # Import lazily to avoid hard dependency at import time if unused.
+        from stock_indicator.sector_pipeline.config import (
+            DEFAULT_OUTPUT_PARQUET_PATH,
+            DEFAULT_OUTPUT_CSV_PATH,
+        )
+    except Exception:  # noqa: BLE001
+        return excluded_symbols
+    # Prefer Parquet for speed, fall back to CSV if needed.
+    try:
+        if DEFAULT_OUTPUT_PARQUET_PATH.exists():
+            sector_frame = pandas.read_parquet(DEFAULT_OUTPUT_PARQUET_PATH)
+        elif DEFAULT_OUTPUT_CSV_PATH is not None and DEFAULT_OUTPUT_CSV_PATH.exists():
+            sector_frame = pandas.read_csv(DEFAULT_OUTPUT_CSV_PATH)
+        else:
+            return excluded_symbols
+    except Exception:  # noqa: BLE001
+        return excluded_symbols
+    # Normalize expected columns and filter ff12==12
+    sector_frame.columns = [str(c).strip().lower() for c in sector_frame.columns]
+    if "ticker" not in sector_frame.columns or "ff12" not in sector_frame.columns:
+        return excluded_symbols
+    mask_other = sector_frame["ff12"] == 12
+    tickers_series = sector_frame.loc[mask_other, "ticker"].dropna().astype(str)
+    excluded_symbols = set(tickers_series.str.upper().tolist())
+    return excluded_symbols
+
+
+def load_ff12_groups_by_symbol() -> dict[str, int]:
+    """Return a lookup mapping ticker symbol (uppercased) to FF12 group id.
+
+    Only returns mappings for symbols explicitly tagged with an FF12 group in
+    the sector classification output. Symbols labeled as ``Other`` (12) are
+    excluded from the mapping since they are not considered for trading.
+
+    If the sector dataset is unavailable or lacks expected columns, an empty
+    mapping is returned and the caller should fall back to non-grouped logic.
+    """
+    try:
+        from stock_indicator.sector_pipeline.config import (
+            DEFAULT_OUTPUT_PARQUET_PATH,
+            DEFAULT_OUTPUT_CSV_PATH,
+        )
+    except Exception:  # noqa: BLE001
+        return {}
+    try:
+        if DEFAULT_OUTPUT_PARQUET_PATH.exists():
+            sector_frame = pandas.read_parquet(DEFAULT_OUTPUT_PARQUET_PATH)
+        elif DEFAULT_OUTPUT_CSV_PATH is not None and DEFAULT_OUTPUT_CSV_PATH.exists():
+            sector_frame = pandas.read_csv(DEFAULT_OUTPUT_CSV_PATH)
+        else:
+            return {}
+    except Exception:  # noqa: BLE001
+        return {}
+    sector_frame.columns = [str(c).strip().lower() for c in sector_frame.columns]
+    if "ticker" not in sector_frame.columns or "ff12" not in sector_frame.columns:
+        return {}
+    sector_frame = sector_frame.dropna(subset=["ticker", "ff12"])  # type: ignore[arg-type]
+    sector_frame = sector_frame[sector_frame["ff12"] != 12]
+    symbol_to_group: dict[str, int] = {
+        str(row.ticker).upper(): int(row.ff12)
+        for row in sector_frame.itertuples(index=False)
+    }
+    return symbol_to_group
+
+
 # Number of days used for moving averages.
 LONG_TERM_SMA_WINDOW: int = 150
 DOLLAR_VOLUME_SMA_WINDOW: int = 50
@@ -51,6 +125,9 @@ class TradeDetail:
     simple_moving_average_dollar_volume: float
     total_simple_moving_average_dollar_volume: float
     simple_moving_average_dollar_volume_ratio: float
+    # Group-aware metrics: totals and ratios computed within the symbol's FF12 group
+    group_total_simple_moving_average_dollar_volume: float = 0.0
+    group_simple_moving_average_dollar_volume_ratio: float = 0.0
     result: str | None = None  # TODO: review
     percentage_change: float | None = None  # TODO: review
 
@@ -93,6 +170,35 @@ def load_price_data(csv_file_path: Path) -> pandas.DataFrame:
         )
     except pandas.errors.EmptyDataError:
         return pandas.DataFrame()
+    except ValueError as value_error:
+        # Gracefully handle files that do not include a 'Date' column by
+        # attempting to infer a suitable date column.
+        message_text = str(value_error)
+        if "Missing column provided to 'parse_dates': 'Date'" in message_text:
+            temp_frame = pandas.read_csv(csv_file_path)
+            original_columns = list(temp_frame.columns)
+            candidate_map = {name.lower(): name for name in original_columns}
+            candidate_name: str | None = None
+            for possible in ("date", "datetime", "timestamp"):
+                if possible in candidate_map:
+                    candidate_name = candidate_map[possible]
+                    break
+            if candidate_name is None and original_columns:
+                candidate_name = original_columns[0]
+            try:
+                temp_frame[candidate_name] = pandas.to_datetime(
+                    temp_frame[candidate_name]
+                )
+                price_data_frame = temp_frame.set_index(candidate_name)
+            except Exception as parse_error:  # noqa: BLE001
+                raise ValueError(
+                    (
+                        f"Could not locate a date column in {csv_file_path.name}; "
+                        "expected a 'Date' column."
+                    )
+                ) from parse_error
+        else:
+            raise
     price_data_frame = price_data_frame.loc[
         ~price_data_frame.index.duplicated(keep="first")
     ]
@@ -721,8 +827,12 @@ def evaluate_combined_strategy(
     closing_price_series_by_symbol: Dict[str, pandas.Series] = {}
 
     symbol_frames: List[tuple[Path, pandas.DataFrame]] = []
+    symbols_excluded_by_industry = load_symbols_excluded_by_industry()
     for csv_file_path in data_directory.glob("*.csv"):
         if csv_file_path.stem == SP500_SYMBOL:
+            continue
+        # Skip symbols classified as FF12==12 ("Other") when sector data exists.
+        if csv_file_path.stem.upper() in symbols_excluded_by_industry:
             continue
         price_data_frame = load_price_data(csv_file_path)
         if price_data_frame.empty:
@@ -757,6 +867,8 @@ def evaluate_combined_strategy(
             },
             axis=1,
         )
+        # Build eligibility mask using group-aware logic for percentage and rank
+        # filters when FF12 group mappings are available.
         if (
             minimum_average_dollar_volume is None
             and top_dollar_volume_rank is None
@@ -769,23 +881,84 @@ def evaluate_combined_strategy(
             )
         else:
             eligibility_mask = ~merged_volume_frame.isna()
+            # Apply absolute threshold (in millions) across all symbols as-is.
             if minimum_average_dollar_volume is not None:
                 eligibility_mask &= (
                     merged_volume_frame / 1_000_000 >= minimum_average_dollar_volume
                 )
+
+            # Load FF12 groups for group-wise percentage and ranking.
+            symbol_to_fama_french_group_id = load_ff12_groups_by_symbol()
+            # Construct group -> columns mapping for the merged frame.
+            group_id_to_symbol_columns: dict[int, list[str]] = {}
+            if symbol_to_fama_french_group_id:
+                for column_name in merged_volume_frame.columns:
+                    group_id = symbol_to_fama_french_group_id.get(column_name.upper())
+                    if group_id is None:
+                        continue
+                    group_id_to_symbol_columns.setdefault(group_id, []).append(
+                        column_name
+                    )
+
+            # Apply group-wise percentage threshold if present.
             if minimum_average_dollar_volume_ratio is not None:
-                total_volume_series = merged_volume_frame.sum(axis=1)
-                ratio_frame = merged_volume_frame.divide(
-                    total_volume_series, axis=0
-                )
-                eligibility_mask &= (
-                    ratio_frame >= minimum_average_dollar_volume_ratio
-                )
+                if group_id_to_symbol_columns:
+                    ratio_eligibility_mask = pandas.DataFrame(
+                        False,
+                        index=merged_volume_frame.index,
+                        columns=merged_volume_frame.columns,
+                    )
+                    for group_id, column_list in group_id_to_symbol_columns.items():
+                        group_frame = merged_volume_frame[column_list]
+                        group_total_series = group_frame.sum(axis=1)
+                        # Avoid divide-by-zero; values become NaN and compare False
+                        safe_group_total_series = group_total_series.where(
+                            group_total_series > 0
+                        )
+                        ratio_frame = group_frame.divide(
+                            safe_group_total_series, axis=0
+                        )
+                        ratio_condition = (
+                            ratio_frame >= minimum_average_dollar_volume_ratio
+                        )
+                        ratio_eligibility_mask.loc[:, column_list] = ratio_condition
+                    eligibility_mask &= ratio_eligibility_mask
+                else:
+                    # Fallback to global ratio when groups are not available.
+                    total_volume_series = merged_volume_frame.sum(axis=1)
+                    ratio_frame = merged_volume_frame.divide(
+                        total_volume_series.where(total_volume_series > 0), axis=0
+                    )
+                    eligibility_mask &= (
+                        ratio_frame >= minimum_average_dollar_volume_ratio
+                    )
+
+            # Apply group-wise top-N rank if requested.
             if top_dollar_volume_rank is not None:
-                rank_frame = merged_volume_frame.rank(
-                    axis=1, method="min", ascending=False
-                )
-                eligibility_mask &= rank_frame <= top_dollar_volume_rank
+                if group_id_to_symbol_columns:
+                    rank_eligibility_mask = pandas.DataFrame(
+                        False,
+                        index=merged_volume_frame.index,
+                        columns=merged_volume_frame.columns,
+                    )
+                    for group_id, column_list in group_id_to_symbol_columns.items():
+                        group_frame = merged_volume_frame[column_list]
+                        group_rank_frame = group_frame.rank(
+                            axis=1, method="min", ascending=False
+                        )
+                        group_rank_condition = (
+                            group_rank_frame <= top_dollar_volume_rank
+                        )
+                        rank_eligibility_mask.loc[:, column_list] = (
+                            group_rank_condition
+                        )
+                    eligibility_mask &= rank_eligibility_mask
+                else:
+                    # Fallback to global top-N when groups are not available.
+                    rank_frame = merged_volume_frame.rank(
+                        axis=1, method="min", ascending=False
+                    )
+                    eligibility_mask &= rank_frame <= top_dollar_volume_rank
     else:
         merged_volume_frame = pandas.DataFrame()
         eligibility_mask = pandas.DataFrame()
@@ -796,6 +969,29 @@ def evaluate_combined_strategy(
     total_dollar_volume_by_date = (
         merged_volume_frame.where(eligibility_mask).sum(axis=1).to_dict()
     )
+
+    # Build per-group total dollar volume by date to support group-aware ratios in
+    # trade details. When sector data is not available, this remains empty and
+    # callers should fall back to market totals.
+    symbol_to_fama_french_group_id_for_details = load_ff12_groups_by_symbol()
+    group_total_dollar_volume_by_group_and_date: dict[int, dict[pandas.Timestamp, float]] = {}
+    if not merged_volume_frame.empty and symbol_to_fama_french_group_id_for_details:
+        group_id_to_symbol_columns_for_details: dict[int, list[str]] = {}
+        for column_name in merged_volume_frame.columns:
+            group_id = symbol_to_fama_french_group_id_for_details.get(
+                column_name.upper()
+            )
+            if group_id is None:
+                continue
+            group_id_to_symbol_columns_for_details.setdefault(group_id, []).append(
+                column_name
+            )
+        for group_id, column_list in group_id_to_symbol_columns_for_details.items():
+            group_frame = merged_volume_frame[column_list]
+            group_total_series = group_frame.sum(axis=1)
+            group_total_dollar_volume_by_group_and_date[group_id] = (
+                group_total_series.to_dict()
+            )
 
     selected_symbol_data: List[tuple[Path, pandas.DataFrame, pandas.Series]] = []
     simple_moving_average_dollar_volume_by_symbol_and_date: Dict[
@@ -933,6 +1129,24 @@ def evaluate_combined_strategy(
                     exit_dollar_volume / market_total_exit_dollar_volume
                 )
 
+            # Compute group-aware totals and ratios for trade details.
+            symbol_group_id = symbol_to_fama_french_group_id_for_details.get(
+                symbol_name.upper()
+            )
+            group_entry_total = 0.0
+            if symbol_group_id is not None:
+                group_entry_total = float(
+                    group_total_dollar_volume_by_group_and_date
+                    .get(symbol_group_id, {})
+                    .get(completed_trade.entry_date, 0.0)
+                )
+            if group_entry_total == 0.0:
+                # Fallback to market total to avoid zero division and preserve interpretability
+                group_entry_total = float(market_total_entry_dollar_volume)
+                group_entry_ratio = float(entry_volume_ratio)
+            else:
+                group_entry_ratio = float(entry_dollar_volume) / group_entry_total
+
             entry_detail = TradeDetail(
                 date=completed_trade.entry_date,
                 symbol=symbol_name,
@@ -941,8 +1155,23 @@ def evaluate_combined_strategy(
                 simple_moving_average_dollar_volume=entry_dollar_volume,
                 total_simple_moving_average_dollar_volume=market_total_entry_dollar_volume,
                 simple_moving_average_dollar_volume_ratio=entry_volume_ratio,
+                group_total_simple_moving_average_dollar_volume=group_entry_total,
+                group_simple_moving_average_dollar_volume_ratio=group_entry_ratio,
             )
             trade_result = "win" if completed_trade.profit > 0 else "lose"  # TODO: review
+            group_exit_total = 0.0
+            if symbol_group_id is not None:
+                group_exit_total = float(
+                    group_total_dollar_volume_by_group_and_date
+                    .get(symbol_group_id, {})
+                    .get(completed_trade.exit_date, 0.0)
+                )
+            if group_exit_total == 0.0:
+                group_exit_total = float(market_total_exit_dollar_volume)
+                group_exit_ratio = float(exit_volume_ratio)
+            else:
+                group_exit_ratio = float(exit_dollar_volume) / group_exit_total
+
             exit_detail = TradeDetail(
                 date=completed_trade.exit_date,
                 symbol=symbol_name,
@@ -953,6 +1182,8 @@ def evaluate_combined_strategy(
                 simple_moving_average_dollar_volume_ratio=exit_volume_ratio,
                 result=trade_result,
                 percentage_change=percentage_change,
+                group_total_simple_moving_average_dollar_volume=group_exit_total,
+                group_simple_moving_average_dollar_volume_ratio=group_exit_ratio,
             )
             trade_details_by_year.setdefault(
                 completed_trade.entry_date.year, []
