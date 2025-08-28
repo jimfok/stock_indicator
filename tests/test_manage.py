@@ -346,6 +346,85 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def test_start_simulate_suppresses_trade_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command should hide trade details when the flag is False."""
+    import stock_indicator.manage as manage_module
+
+    from stock_indicator.strategy import StrategyMetrics, TradeDetail
+
+    def fake_evaluate(
+        data_directory: Path,
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        minimum_average_dollar_volume: float | None,
+        top_dollar_volume_rank: int | None = None,
+        minimum_average_dollar_volume_ratio: float | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
+        stop_loss_percentage: float = 1.0,
+        start_date: pandas.Timestamp | None = None,
+    ) -> StrategyMetrics:
+        trade_details_by_year = {
+            2023: [
+                TradeDetail(
+                    date=pandas.Timestamp("2023-01-02"),
+                    symbol="AAA",
+                    action="open",
+                    price=10.0,
+                    simple_moving_average_dollar_volume=100.0,
+                    total_simple_moving_average_dollar_volume=1000.0,
+                    simple_moving_average_dollar_volume_ratio=0.1,
+                ),
+                TradeDetail(
+                    date=pandas.Timestamp("2023-01-05"),
+                    symbol="AAA",
+                    action="close",
+                    price=11.0,
+                    simple_moving_average_dollar_volume=100.0,
+                    total_simple_moving_average_dollar_volume=1000.0,
+                    simple_moving_average_dollar_volume_ratio=0.1,
+                    result="win",
+                    percentage_change=0.1,
+                ),
+            ]
+        }
+        return StrategyMetrics(
+            total_trades=1,
+            win_rate=1.0,
+            mean_profit_percentage=0.1,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.0,
+            loss_percentage_standard_deviation=0.0,
+            mean_holding_period=1.0,
+            holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=1,
+            maximum_drawdown=0.0,
+            final_balance=100.0,
+            compound_annual_growth_rate=0.1,
+            annual_returns={2023: 0.1},
+            annual_trade_counts={2023: 1},
+            trade_details_by_year=trade_details_by_year,
+        )
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "evaluate_combined_strategy",
+        fake_evaluate,
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd(
+        "start_simulate dollar_volume>0 ema_sma_cross ema_sma_cross 1 false"
+    )
+    output_string = output_buffer.getvalue()
+    assert "Year 2023: 10.00%, trade: 1" in output_string
+    assert "AAA open" not in output_string
+    assert "AAA close" not in output_string
+
+
 def test_start_simulate_filters_early_googl_trades(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

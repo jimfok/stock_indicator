@@ -112,10 +112,11 @@ class StockShell(cmd.Cmd):
 
     # TODO: review
     def do_start_simulate(self, argument_line: str) -> None:  # noqa: D401
-        """start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]
+        """start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [SHOW_DETAILS]
         Evaluate trading strategies using cached data.
 
-        STOP_LOSS defaults to 1.0 when not provided."""
+        STOP_LOSS defaults to 1.0 when not provided.
+        SHOW_DETAILS defaults to True and controls whether trade details are printed."""
         argument_parts: List[str] = argument_line.split()
         starting_cash_value = 3000.0
         withdraw_amount = 0.0
@@ -144,20 +145,22 @@ class StockShell(cmd.Cmd):
                 starting_cash_value = numeric_value
             elif name == "withdraw":
                 withdraw_amount = numeric_value
-        if len(argument_parts) not in (3, 4):
+        if len(argument_parts) not in (3, 4, 5):
             self.stdout.write(
-                "usage: start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]\n"
+                "usage: start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [SHOW_DETAILS]\n"
             )
             return
         volume_filter, buy_strategy_name, sell_strategy_name = argument_parts[:3]
-        if len(argument_parts) == 4:
+        stop_loss_percentage = 1.0
+        show_trade_details = True  # TODO: review
+        if len(argument_parts) >= 4:
             try:
                 stop_loss_percentage = float(argument_parts[3])
             except ValueError:
                 self.stdout.write("invalid stop loss\n")
                 return
-        else:
-            stop_loss_percentage = 1.0
+        if len(argument_parts) == 5:
+            show_trade_details = argument_parts[4].lower() == "true"  # TODO: review
         minimum_average_dollar_volume: float | None = None  # TODO: review
         minimum_average_dollar_volume_ratio: float | None = None  # TODO: review
         top_dollar_volume_rank: int | None = None  # TODO: review
@@ -351,31 +354,32 @@ class StockShell(cmd.Cmd):
             self.stdout.write(
                 f"Year {year}: {annual_return:.2%}, trade: {trade_count}\n"
             )
-            trade_details = evaluation_metrics.trade_details_by_year.get(year, [])  # TODO: review
-            for trade_detail in trade_details:  # TODO: review
-                if (
-                    trade_detail.action == "close"
-                    and trade_detail.result is not None
-                ):
-                    if trade_detail.percentage_change is not None:
-                        result_suffix = (
-                            f" {trade_detail.result} "
-                            f"{trade_detail.percentage_change:.2%}"
-                        )
+            if show_trade_details:  # TODO: review
+                trade_details = evaluation_metrics.trade_details_by_year.get(year, [])
+                for trade_detail in trade_details:
+                    if (
+                        trade_detail.action == "close"
+                        and trade_detail.result is not None
+                    ):
+                        if trade_detail.percentage_change is not None:
+                            result_suffix = (
+                                f" {trade_detail.result} "
+                                f"{trade_detail.percentage_change:.2%}"
+                            )
+                        else:
+                            result_suffix = f" {trade_detail.result}"
                     else:
-                        result_suffix = f" {trade_detail.result}"
-                else:
-                    result_suffix = ""
-                self.stdout.write(
-                    (
-                        f"  {trade_detail.date.date()} {trade_detail.symbol} "
-                        f"{trade_detail.action} {trade_detail.price:.2f} "
-                        f"{trade_detail.simple_moving_average_dollar_volume_ratio:.4f} "
-                        f"{trade_detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
-                        f"{trade_detail.total_simple_moving_average_dollar_volume / 1_000_000:.2f}M"
-                        f"{result_suffix}\n"
+                        result_suffix = ""
+                    self.stdout.write(
+                        (
+                            f"  {trade_detail.date.date()} {trade_detail.symbol} "
+                            f"{trade_detail.action} {trade_detail.price:.2f} "
+                            f"{trade_detail.simple_moving_average_dollar_volume_ratio:.4f} "
+                            f"{trade_detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
+                            f"{trade_detail.total_simple_moving_average_dollar_volume / 1_000_000:.2f}M"
+                            f"{result_suffix}\n"
+                        )
                     )
-                )
 
     # TODO: review
     def help_start_simulate(self) -> None:
@@ -383,7 +387,7 @@ class StockShell(cmd.Cmd):
         available_buy = ", ".join(sorted(strategy.BUY_STRATEGIES.keys()))
         available_sell = ", ".join(sorted(strategy.SELL_STRATEGIES.keys()))
         self.stdout.write(
-            "start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]\n"
+            "start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [SHOW_DETAILS]\n"
             "Evaluate trading strategies using cached data.\n"
             "Parameters:\n"
             "  starting_cash: Initial cash balance for the simulation. Defaults to 3000.\n"
@@ -398,6 +402,7 @@ class StockShell(cmd.Cmd):
             "  BUY_STRATEGY: Name of the buying strategy.\n"
             "  SELL_STRATEGY: Name of the selling strategy.\n"
             "  STOP_LOSS: Fractional loss that triggers an exit on the next day's open. Defaults to 1.0.\n"
+            "  SHOW_DETAILS: 'True' to print individual trades, 'False' to suppress them. Defaults to True.\n"
             "Strategies may be suffixed with _N to set the window size to N; the default window size is 40 when no suffix is provided.\n"
             "Slope-aware strategies follow the ema_sma_signal_with_slope_n_k pattern and accept _LOWER_UPPER bounds after the optional window size; both bounds are floating-point numbers and may be negative.\n"
             "Example: start_simulate start=1990-01-01 dollar_volume>50 ema_sma_cross_20 ema_sma_cross_20\n"
