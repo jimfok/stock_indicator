@@ -1,0 +1,50 @@
+sic_start,sic_end,ff12,ff48,ff49,label
+100,999,1,-1,-1,Consumer Non-Durables
+2000,2399,1,-1,-1,Consumer Non-Durables
+2700,2749,1,-1,-1,Consumer Non-Durables
+2770,2799,1,-1,-1,Consumer Non-Durables
+3100,3199,1,-1,-1,Consumer Non-Durables
+3940,3989,1,-1,-1,Consumer Non-Durables
+2500,2519,2,-1,-1,Consumer Durables
+2590,2599,2,-1,-1,Consumer Durables
+3630,3659,2,-1,-1,Consumer Durables
+3710,3711,2,-1,-1,Consumer Durables
+3714,3714,2,-1,-1,Consumer Durables
+3716,3716,2,-1,-1,Consumer Durables
+3750,3751,2,-1,-1,Consumer Durables
+3792,3792,2,-1,-1,Consumer Durables
+3900,3939,2,-1,-1,Consumer Durables
+3990,3999,2,-1,-1,Consumer Durables
+5730,5739,2,-1,-1,Consumer Durables
+2520,2589,3,-1,-1,Manufacturing
+2600,2699,3,-1,-1,Manufacturing
+2750,2769,3,-1,-1,Manufacturing
+3000,3099,3,-1,-1,Manufacturing
+3200,3569,3,-1,-1,Manufacturing
+3580,3621,3,-1,-1,Manufacturing
+3623,3629,3,-1,-1,Manufacturing
+3700,3709,3,-1,-1,Manufacturing
+3712,3713,3,-1,-1,Manufacturing
+3715,3715,3,-1,-1,Manufacturing
+3717,3749,3,-1,-1,Manufacturing
+3752,3791,3,-1,-1,Manufacturing
+3793,3899,3,-1,-1,Manufacturing
+1200,1399,4,-1,-1,Energy
+2900,2999,4,-1,-1,Energy
+2800,2829,5,-1,-1,Chemicals
+2840,2899,5,-1,-1,Chemicals
+3570,3579,6,-1,-1,Business Equipment
+3622,3622,6,-1,-1,Business Equipment
+3660,3692,6,-1,-1,Business Equipment
+3694,3699,6,-1,-1,Business Equipment
+3810,3839,6,-1,-1,Business Equipment
+7370,7379,6,-1,-1,Business Equipment
+4800,4899,7,-1,-1,Telecommunications
+4900,4949,8,-1,-1,Utilities
+5000,5729,9,-1,-1,Shops
+5740,5999,9,-1,-1,Shops
+2830,2839,10,-1,-1,Healthcare
+3693,3693,10,-1,-1,Healthcare
+3840,3859,10,-1,-1,Healthcare
+8000,8099,10,-1,-1,Healthcare
+6000,6999,11,-1,-1,Finance

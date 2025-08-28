@@ -1,4 +1,9 @@
-"""Functions for loading and applying Fama-French industry mappings."""
+"""Functions for loading and applying Fama-French industry mappings.
+
+The default mapping resides in ``data/sic_to_ff.csv``. Updated tables are
+available from the Kenneth French Data Library and should replace this file
+when industry definitions change.
+"""
 
 # TODO: review
 
