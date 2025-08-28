@@ -33,16 +33,14 @@ def test_update_symbols(monkeypatch: pytest.MonkeyPatch) -> None:
     assert call_record["called"] is True
 
 
-def test_update_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The command should download data and write it to a CSV file."""
+def test_update_data_from_yf(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The command should download data from Yahoo Finance and write CSV."""
     import stock_indicator.manage as manage_module
 
-    recorded_arguments: dict[str, str] = {}
+    call_symbols: list[str] = []
 
     def fake_download_history(symbol: str, start: str, end: str) -> pandas.DataFrame:
-        recorded_arguments["symbol"] = symbol
-        recorded_arguments["start"] = start
-        recorded_arguments["end"] = end
+        call_symbols.append(symbol)
         return pandas.DataFrame(
             {"close": [1.0]}, index=pandas.to_datetime(["2023-01-01"])
         ).rename_axis("Date")
@@ -53,20 +51,18 @@ def test_update_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(manage_module, "DATA_DIRECTORY", tmp_path)
 
     shell = manage_module.StockShell(stdout=io.StringIO())
-    shell.onecmd("update_data TEST 2023-01-01 2023-01-02")
+    shell.onecmd("update_data_from_yf TEST 2023-01-01 2023-01-02")
     output_file = tmp_path / "TEST.csv"
     assert output_file.exists()
     csv_contents = pandas.read_csv(output_file)
     assert "Date" in csv_contents.columns
-    assert recorded_arguments == {
-        "symbol": "TEST",
-        "start": "2023-01-01",
-        "end": "2023-01-02",
-    }
+    # Expect two downloads: requested symbol and ^GSPC
+    assert call_symbols[0] == "TEST"
+    assert "^GSPC" in call_symbols
 
 
-def test_update_all_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The command should download data for every symbol in the cache."""
+def test_update_all_data_from_yf(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The command should download data from Yahoo Finance for each cached symbol."""
     import stock_indicator.manage as manage_module
 
     symbol_list = ["AAA", "BBB", manage_module.SP500_SYMBOL]
@@ -90,7 +86,7 @@ def test_update_all_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
     expected_symbols = symbol_list
     shell = manage_module.StockShell(stdout=io.StringIO())
-    shell.onecmd("update_all_data 2023-01-01 2023-01-02")
+    shell.onecmd("update_all_data_from_yf 2023-01-01 2023-01-02")
     for symbol in expected_symbols:
         csv_path = tmp_path / f"{symbol}.csv"
         assert csv_path.exists()
@@ -168,29 +164,7 @@ def test_find_signal_invalid_argument(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-# TODO: review
-def test_count_symbols_with_average_dollar_volume_above(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The command should report how many symbols exceed a dollar volume threshold."""
-    import stock_indicator.manage as manage_module
-
-    call_arguments: dict[str, float] = {}
-
-    def fake_counter(data_directory: Path, minimum_average_dollar_volume: float) -> int:
-        call_arguments["threshold"] = minimum_average_dollar_volume
-        assert data_directory == manage_module.DATA_DIRECTORY
-        return 7
-
-    monkeypatch.setattr(
-        manage_module.volume,
-        "count_symbols_with_average_dollar_volume_above",
-        fake_counter,
-    )
-
-    output_buffer = io.StringIO()
-    shell = manage_module.StockShell(stdout=output_buffer)
-    shell.onecmd("count_symbols_with_average_dollar_volume_above 10")
-    assert call_arguments["threshold"] == 10.0
-    assert output_buffer.getvalue().strip() == "7"
+    
 
 
 def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:

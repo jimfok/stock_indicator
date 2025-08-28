@@ -15,7 +15,7 @@ from typing import Dict, List
 import pandas
 from pandas import DataFrame
 
-from . import data_loader, symbols, strategy, volume, daily_job
+from . import data_loader, symbols, strategy, daily_job
 from .daily_job import determine_start_date
 from .symbols import SP500_SYMBOL
 from stock_indicator.sector_pipeline import pipeline
@@ -46,12 +46,26 @@ class StockShell(cmd.Cmd):
             "This command has no parameters.\n"
         )
 
-    def do_update_data(self, argument_line: str) -> None:  # noqa: D401
-        """update_data SYMBOL START END
-        Download data for SYMBOL between START and END and store as CSV."""
+    def do_update_yf_symbols(self, argument_line: str) -> None:  # noqa: D401
+        """update_yf_symbols
+        Build a list of symbols that have data available from Yahoo Finance."""
+        yf_symbols = symbols.update_yf_symbol_cache()
+        self.stdout.write(f"YF symbol cache updated (count={len(yf_symbols)})\n")
+
+    def help_update_yf_symbols(self) -> None:
+        """Display help for the update_yf_symbols command."""
+        self.stdout.write(
+            "update_yf_symbols\n"
+            "Probe Yahoo Finance and write symbols with available data to data/symbols_yf.txt.\n"
+            "This command has no parameters.\n"
+        )
+
+    def do_update_data_from_yf(self, argument_line: str) -> None:  # noqa: D401
+        """update_data_from_yf SYMBOL START END
+        Download data from Yahoo Finance for SYMBOL between START and END and store as CSV."""
         argument_parts: List[str] = argument_line.split()
         if len(argument_parts) != 3:
-            self.stdout.write("usage: update_data SYMBOL START END\n")
+            self.stdout.write("usage: update_data_from_yf SYMBOL START END\n")
             return
         symbol_name, start_date, end_date = argument_parts
         data_frame: DataFrame = data_loader.download_history(
@@ -64,28 +78,41 @@ class StockShell(cmd.Cmd):
         output_path = DATA_DIRECTORY / f"{symbol_name}.csv"
         data_frame_with_date.to_csv(output_path, index=False)
         self.stdout.write(f"Data written to {output_path}\n")
+        # Also ensure S&P 500 index data is maintained separately when updating a single symbol
+        if symbol_name != SP500_SYMBOL:
+            sp_frame: DataFrame = data_loader.download_history(
+                SP500_SYMBOL, start_date, end_date
+            )
+            sp_with_date: DataFrame = (
+                sp_frame.reset_index().rename(columns={"index": "Date"})
+            )
+            sp_output = DATA_DIRECTORY / f"{SP500_SYMBOL}.csv"
+            sp_with_date.to_csv(sp_output, index=False)
+            self.stdout.write(f"Data written to {sp_output}\n")
 
-    # TODO: review
-    def help_update_data(self) -> None:
-        """Display help for the update_data command."""
+    def help_update_data_from_yf(self) -> None:
+        """Display help for the update_data_from_yf command."""
         self.stdout.write(
-            "update_data SYMBOL START END\n"
-            "Download data for SYMBOL between START and END and store as CSV.\n"
+            "update_data_from_yf SYMBOL START END\n"
+            "Download data from Yahoo Finance for SYMBOL and write CSV to data/<SYMBOL>.csv.\n"
             "Parameters:\n"
             "  SYMBOL: Ticker symbol for the asset.\n"
             "  START: Start date in YYYY-MM-DD format.\n"
             "  END: End date in YYYY-MM-DD format.\n"
         )
 
-    def do_update_all_data(self, argument_line: str) -> None:  # noqa: D401
-        """update_all_data START END
-        Download data for all cached symbols."""
+    
+
+    def do_update_all_data_from_yf(self, argument_line: str) -> None:  # noqa: D401
+        """update_all_data_from_yf START END
+        Download data from Yahoo Finance for all cached symbols."""
         argument_parts: List[str] = argument_line.split()
         if len(argument_parts) != 2:
-            self.stdout.write("usage: update_all_data START END\n")
+            self.stdout.write("usage: update_all_data_from_yf START END\n")
             return
         start_date, end_date = argument_parts
         symbol_list = symbols.load_symbols()
+        # Ensure ^GSPC is also downloaded, but not stored in symbols.txt
         if SP500_SYMBOL not in symbol_list:
             symbol_list.append(SP500_SYMBOL)
         for symbol_name in symbol_list:
@@ -100,12 +127,11 @@ class StockShell(cmd.Cmd):
             data_frame_with_date.to_csv(output_path, index=False)
             self.stdout.write(f"Data written to {output_path}\n")
 
-    # TODO: review
-    def help_update_all_data(self) -> None:
-        """Display help for the update_all_data command."""
+    def help_update_all_data_from_yf(self) -> None:
+        """Display help for the update_all_data_from_yf command."""
         self.stdout.write(
-            "update_all_data START END\n"
-            "Download data for all cached symbols.\n"
+            "update_all_data_from_yf START END\n"
+            "Download data from Yahoo Finance for all cached symbols.\n"
             "Parameters:\n"
             "  START: Start date in YYYY-MM-DD format.\n"
             "  END: End date in YYYY-MM-DD format.\n"
@@ -119,7 +145,14 @@ class StockShell(cmd.Cmd):
             LOGGER.info(
                 "Updating sector classification data using last run configuration",
             )
-            data_frame: DataFrame = pipeline.update_latest_dataset()
+            try:
+                data_frame: DataFrame = pipeline.update_latest_dataset()
+            except (FileNotFoundError, ValueError, OSError) as error:
+                self.stdout.write(
+                    f"Error: {error}\n"
+                    "usage: update_sector_data --ff-map-url=URL OUTPUT_PATH\n"
+                )
+                return
             coverage_report = pipeline.generate_coverage_report(data_frame)
             self.stdout.write(f"{coverage_report}\n")
             return
@@ -460,35 +493,7 @@ class StockShell(cmd.Cmd):
             f"Available sell strategies: {available_sell}.\n"
         )
 
-# TODO: review
-    def do_count_symbols_with_average_dollar_volume_above(self, argument_line: str) -> None:  # noqa: D401
-        """count_symbols_with_average_dollar_volume_above THRESHOLD
-        Count symbols whose 50-day average dollar volume exceeds THRESHOLD."""
-        argument_string = argument_line.strip()
-        if not argument_string:
-            self.stdout.write(
-                "usage: count_symbols_with_average_dollar_volume_above THRESHOLD\n"
-            )
-            return
-        try:
-            minimum_average_dollar_volume = float(argument_string)
-        except ValueError:
-            self.stdout.write(
-                "usage: count_symbols_with_average_dollar_volume_above THRESHOLD\n"
-            )
-            return
-        symbol_count = volume.count_symbols_with_average_dollar_volume_above(
-            DATA_DIRECTORY, minimum_average_dollar_volume
-        )
-        self.stdout.write(f"{symbol_count}\n")
-
-    # TODO: review
-    def help_count_symbols_with_average_dollar_volume_above(self) -> None:
-        """Display help for the count_symbols_with_average_dollar_volume_above command."""
-        self.stdout.write(
-            "count_symbols_with_average_dollar_volume_above THRESHOLD\n"
-            "Count symbols whose 50-day average dollar volume is greater than THRESHOLD in millions.\n"
-        )
+    
 
     # TODO: review
     def do_find_signal(self, argument_line: str) -> None:  # noqa: D401

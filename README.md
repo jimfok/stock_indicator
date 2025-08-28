@@ -55,15 +55,17 @@ downloading historical price data.
 python -m stock_indicator.manage
 
 (stock-indicator) update_symbols
-(stock-indicator) update_data AAPL 2024-01-01 2024-02-01
-(stock-indicator) update_all_data 2024-01-01 2024-02-01
+(stock-indicator) update_yf_symbols
+(stock-indicator) update_data_from_yf AAPL 2024-01-01 2024-02-01
+(stock-indicator) update_all_data_from_yf 2024-01-01 2024-02-01
 (stock-indicator) exit
 ```
 
-* `update_symbols` downloads the latest list of available ticker symbols.
-* `update_data SYMBOL START END` saves historical data for the given symbol to
+* `update_symbols` downloads the latest list of available ticker symbols from the SEC `company_tickers.json` dataset (via the sector pipeline integration) and writes `data/symbols.txt`.
+* `update_yf_symbols` probes Yahoo Finance for a small recent window and writes the subset of tickers that return data to `data/symbols_yf.txt`. Daily jobs require this list (no SEC fallback).
+* `update_data_from_yf SYMBOL START END` saves historical data for the given symbol to
   `data/<SYMBOL>.csv`.
-* `update_all_data START END` performs the download for every cached symbol.
+* `update_all_data_from_yf START END` performs the download for every cached symbol.
 * `find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS`
   recalculates the entry and exit signals for `DATE` using the provided
   strategies instead of reading log files.
@@ -135,7 +137,9 @@ Fama-French industry groups. Each run of
 `cache/submissions` and records its configuration in `cache/last_run.json`.
 Calling `update_latest_dataset` later reloads that configuration and rebuilds
 the output while reusing the cached submissions, so only new symbols require
-additional downloads. The resulting table is written to
+additional downloads. If no prior configuration exists, the pipeline falls back
+to the bundled default mapping at `data/sic_to_ff.csv` so it runs out of the box.
+The resulting table is written to
 `data/symbols_with_sector.parquet` and can also be exported as a CSV file.
 The ticker universe is always derived from the SEC `company_tickers.json`
 dataset and cannot be overridden with a custom list.

@@ -59,10 +59,10 @@ def download_history(
     Exception
         Propagates the last error if downloading repeatedly fails.
     """
-    from .symbols import load_symbols
+    from .symbols import load_symbols, SP500_SYMBOL
 
     available_symbol_list = load_symbols()
-    if available_symbol_list and symbol not in available_symbol_list:
+    if available_symbol_list and symbol not in available_symbol_list and symbol != SP500_SYMBOL:
         raise ValueError(f"Unknown symbol: {symbol}")
 
     cached_frame = pandas.DataFrame()

@@ -10,3 +10,4 @@ cron_logs
 data/*
 !data/sic_to_ff.csv
 logs
+cache

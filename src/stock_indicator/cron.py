@@ -10,7 +10,7 @@ from typing import Callable, Dict, Iterable, List, Tuple
 
 import pandas
 
-from .symbols import update_symbol_cache, load_symbols
+from .symbols import update_symbol_cache, load_symbols, load_yf_symbols
 from .data_loader import download_history
 from .strategy import SUPPORTED_STRATEGIES
 
@@ -168,7 +168,12 @@ def run_daily_tasks(
     except Exception as update_error:  # noqa: BLE001
         LOGGER.warning("Could not update symbol cache: %s", update_error)
     if symbol_list is None:
-        symbol_list = load_symbols()
+        # Require a YF-verified symbol universe; do not fall back to SEC list
+        symbol_list = load_yf_symbols()
+        if not symbol_list:
+            raise ValueError(
+                "No Yahoo Finance symbol list available. Run 'update_yf_symbols' first."
+            )
 
     entry_signal_symbols: List[str] = []
     exit_signal_symbols: List[str] = []

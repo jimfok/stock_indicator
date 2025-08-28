@@ -1,8 +1,15 @@
-"""Functions for loading and applying Fama-French industry mappings.
+"""Functions for loading and applying Fama–French industry mappings.
 
-The default mapping resides in ``data/sic_to_ff.csv``. Updated tables are
-available from the Kenneth French Data Library and should replace this file
-when industry definitions change.
+The default mapping resides in ``data/sic_to_ff.csv``. Authoritative SIC range
+definitions for the Fama–French 12/48/49 industry groupings are published at the
+Kenneth R. French Data Library:
+https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html
+
+To refresh, download the latest SIC definitions (e.g., 49-industry SIC codes),
+convert them to a CSV with columns ``sic_start,sic_end,ff12,ff48,ff49,label``,
+and overwrite ``data/sic_to_ff.csv``. Alternatively, provide a URL or local
+path at runtime via the management shell command
+``update_sector_data --ff-map-url=URL OUTPUT_PATH``.
 """
 
 # TODO: review
@@ -74,10 +81,14 @@ def build_classification_lookup(mapping_data_frame: pd.DataFrame) -> pd.DataFram
 def attach_fama_french_groups(
     data_frame: pd.DataFrame, classification_lookup: pd.DataFrame
 ) -> pd.DataFrame:
-    """Merge Fama-French classifications into ``data_frame`` using ``sic`` codes."""
+    """Merge Fama–French classifications into ``data_frame`` using ``sic`` codes.
+
+    Any SIC not present in the mapping defaults to FF12=12 ("Other").
+    FF48/FF49 remain unset and default to -1 when missing.
+    """
     merged_data_frame = data_frame.merge(classification_lookup, on="sic", how="left")
-    merged_data_frame["ff12"] = merged_data_frame["ff12"].fillna(-1).astype(int)
+    merged_data_frame["ff12"] = merged_data_frame["ff12"].fillna(12).astype(int)
     merged_data_frame["ff48"] = merged_data_frame["ff48"].fillna(-1).astype(int)
     merged_data_frame["ff49"] = merged_data_frame["ff49"].fillna(-1).astype(int)
-    merged_data_frame["ff_label"] = merged_data_frame["ff_label"].fillna("UNKNOWN")
+    merged_data_frame["ff_label"] = merged_data_frame["ff_label"].fillna("Other")
     return merged_data_frame

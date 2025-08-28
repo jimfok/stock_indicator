@@ -111,12 +111,32 @@ def build_sector_classification_dataset(
 
 
 def update_latest_dataset() -> pd.DataFrame:
-    """Rebuild the classification data using the most recent configuration."""
-    configuration = load_json_file(LAST_RUN_CONFIG_PATH)
-    return build_sector_classification_dataset(
-        configuration["mapping_source"],
-        Path(configuration.get("output", DEFAULT_OUTPUT_PARQUET_PATH)),
+    """Rebuild the classification data using saved or default configuration.
+
+    If no prior configuration exists, use the default mapping path
+    (``data/sic_to_ff.csv``) and default output path.
+    """
+    if LAST_RUN_CONFIG_PATH.exists():
+        configuration = load_json_file(LAST_RUN_CONFIG_PATH)
+    else:
+        configuration = {}
+    mapping_source = str(
+        configuration.get("mapping_source", SIC_TO_FAMA_FRENCH_MAPPING_PATH)
     )
+    output_path = Path(configuration.get("output", DEFAULT_OUTPUT_PARQUET_PATH))
+    # If the source looks like a local path, ensure it exists or fall back to default
+    if not (mapping_source.startswith("http://") or mapping_source.startswith("https://")):
+        mapping_path = Path(mapping_source)
+        if not mapping_path.exists():
+            default_path = Path(SIC_TO_FAMA_FRENCH_MAPPING_PATH)
+            if default_path.exists():
+                mapping_source = str(default_path)
+            else:
+                raise FileNotFoundError(
+                    f"Fama-French mapping file not found: {mapping_source}. "
+                    "Place a mapping at data/sic_to_ff.csv or run 'update_sector_data --ff-map-url=URL OUTPUT_PATH'."
+                )
+    return build_sector_classification_dataset(mapping_source, output_path)
 
 
 def generate_coverage_report(data_frame: pd.DataFrame) -> str:

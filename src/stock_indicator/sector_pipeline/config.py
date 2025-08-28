@@ -1,11 +1,21 @@
 """Configuration settings for the sector classification pipeline.
 
-The pipeline requires a table that maps standard industrial classification
-codes to Fama-French industry groups. Download the latest mapping from the
-Kenneth French Data Library at
-https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html and
-save it as ``sic_to_ff.csv`` in the repository's ``data`` directory to keep the
-classifications current.
+The pipeline requires a table that maps Standard Industrial Classification
+codes (SIC) to Fama–French industry groups. Obtain the official SIC→Fama–French
+definitions from the Kenneth R. French Data Library and store them locally as
+``data/sic_to_ff.csv``. For source material and periodic updates, refer to:
+
+- Kenneth R. French Data Library: Industry definitions and SIC ranges
+  https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html
+  (see the 49-Industry or 12-Industry SIC definitions)
+
+You can also supply a URL or file path at runtime via the management shell
+command ``update_sector_data --ff-map-url=URL OUTPUT_PATH``. When omitted, the
+pipeline falls back to the local ``data/sic_to_ff.csv`` file.
+
+SEC API requests must include a descriptive User-Agent with contact details per
+SEC guidance. Update ``SEC_USER_AGENT`` below with your organization/app name and
+a valid email/URL where you can be reached.
 """
 
 # TODO: review
@@ -16,7 +26,11 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 SEC_COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_SUBMISSIONS_URL_TEMPLATE = "https://data.sec.gov/submissions/CIK{cik_padded}.json"
-SEC_USER_AGENT = "StockIndicatorApp contact@stockindicator.com"
+
+# Per SEC guidelines, identify your app and provide a real contact.
+# Example format: "app-name/version (contact: email@domain.com)"
+# TODO: review
+SEC_USER_AGENT = "stock-indicator/1.0 (contact: maintainer@example.com)"
 
 CACHE_DIRECTORY = REPOSITORY_ROOT / "cache"
 SUBMISSIONS_DIRECTORY = CACHE_DIRECTORY / "submissions"
