@@ -126,6 +126,18 @@ percent sign. For example `dollar_volume>1%` retains only symbols whose
 50-day average dollar volume is greater than one percent of the combined
 volume across all symbols.
 
+## Sector Classification Pipeline
+
+The module `stock_indicator.sector_pipeline.pipeline` creates a data set that
+links ticker symbols to Standard Industrial Classification codes and
+Fama-French industry groups. Each run of
+`build_sector_classification_dataset` caches SEC submission data in
+`cache/submissions` and records its configuration in `cache/last_run.json`.
+Calling `update_latest_dataset` later reloads that configuration and rebuilds
+the output while reusing the cached submissions, so only new symbols require
+additional downloads. The resulting table is written to
+`data/symbols_with_sector.parquet` and can also be exported as a CSV file.
+
 ## Contribution Guidelines
 1. Fork the repository and create a new branch for each feature or bug fix.
 2. Ensure your code passes all tests by running `pytest` before submitting.
