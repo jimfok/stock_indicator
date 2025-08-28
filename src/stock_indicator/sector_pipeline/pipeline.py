@@ -1,4 +1,13 @@
-"""End-to-end pipeline for tagging symbols with SIC and Fama-French groups."""
+"""Pipeline for tagging symbols with SIC and Fama-French groups.
+
+The pipeline stores intermediate data in directories under ``cache/`` within
+the project root. Each call to :func:`build_sector_classification_dataset`
+records its configuration in ``cache/last_run.json`` and caches SEC submission
+files in ``cache/submissions``. Subsequent executions can call
+:func:`update_latest_dataset` to rebuild the output using that saved
+configuration while reusing any cached submissions. This incremental approach
+avoids downloading data for symbols that have already been processed.
+"""
 
 # TODO: review
 
@@ -10,7 +19,6 @@ import pandas as pd
 import requests
 
 from .config import (
-    CACHE_DIRECTORY,
     SUBMISSIONS_DIRECTORY,
     LAST_RUN_CONFIG_PATH,
     DEFAULT_OUTPUT_PARQUET_PATH,
@@ -26,6 +34,10 @@ from .ff_mapping import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Ensure required cache directories exist for incremental updates
+ensure_directory_exists(LAST_RUN_CONFIG_PATH.parent)
+ensure_directory_exists(SUBMISSIONS_DIRECTORY)
 
 
 def load_universe(source: str | Path) -> pd.DataFrame:
@@ -68,7 +80,7 @@ def build_sector_classification_dataset(
     By default the local ``sic_to_ff.csv`` file under the repository's
     ``data`` directory is used.
     """
-    ensure_directory_exists(CACHE_DIRECTORY)
+    ensure_directory_exists(LAST_RUN_CONFIG_PATH.parent)
     ensure_directory_exists(SUBMISSIONS_DIRECTORY)
     universe_data_frame = load_universe(symbols_source)
     ticker_mapping_data_frame = map_tickers_to_central_index_and_classification(
