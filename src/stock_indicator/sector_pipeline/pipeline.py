@@ -15,6 +15,7 @@ from .config import (
     LAST_RUN_CONFIG_PATH,
     DEFAULT_OUTPUT_PARQUET_PATH,
     DEFAULT_OUTPUT_CSV_PATH,
+    SIC_TO_FAMA_FRENCH_MAPPING_PATH,
 )
 from .utils import ensure_directory_exists, save_json_file, load_json_file
 from .sec_api import map_tickers_to_central_index_and_classification
@@ -57,11 +58,16 @@ def load_universe(source: str | Path) -> pd.DataFrame:
 
 def build_sector_classification_dataset(
     symbols_source: str | Path,
-    mapping_source: str | Path,
+    mapping_source: str | Path = SIC_TO_FAMA_FRENCH_MAPPING_PATH,
     output_parquet_path: Path = DEFAULT_OUTPUT_PARQUET_PATH,
     output_csv_path: Optional[Path] = DEFAULT_OUTPUT_CSV_PATH,
 ) -> pd.DataFrame:
-    """Generate a data set of symbols tagged with CIK, SIC, and Fama-French codes."""
+    """Generate a data set of symbols tagged with CIK, SIC, and Fama-French codes.
+
+    ``mapping_source`` may be a path to a CSV file or a URL pointing to one.
+    By default the local ``sic_to_ff.csv`` file under the repository's
+    ``data`` directory is used.
+    """
     ensure_directory_exists(CACHE_DIRECTORY)
     ensure_directory_exists(SUBMISSIONS_DIRECTORY)
     universe_data_frame = load_universe(symbols_source)
