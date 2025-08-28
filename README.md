@@ -137,6 +137,8 @@ Calling `update_latest_dataset` later reloads that configuration and rebuilds
 the output while reusing the cached submissions, so only new symbols require
 additional downloads. The resulting table is written to
 `data/symbols_with_sector.parquet` and can also be exported as a CSV file.
+The ticker universe is always derived from the SEC `company_tickers.json`
+dataset and cannot be overridden with a custom list.
 
 ## Contribution Guidelines
 1. Fork the repository and create a new branch for each feature or bug fix.

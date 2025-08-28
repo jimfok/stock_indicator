@@ -38,7 +38,10 @@ def determine_start_date(data_directory: Path) -> str:
             continue
         if date_frame.empty:
             continue
-        first_date = date_frame.iloc[0, 0].date()
+        first_value = date_frame.iloc[0, 0]
+        if not hasattr(first_value, "date"):
+            continue
+        first_date = first_value.date()
         if earliest_date is None or first_date < earliest_date:
             earliest_date = first_date
     if earliest_date is None:

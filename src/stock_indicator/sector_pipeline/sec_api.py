@@ -72,6 +72,17 @@ def fetch_company_ticker_table() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def load_company_tickers() -> pd.DataFrame:
+    """Download and return ticker symbols with their central index keys.
+
+    The function retrieves the SEC ``company_tickers.json`` dataset,
+    normalizes all ticker symbols, and returns a DataFrame containing
+    ``ticker`` and ``cik`` columns.
+    """
+    company_table = fetch_company_ticker_table()
+    return company_table[["ticker", "cik"]]
+
+
 def _submissions_cache_path(central_index_key: int) -> Path:
     """Return the cache path for a submission JSON file."""
     file_name = f"CIK{_format_central_index_key(central_index_key)}.json"
@@ -112,17 +123,20 @@ def map_tickers_to_central_index_and_classification(
 
     Prints progress to standard output while processing each central index key.
     """
-    sec_mapping_data_frame = fetch_company_ticker_table()
-    universe_copy = universe_data_frame.copy()
-    universe_copy["ticker_normalized"] = universe_copy["ticker"].map(
-        normalize_ticker_symbol
-    )
-    sec_mapping_data_frame["ticker_normalized"] = sec_mapping_data_frame["ticker"]
-    merged_data_frame = universe_copy.merge(
-        sec_mapping_data_frame[["ticker_normalized", "cik"]],
-        on="ticker_normalized",
-        how="left",
-    ).drop(columns=["ticker_normalized"])
+    if "cik" not in universe_data_frame.columns:
+        sec_mapping_data_frame = fetch_company_ticker_table()
+        universe_copy = universe_data_frame.copy()
+        universe_copy["ticker_normalized"] = universe_copy["ticker"].map(
+            normalize_ticker_symbol
+        )
+        sec_mapping_data_frame["ticker_normalized"] = sec_mapping_data_frame["ticker"]
+        merged_data_frame = universe_copy.merge(
+            sec_mapping_data_frame[["ticker_normalized", "cik"]],
+            on="ticker_normalized",
+            how="left",
+        ).drop(columns=["ticker_normalized"])
+    else:
+        merged_data_frame = universe_data_frame[["ticker", "cik"]].copy()
     central_index_key_values = sorted(
         value for value in merged_data_frame["cik"].dropna().unique()
     )
