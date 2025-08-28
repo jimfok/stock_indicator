@@ -1322,3 +1322,72 @@ def test_start_simulate_accepts_windowed_strategy_names(monkeypatch: pytest.Monk
     shell = manage_module.StockShell(stdout=output_buffer)
     shell.onecmd("start_simulate dollar_volume>0 noop_5 noop_10")
     assert "unsupported strategies" not in output_buffer.getvalue()
+
+
+def test_update_sector_data_without_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command should rebuild data using the last configuration."""
+    import stock_indicator.manage as manage_module
+
+    call_flags = {"update_called": False, "report_called": False}
+
+    def fake_update_latest_dataset() -> pandas.DataFrame:
+        call_flags["update_called"] = True
+        return pandas.DataFrame({"ticker": ["AAA"], "ff48": [1]})
+
+    def fake_generate_coverage_report(data_frame: pandas.DataFrame) -> str:
+        call_flags["report_called"] = True
+        return "report"
+
+    monkeypatch.setattr(
+        manage_module.pipeline, "update_latest_dataset", fake_update_latest_dataset
+    )
+    monkeypatch.setattr(
+        manage_module.pipeline, "generate_coverage_report", fake_generate_coverage_report
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd("update_sector_data")
+
+    assert call_flags == {"update_called": True, "report_called": True}
+    assert output_buffer.getvalue() == "report\n"
+
+
+def test_update_sector_data_with_arguments(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The command should build data when given explicit sources."""
+    import stock_indicator.manage as manage_module
+
+    call_arguments: dict[str, object] = {}
+
+    def fake_build_sector_classification_dataset(
+        symbols_url: str, mapping_url: str, output_path: Path
+    ) -> pandas.DataFrame:
+        call_arguments["symbols"] = symbols_url
+        call_arguments["mapping"] = mapping_url
+        call_arguments["output"] = output_path
+        return pandas.DataFrame({"ticker": ["AAA"], "ff48": [1]})
+
+    def fake_generate_coverage_report(data_frame: pandas.DataFrame) -> str:
+        return "ok"
+
+    monkeypatch.setattr(
+        manage_module.pipeline,
+        "build_sector_classification_dataset",
+        fake_build_sector_classification_dataset,
+    )
+    monkeypatch.setattr(
+        manage_module.pipeline, "generate_coverage_report", fake_generate_coverage_report
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd(
+        f"update_sector_data --symbols-url=http://sym --ff-map-url=http://map {tmp_path/'out.parquet'}"
+    )
+
+    assert call_arguments == {
+        "symbols": "http://sym",
+        "mapping": "http://map",
+        "output": tmp_path / "out.parquet",
+    }
+    assert output_buffer.getvalue() == "ok\n"
