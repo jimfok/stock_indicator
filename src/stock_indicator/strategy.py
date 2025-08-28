@@ -81,13 +81,18 @@ def load_price_data(csv_file_path: Path) -> pandas.DataFrame:
     """Load price data from ``csv_file_path`` and normalize column names.
 
     Duplicate dates are removed and the index is sorted to ensure that the
-    resulting frame has unique, chronologically ordered entries.
+    resulting frame has unique, chronologically ordered entries. When the CSV
+    file is empty, an empty data frame is returned so the caller can skip the
+    symbol gracefully.
     """
     # TODO: review
 
-    price_data_frame = pandas.read_csv(
-        csv_file_path, parse_dates=["Date"], index_col="Date"
-    )
+    try:
+        price_data_frame = pandas.read_csv(
+            csv_file_path, parse_dates=["Date"], index_col="Date"
+        )
+    except pandas.errors.EmptyDataError:
+        return pandas.DataFrame()
     price_data_frame = price_data_frame.loc[
         ~price_data_frame.index.duplicated(keep="first")
     ]
@@ -634,6 +639,7 @@ def evaluate_combined_strategy(
     withdraw_amount: float = 0.0,
     stop_loss_percentage: float = 1.0,
     start_date: pandas.Timestamp | None = None,
+    maximum_position_count: int = 3,
 ) -> StrategyMetrics:
     """Evaluate a combination of strategies for entry and exit signals.
 
@@ -677,6 +683,9 @@ def evaluate_combined_strategy(
         rows on or after this date before any signals are calculated. The
         simulation begins on the later of ``start_date`` and the earliest date
         on which a symbol becomes eligible.
+    maximum_position_count: int, default 3
+        Upper bound on the number of simultaneous open positions. Each
+        position uses a fixed fraction of equity based on this limit.
     """
     # TODO: review
 
@@ -781,9 +790,6 @@ def evaluate_combined_strategy(
         merged_volume_frame = pandas.DataFrame()
         eligibility_mask = pandas.DataFrame()
 
-    eligible_symbol_counts_by_date = (
-        eligibility_mask.sum(axis=1).astype(int).to_dict()
-    )
     market_total_dollar_volume_by_date = (
         merged_volume_frame.sum(axis=1).to_dict()
     )
@@ -963,18 +969,18 @@ def evaluate_combined_strategy(
     annual_returns = calculate_annual_returns(
         all_trades,
         starting_cash,
-        eligible_symbol_counts_by_date,
+        maximum_position_count,
         simulation_start_date,
         withdraw_amount,
     )
     annual_trade_counts = calculate_annual_trade_counts(all_trades)
     final_balance = simulate_portfolio_balance(
-        all_trades, starting_cash, eligible_symbol_counts_by_date, withdraw_amount
+        all_trades, starting_cash, maximum_position_count, withdraw_amount
     )
     maximum_drawdown = calculate_max_drawdown(
         all_trades,
         starting_cash,
-        eligible_symbol_counts_by_date,
+        maximum_position_count,
         trade_symbol_lookup,
         closing_price_series_by_symbol,
         withdraw_amount,

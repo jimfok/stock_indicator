@@ -276,41 +276,50 @@ def test_calculate_maximum_concurrent_positions_orders_exit_before_entry() -> No
     assert maximum_positions == 1
 
 
-def test_simulate_portfolio_balance_allocates_budget_by_symbol_count() -> None:
-    """Portfolio simulation should allocate cash based on remaining symbols."""
+def test_simulate_portfolio_balance_uses_fixed_slot_weight() -> None:
+    """Portfolio simulation should size positions using a fixed slot weight."""
     trade_alpha = Trade(
         entry_date=pandas.Timestamp("2024-01-01"),
-        exit_date=pandas.Timestamp("2024-01-05"),
-        entry_price=10.0,
-        exit_price=20.0,
-        profit=10.0,
-        holding_period=4,
-    )
-    trade_beta = Trade(
-        entry_date=pandas.Timestamp("2024-01-02"),
-        exit_date=pandas.Timestamp("2024-01-06"),
-        entry_price=10.0,
-        exit_price=10.0,
-        profit=0.0,
-        holding_period=4,
-    )
-    trade_gamma = Trade(
-        entry_date=pandas.Timestamp("2024-01-03"),
-        exit_date=pandas.Timestamp("2024-01-04"),
+        exit_date=pandas.Timestamp("2024-01-02"),
         entry_price=10.0,
         exit_price=20.0,
         profit=10.0,
         holding_period=1,
     )
-    final_balance = simulate_portfolio_balance(
-        [trade_alpha, trade_beta, trade_gamma], 100.0, 3
+    trade_beta = Trade(
+        entry_date=pandas.Timestamp("2024-01-01"),
+        exit_date=pandas.Timestamp("2024-01-02"),
+        entry_price=10.0,
+        exit_price=10.0,
+        profit=0.0,
+        holding_period=1,
     )
-    expected_final_balance = 158.8
+    final_balance = simulate_portfolio_balance(
+        [trade_alpha, trade_beta], 100.0, 5
+    )
+    entry_commission_alpha = calc_commission(2, 10.0)
+    entry_commission_beta = calc_commission(1, 10.0)
+    cash_after_entries = (
+        100.0
+        - 2 * 10.0
+        - entry_commission_alpha
+        - 1 * 10.0
+        - entry_commission_beta
+    )
+    exit_commission_alpha = calc_commission(2, 20.0)
+    exit_commission_beta = calc_commission(1, 10.0)
+    expected_final_balance = (
+        cash_after_entries
+        + 2 * 20.0
+        - exit_commission_alpha
+        + 1 * 10.0
+        - exit_commission_beta
+    )
     assert pytest.approx(final_balance, rel=1e-6) == expected_final_balance
 
 
-def test_simulate_portfolio_balance_invests_additional_share_when_cash_available() -> None:
-    """Portfolio simulation should buy an extra share if cash remains."""
+def test_simulate_portfolio_balance_skips_trade_when_budget_insufficient() -> None:
+    """Positions should be ignored when the slot budget cannot buy one share."""
     trade_primary = Trade(
         entry_date=pandas.Timestamp("2024-01-01"),
         exit_date=pandas.Timestamp("2024-01-03"),
@@ -330,7 +339,10 @@ def test_simulate_portfolio_balance_invests_additional_share_when_cash_available
     final_balance = simulate_portfolio_balance(
         [trade_primary, trade_secondary], 100.0, 2
     )
-    expected_final_balance = 159.1
+    entry_commission = calc_commission(1, 30.0)
+    cash_after_entry = 100.0 - 1 * 30.0 - entry_commission
+    exit_commission = calc_commission(1, 60.0)
+    expected_final_balance = cash_after_entry + 1 * 60.0 - exit_commission
     assert pytest.approx(final_balance, rel=1e-6) == expected_final_balance
 
 
@@ -359,7 +371,7 @@ def test_calculate_annual_returns_computes_yearly_returns() -> None:
     annual_returns = calculate_annual_returns(
         [trade_one, trade_two],
         starting_cash=1000.0,
-        eligible_symbol_count=1,
+        maximum_position_count=1,
         simulation_start=simulation_start,
     )
     first_year_end = (
@@ -395,7 +407,7 @@ def test_simulate_portfolio_balance_applies_withdraw() -> None:
     final_balance = simulate_portfolio_balance(
         [trade_record],
         starting_cash=100.0,
-        eligible_symbol_count=1,
+        maximum_position_count=1,
         withdraw_amount=10.0,
     )
     expected_balance = 89.0
@@ -428,7 +440,7 @@ def test_calculate_annual_returns_applies_withdraw() -> None:
     annual_returns = calculate_annual_returns(
         [trade_one, trade_two],
         starting_cash=100.0,
-        eligible_symbol_count=1,
+        maximum_position_count=1,
         simulation_start=simulation_start,
         withdraw_amount=10.0,
     )
@@ -515,7 +527,7 @@ def test_calculate_max_drawdown_marks_to_market() -> None:
     maximum_drawdown_value = calculate_max_drawdown(
         [trade],
         starting_cash=1000.0,
-        eligible_symbol_counts_by_date=1,
+        maximum_position_count=1,
         trade_symbol_lookup=trade_symbol_lookup,
         closing_price_series_by_symbol=closing_price_series_by_symbol,
         withdraw_amount=0.0,
