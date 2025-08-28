@@ -26,7 +26,10 @@ from .config import (
     SIC_TO_FAMA_FRENCH_MAPPING_PATH,
 )
 from .utils import ensure_directory_exists, save_json_file, load_json_file
-from .sec_api import map_tickers_to_central_index_and_classification
+from .sec_api import (
+    map_tickers_to_central_index_and_classification,
+    load_company_tickers,
+)
 from .ff_mapping import (
     load_fama_french_mapping,
     build_classification_lookup,
@@ -69,20 +72,20 @@ def load_universe(source: str | Path) -> pd.DataFrame:
 
 
 def build_sector_classification_dataset(
-    symbols_source: str | Path,
     mapping_source: str | Path = SIC_TO_FAMA_FRENCH_MAPPING_PATH,
     output_parquet_path: Path = DEFAULT_OUTPUT_PARQUET_PATH,
     output_csv_path: Optional[Path] = DEFAULT_OUTPUT_CSV_PATH,
 ) -> pd.DataFrame:
-    """Generate a data set of symbols tagged with CIK, SIC, and Fama-French codes.
+    """Generate a dataset of symbols with CIK, SIC, and Fama-French codes.
 
-    ``mapping_source`` may be a path to a CSV file or a URL pointing to one.
-    By default the local ``sic_to_ff.csv`` file under the repository's
+    The ticker universe is downloaded from the SEC ``company_tickers.json``
+    dataset. ``mapping_source`` may be a path to a CSV file or a URL pointing
+    to one. By default the local ``sic_to_ff.csv`` file under the repository's
     ``data`` directory is used.
     """
     ensure_directory_exists(LAST_RUN_CONFIG_PATH.parent)
     ensure_directory_exists(SUBMISSIONS_DIRECTORY)
-    universe_data_frame = load_universe(symbols_source)
+    universe_data_frame = load_company_tickers()
     ticker_mapping_data_frame = map_tickers_to_central_index_and_classification(
         universe_data_frame
     )
@@ -99,7 +102,6 @@ def build_sector_classification_dataset(
         classified_data_frame.to_csv(output_csv_path, index=False)
     save_json_file(
         {
-            "symbols_source": str(symbols_source),
             "mapping_source": str(mapping_source),
             "output": str(output_parquet_path),
         },
@@ -112,7 +114,6 @@ def update_latest_dataset() -> pd.DataFrame:
     """Rebuild the classification data using the most recent configuration."""
     configuration = load_json_file(LAST_RUN_CONFIG_PATH)
     return build_sector_classification_dataset(
-        configuration["symbols_source"],
         configuration["mapping_source"],
         Path(configuration.get("output", DEFAULT_OUTPUT_PARQUET_PATH)),
     )

@@ -1,19 +1,50 @@
-import argparse, sys, pandas as pd
-from src.sec_pipeline.pipeline import build, update, coverage_report
-from src.sec_pipeline.config import DEFAULT_OUT_PARQUET
-def main(argv=None):
-    p=argparse.ArgumentParser(description='SEC→SIC→FF pipeline')
-    sp=p.add_subparsers(dest='cmd', required=True)
-    pb=sp.add_parser('build'); pb.add_argument('--symbols-url', required=True); pb.add_argument('--ff-map-url', required=True); pb.add_argument('--out', default=DEFAULT_OUT_PARQUET)
-    sp.add_parser('update'); sp.add_parser('verify')
-    a=p.parse_args(argv)
-    if a.cmd=='build':
-        df=build(a.symbols_url, a.ff_map_url, a.out); print(coverage_report(df))
-    elif a.cmd=='update':
-        df=update(); print(coverage_report(df))
-    elif a.cmd=='verify':
+import argparse
+import sys
+from typing import List
+
+import pandas as pd
+
+from stock_indicator.sector_pipeline.pipeline import (
+    build_sector_classification_dataset,
+    update_latest_dataset,
+    generate_coverage_report,
+)
+from stock_indicator.sector_pipeline.config import DEFAULT_OUTPUT_PARQUET_PATH
+
+
+def main(argument_list: List[str] | None = None) -> None:
+    """Command-line interface for the SEC→SIC→Fama-French pipeline."""
+    parser = argparse.ArgumentParser(description="SEC→SIC→FF pipeline")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    build_parser = subparsers.add_parser("build")
+    build_parser.add_argument("--ff-map-url", required=True)
+    build_parser.add_argument("--out", default=DEFAULT_OUTPUT_PARQUET_PATH)
+
+    subparsers.add_parser("update")
+    subparsers.add_parser("verify")
+
+    arguments = parser.parse_args(argument_list)
+
+    if arguments.command == "build":
+        data_frame = build_sector_classification_dataset(
+            arguments.ff_map_url, arguments.out
+        )
+        print(generate_coverage_report(data_frame))
+    elif arguments.command == "update":
+        data_frame = update_latest_dataset()
+        print(generate_coverage_report(data_frame))
+    elif arguments.command == "verify":
         try:
-            df=pd.read_parquet(DEFAULT_OUT_PARQUET); print(coverage_report(df))
-        except Exception as e:
-            print(f'Failed to load {DEFAULT_OUT_PARQUET}: {e}', file=sys.stderr); sys.exit(1)
-if __name__=='__main__': main()
+            data_frame = pd.read_parquet(DEFAULT_OUTPUT_PARQUET_PATH)
+            print(generate_coverage_report(data_frame))
+        except (OSError, ValueError) as error:
+            print(
+                f"Failed to load {DEFAULT_OUTPUT_PARQUET_PATH}: {error}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -1360,9 +1360,8 @@ def test_update_sector_data_with_arguments(monkeypatch: pytest.MonkeyPatch, tmp_
     call_arguments: dict[str, object] = {}
 
     def fake_build_sector_classification_dataset(
-        symbols_url: str, mapping_url: str, output_path: Path
+        mapping_url: str, output_path: Path
     ) -> pandas.DataFrame:
-        call_arguments["symbols"] = symbols_url
         call_arguments["mapping"] = mapping_url
         call_arguments["output"] = output_path
         return pandas.DataFrame({"ticker": ["AAA"], "ff48": [1]})
@@ -1382,11 +1381,10 @@ def test_update_sector_data_with_arguments(monkeypatch: pytest.MonkeyPatch, tmp_
     output_buffer = io.StringIO()
     shell = manage_module.StockShell(stdout=output_buffer)
     shell.onecmd(
-        f"update_sector_data --symbols-url=http://sym --ff-map-url=http://map {tmp_path/'out.parquet'}"
+        f"update_sector_data --ff-map-url=http://map {tmp_path/'out.parquet'}"
     )
 
     assert call_arguments == {
-        "symbols": "http://sym",
         "mapping": "http://map",
         "output": tmp_path / "out.parquet",
     }
