@@ -96,6 +96,11 @@ selects the six highest-volume symbols from the remainder. The tests
 `tests/test_strategy.py::test_evaluate_combined_strategy_dollar_volume_filter_and_rank`
 demonstrate this combined syntax.
 
+An optional stop loss value and a trailing `True` or `False` flag may be added
+after the strategy names. The numeric stop loss sets the fractional decline
+that triggers an exit on the next day's open, and the boolean flag controls
+whether individual trade details are printed.
+
 Strategies may also limit the simple moving average slope. These identifiers follow the `ema_sma_signal_with_slope_n_k` pattern where `n` and `k` are the lower and upper slope bounds. The bounds accept negative or positive floating-point numbers. For example:
 
 ```bash

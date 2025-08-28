@@ -38,6 +38,11 @@ averages. The tests
 `tests/test_strategy.py::test_evaluate_combined_strategy_dollar_volume_filter_and_rank`
 exercise this combined syntax.
 
+A numeric stop loss and a trailing `True` or `False` flag may follow the
+strategy names. The stop loss specifies the fractional decline that triggers an
+exit on the next day's open, and the boolean flag controls whether individual
+trade details are printed.
+
 The simulation report lists the maximum drawdown alongside other metrics. This
 percentage indicates the greatest decline from any previous portfolio peak.
 
