@@ -18,6 +18,7 @@ from pandas import DataFrame
 from . import data_loader, symbols, strategy, volume, daily_job
 from .daily_job import determine_start_date
 from .symbols import SP500_SYMBOL
+from stock_indicator.sector_pipeline import pipeline
 
 LOGGER = logging.getLogger(__name__)
 
@@ -108,6 +109,63 @@ class StockShell(cmd.Cmd):
             "Parameters:\n"
             "  START: Start date in YYYY-MM-DD format.\n"
             "  END: End date in YYYY-MM-DD format.\n"
+        )
+
+    def do_update_sector_data(self, argument_line: str) -> None:  # noqa: D401
+        """update_sector_data [--symbols-url=URL --ff-map-url=URL OUTPUT_PATH]
+        Refresh the local sector classification data set."""
+        argument_parts: List[str] = argument_line.split()
+        if not argument_parts:
+            LOGGER.info(
+                "Updating sector classification data using last run configuration",
+            )
+            data_frame: DataFrame = pipeline.update_latest_dataset()
+            coverage_report = pipeline.generate_coverage_report(data_frame)
+            self.stdout.write(f"{coverage_report}\n")
+            return
+        symbols_url: str | None = None
+        mapping_url: str | None = None
+        output_path_string: str | None = None
+        for token in argument_parts:
+            if token.startswith("--symbols-url="):
+                symbols_url = token.split("=", 1)[1]
+            elif token.startswith("--ff-map-url="):
+                mapping_url = token.split("=", 1)[1]
+            else:
+                output_path_string = token
+        if (
+            symbols_url is None
+            or mapping_url is None
+            or output_path_string is None
+        ):
+            self.stdout.write(
+                "usage: update_sector_data --symbols-url=URL --ff-map-url=URL OUTPUT_PATH\n",
+            )
+            return
+        output_path = Path(output_path_string)
+        LOGGER.info(
+            "Building sector classification data using %s and %s",
+            symbols_url,
+            mapping_url,
+        )
+        data_frame = pipeline.build_sector_classification_dataset(
+            symbols_url,
+            mapping_url,
+            output_path,
+        )
+        coverage_report = pipeline.generate_coverage_report(data_frame)
+        self.stdout.write(f"{coverage_report}\n")
+
+    def help_update_sector_data(self) -> None:
+        """Display help for the update_sector_data command."""
+        self.stdout.write(
+            "update_sector_data --symbols-url=URL --ff-map-url=URL OUTPUT_PATH\n"
+            "Refresh sector classification data from SEC and Fama-French sources.\n"
+            "Without parameters, rebuilds data using the last saved configuration.\n"
+            "Parameters:\n"
+            "  --symbols-url: URL or file path listing ticker symbols.\n"
+            "  --ff-map-url: URL or file path to SIC to Fama-French mapping.\n"
+            "  OUTPUT_PATH: Destination path for the Parquet output file.\n"
         )
 
     # TODO: review
