@@ -113,6 +113,7 @@ def find_signal(
     buy_strategy: str,
     sell_strategy: str,
     stop_loss: float,
+    allowed_fama_french_groups: set[int] | None = None,
 ) -> Dict[str, List[str]]:
     """Run daily tasks for a single date and return the signals.
 
@@ -127,7 +128,12 @@ def find_signal(
     sell_strategy:
         Name of the strategy used to generate exit signals.
     stop_loss:
-        Fractional loss that triggers an exit on the next day's open.
+        Fractional loss used for downstream simulations; not used in signal
+        detection here but preserved for parity with other entry points.
+    allowed_fama_french_groups:
+        Optional set of FF12 group identifiers (1–11) used to restrict the
+        tradable universe. Group 12 (Other) is always excluded when sector data
+        is available.
     Historical data from the earliest available date in ``DATA_DIRECTORY`` is
     used to ensure sufficient look-back.
 
@@ -139,9 +145,12 @@ def find_signal(
         the strategies.
     """
     # TODO: review
-    argument_line = (
-        f"{dollar_volume_filter} {buy_strategy} {sell_strategy} {stop_loss}"
+    group_token = (
+        ""
+        if not allowed_fama_french_groups
+        else "group=" + ",".join(str(i) for i in sorted(allowed_fama_french_groups)) + " "
     )
+    argument_line = f"{group_token}{dollar_volume_filter} {buy_strategy} {sell_strategy} {stop_loss}"
     start_date_string = determine_start_date(DATA_DIRECTORY)
     signal_result: Dict[str, List[str]] = cron.run_daily_tasks_from_argument(
         argument_line,
@@ -160,9 +169,8 @@ def main() -> None:
         help=(
             "Task description: 'dollar_volume>NUMBER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', "
             "'dollar_volume>NUMBER% BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', "
-            "'dollar_volume=RANKth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', "
-            "'dollar_volume>NUMBER,RANKth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', or "
-            "'dollar_volume>NUMBER%,RANKth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]'"
+            "'dollar_volume=TopN BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]' (or legacy 'Nth'), "
+            "'dollar_volume>NUMBER,TopN' (or ',Nth'), or 'dollar_volume>NUMBER%,TopN' (or ',Nth')."
         ),
     )
     parsed_arguments = parser.parse_args()

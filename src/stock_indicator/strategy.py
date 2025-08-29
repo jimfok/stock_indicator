@@ -11,7 +11,7 @@ from typing import Callable, Dict, List
 import re
 import pandas
 
-from .indicators import ema, ftd, kalman_filter, rsi, sma
+from .indicators import ema, kalman_filter, sma
 from .simulator import (
     SimulationResult,
     Trade,
@@ -128,6 +128,10 @@ class TradeDetail:
     # Group-aware metrics: totals and ratios computed within the symbol's FF12 group
     group_total_simple_moving_average_dollar_volume: float = 0.0
     group_simple_moving_average_dollar_volume_ratio: float = 0.0
+    # Number of concurrent open positions at this event.
+    # For an "open" event, includes this position. For a "close" event,
+    # excludes the position being closed.
+    concurrent_position_count: int = 0
     result: str | None = None  # TODO: review
     percentage_change: float | None = None  # TODO: review
 
@@ -238,7 +242,7 @@ def load_price_data(csv_file_path: Path) -> pandas.DataFrame:
 def attach_ema_sma_cross_signals(
     price_data_frame: pandas.DataFrame,
     window_size: int = 40,
-    require_close_above_long_term_sma: bool = True,
+    require_close_above_long_term_sma: bool = False,
 ) -> None:
     """Attach EMA/SMA cross entry and exit signals to ``price_data_frame``.
 
@@ -313,51 +317,7 @@ def attach_20_50_sma_cross_signals(price_data_frame: pandas.DataFrame) -> None:
     )
 
 
-def attach_ema_sma_cross_and_rsi_signals(
-    price_data_frame: pandas.DataFrame,
-    window_size: int = 40,
-    rsi_window_size: int = 14,
-) -> None:
-    """Attach EMA/SMA cross signals filtered by RSI to ``price_data_frame``."""
-    # TODO: review
-
-    attach_ema_sma_cross_signals(price_data_frame, window_size)
-    price_data_frame["rsi_value"] = rsi(
-        price_data_frame["close"], rsi_window_size
-    )
-    price_data_frame["ema_sma_cross_and_rsi_entry_signal"] = (
-        price_data_frame["ema_sma_cross_entry_signal"]
-        & (price_data_frame["rsi_value"] <= 40)
-    )
-    price_data_frame["ema_sma_cross_and_rsi_exit_signal"] = price_data_frame[
-        "ema_sma_cross_exit_signal"
-    ]
-
-
-def attach_ftd_ema_sma_cross_signals(
-    price_data_frame: pandas.DataFrame, window_size: int = 40
-) -> None:
-    """Attach EMA/SMA cross signals gated by recent FTD signals."""
-    # TODO: review
-
-    attach_ema_sma_cross_signals(price_data_frame, window_size)
-    ftd_signal_list: List[bool] = []
-    for row_index in range(len(price_data_frame)):
-        recent_price_data_frame = price_data_frame.iloc[: row_index + 1]
-        ftd_signal_list.append(ftd(recent_price_data_frame, buy_mark_day=1))
-    price_data_frame["ftd_signal"] = pandas.Series(
-        ftd_signal_list, index=price_data_frame.index
-    )
-    price_data_frame["ftd_recent_signal"] = (
-        price_data_frame["ftd_signal"].shift(1).rolling(window=4).max().fillna(0) >= 1
-    )
-    price_data_frame["ftd_ema_sma_cross_entry_signal"] = (
-        price_data_frame["ema_sma_cross_entry_signal"]
-        & price_data_frame["ftd_recent_signal"]
-    )
-    price_data_frame["ftd_ema_sma_cross_exit_signal"] = price_data_frame[
-        "ema_sma_cross_exit_signal"
-    ]
+## Removed deprecated strategies: ema_sma_cross_and_rsi, ftd_ema_sma_cross
 
 
 def attach_ema_sma_cross_with_slope_signals(
@@ -367,9 +327,10 @@ def attach_ema_sma_cross_with_slope_signals(
 ) -> None:
     """Attach EMA/SMA cross signals filtered by simple moving average slope.
 
-    Entry signals require the previous closing price to be above the long-term
-    simple moving average and the simple moving average slope to fall within
-    ``slope_range``. Unless a slope range is provided in the strategy name,
+    Entry signals require the prior-day EMA cross, the previous closing price to
+    be above the 150-day simple moving average, and the simple moving average
+    slope to fall within ``slope_range``. Unless a slope range is provided in the
+    strategy name,
     this function uses the default range ``(-0.3, 2.14)``. The magnitude of the
     slope depends on ``window_size``; larger windows produce smaller slope
     values, so adjust ``slope_range`` accordingly when overriding the default.
@@ -414,144 +375,105 @@ def attach_ema_sma_cross_with_slope_signals(
     ]
 
 
-def attach_ema_sma_cross_with_slope_and_volume_signals(
+def attach_ema_shift_cross_with_slope_signals(
     price_data_frame: pandas.DataFrame,
-    window_size: int = 40,
-    slope_range: tuple[float, float] = (-0.3, 2.14),
+    window_size: int = 35,
+    slope_range: tuple[float, float] = (-1.0, 1.0),
 ) -> None:
-    """Attach EMA/SMA cross signals filtered by SMA slope and dollar volume.
+    """Attach EMA/EMA(shifted) cross signals filtered by EMA slope.
 
-    These signals apply the same slope-based filter as
-    :func:`attach_ema_sma_cross_with_slope_signals` and additionally require
-    exponential dollar volume to exceed the simple moving average dollar
-    volume. Unless the strategy name specifies otherwise, the default slope
-    range ``(-0.3, 2.14)`` is used. Because the slope is computed from the
-    simple moving average over ``window_size`` periods, the acceptable slope
-    range should be tuned when the window size changes.
+    This strategy mirrors :func:`attach_ema_sma_cross_with_slope_signals` but
+    replaces the simple moving average with an exponential moving average
+    computed from the closing prices shifted back by three trading days.
+
+    Entry conditions:
+    - Previous day's EMA crosses above the shifted EMA
+    - The shifted EMA slope falls within ``slope_range``
+
+    Exit condition:
+    - Previous day's EMA crosses below the shifted EMA
 
     Parameters
     ----------
     price_data_frame:
-        DataFrame containing ``open``, ``close``, and ``volume`` columns.
+        DataFrame containing at least ``open`` and ``close`` columns.
     window_size:
-        Number of periods for both EMA and SMA calculations.
+        Number of periods for both EMAs. Defaults to ``35`` when not specified
+        in the strategy name.
     slope_range:
-        Inclusive range ``(lower_bound, upper_bound)`` for the SMA slope.
+        Inclusive range ``(lower_bound, upper_bound)`` for the shifted EMA
+        slope (difference to previous value). Defaults to ``(-1.0, 1.0)``.
 
     Raises
     ------
     ValueError
         If ``slope_range`` has a lower bound greater than its upper bound.
     """
-    # TODO: review
-
     slope_lower_bound, slope_upper_bound = slope_range
     if slope_lower_bound > slope_upper_bound:
         raise ValueError(
             "Invalid slope_range: lower bound cannot exceed upper bound"
         )
 
-    attach_ema_sma_cross_with_slope_signals(
-        price_data_frame, window_size, slope_range=slope_range
-    )
-    price_data_frame["dollar_volume_value"] = (
-        price_data_frame["close"] * price_data_frame["volume"]
-    )
-    price_data_frame["ema_dollar_volume_value"] = ema(
-        price_data_frame["dollar_volume_value"], window_size
-    )
-    price_data_frame["sma_dollar_volume_value"] = sma(
-        price_data_frame["dollar_volume_value"], window_size
-    )
-    price_data_frame["ema_sma_cross_with_slope_and_volume_entry_signal"] = (
-        price_data_frame["ema_sma_cross_with_slope_entry_signal"]
-        & (
-            price_data_frame["ema_dollar_volume_value"]
-            > price_data_frame["sma_dollar_volume_value"]
-        )
-    )
-    price_data_frame["ema_sma_cross_with_slope_and_volume_exit_signal"] = (
-        price_data_frame["ema_sma_cross_with_slope_exit_signal"]
+    # Core moving averages
+    price_data_frame["ema_value"] = ema(price_data_frame["close"], window_size)
+    price_data_frame["shifted_close"] = price_data_frame["close"].shift(3)
+    price_data_frame["shifted_ema_value"] = ema(
+        price_data_frame["shifted_close"], window_size
     )
 
-
-def attach_ema_sma_double_cross_signals(
-    price_data_frame: pandas.DataFrame,
-    window_size: int = 40,
-) -> None:
-    """Attach EMA/SMA cross signals requiring long-term EMA above SMA."""
-    # TODO: review
-
-    attach_ema_sma_cross_signals(
-        price_data_frame,
-        window_size,
-        require_close_above_long_term_sma=False,
-    )
-    price_data_frame["long_term_ema_value"] = ema(
-        price_data_frame["close"], LONG_TERM_SMA_WINDOW
-    )
-    price_data_frame["long_term_ema_previous"] = price_data_frame[
-        "long_term_ema_value"
+    # Previous-day values for stable cross detection
+    price_data_frame["ema_previous"] = price_data_frame["ema_value"].shift(1)
+    price_data_frame["shifted_ema_previous"] = price_data_frame[
+        "shifted_ema_value"
     ].shift(1)
-    price_data_frame["ema_sma_double_cross_entry_signal"] = (
-        price_data_frame["ema_sma_cross_entry_signal"]
-        & (
-            price_data_frame["long_term_ema_previous"]
-            > price_data_frame["long_term_sma_previous"]
-        )
+
+    # Cross detection
+    crosses_up = (
+        (price_data_frame["ema_previous"] <= price_data_frame["shifted_ema_previous"])
+        & (price_data_frame["ema_value"] > price_data_frame["shifted_ema_value"])
     )
-    price_data_frame["ema_sma_double_cross_exit_signal"] = price_data_frame[
-        "ema_sma_cross_exit_signal"
-    ]
+    crosses_down = (
+        (price_data_frame["ema_previous"] >= price_data_frame["shifted_ema_previous"])
+        & (price_data_frame["ema_value"] < price_data_frame["shifted_ema_value"])
+    )
+
+    # Slope of shifted EMA
+    price_data_frame["shifted_ema_slope"] = (
+        price_data_frame["shifted_ema_value"]
+        - price_data_frame["shifted_ema_previous"]
+    )
+
+    # Build signals using prior-day confirmation
+    base_entry = crosses_up.shift(1, fill_value=False)
+    base_exit = crosses_down.shift(1, fill_value=False)
+
+    price_data_frame["ema_shift_cross_with_slope_entry_signal"] = (
+        base_entry
+        & (price_data_frame["shifted_ema_slope"] >= slope_lower_bound)
+        & (price_data_frame["shifted_ema_slope"] <= slope_upper_bound)
+    )
+    price_data_frame["ema_shift_cross_with_slope_exit_signal"] = base_exit
+
+## Removed deprecated strategy: ema_sma_cross_with_slope_and_volume
 
 
-def attach_kalman_filtering_signals(
-    price_data_frame: pandas.DataFrame,
-    process_variance: float = 1e-5,
-    observation_variance: float = 1.0,
-) -> None:
-    """Attach Kalman filtering breakout signals to ``price_data_frame``."""
-    # TODO: review
+## Removed deprecated strategy: ema_sma_double_cross
 
-    kalman_data_frame = kalman_filter(
-        price_data_frame["close"], process_variance, observation_variance
-    )
-    price_data_frame["kalman_estimate"] = kalman_data_frame["estimate"]
-    price_data_frame["kalman_upper"] = kalman_data_frame["upper_bound"]
-    price_data_frame["kalman_lower"] = kalman_data_frame["lower_bound"]
-    price_data_frame["close_previous"] = price_data_frame["close"].shift(1)
-    price_data_frame["upper_previous"] = price_data_frame["kalman_upper"].shift(1)
-    price_data_frame["lower_previous"] = price_data_frame["kalman_lower"].shift(1)
-    breaks_upper = (
-        (price_data_frame["close_previous"] <= price_data_frame["upper_previous"])
-        & (price_data_frame["close"] > price_data_frame["kalman_upper"])
-    )
-    breaks_lower = (
-        (price_data_frame["close_previous"] >= price_data_frame["lower_previous"])
-        & (price_data_frame["close"] < price_data_frame["kalman_lower"])
-    )
-    price_data_frame["kalman_filtering_entry_signal"] = breaks_upper.shift(
-        1, fill_value=False
-    )
-    price_data_frame["kalman_filtering_exit_signal"] = breaks_lower.shift(
-        1, fill_value=False
-    )
+
+## Removed deprecated strategy: kalman_filtering
 
 # TODO: review
 BUY_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
     "ema_sma_cross": attach_ema_sma_cross_signals,
     "20_50_sma_cross": attach_20_50_sma_cross_signals,
-    "ema_sma_cross_and_rsi": attach_ema_sma_cross_and_rsi_signals,
-    "ftd_ema_sma_cross": attach_ftd_ema_sma_cross_signals,
     "ema_sma_cross_with_slope": attach_ema_sma_cross_with_slope_signals,
-    "ema_sma_cross_with_slope_and_volume": attach_ema_sma_cross_with_slope_and_volume_signals,
-    "ema_sma_double_cross": attach_ema_sma_double_cross_signals,
+    "ema_shift_cross_with_slope": attach_ema_shift_cross_with_slope_signals,
 }
 
 # TODO: review
 SELL_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
     **BUY_STRATEGIES,
-    "kalman_filtering": attach_kalman_filtering_signals,
 }
 
 # TODO: review
@@ -746,6 +668,11 @@ def evaluate_combined_strategy(
     stop_loss_percentage: float = 1.0,
     start_date: pandas.Timestamp | None = None,
     maximum_position_count: int = 3,
+    allowed_fama_french_groups: set[int] | None = None,
+    allowed_symbols: set[str] | None = None,
+    exclude_other_ff12: bool = True,
+    margin_multiplier: float = 1.0,
+    margin_interest_annual_rate: float = 0.048,
 ) -> StrategyMetrics:
     """Evaluate a combination of strategies for entry and exit signals.
 
@@ -792,6 +719,19 @@ def evaluate_combined_strategy(
     maximum_position_count: int, default 3
         Upper bound on the number of simultaneous open positions. Each
         position uses a fixed fraction of equity based on this limit.
+    allowed_fama_french_groups: set[int] | None, optional
+        Restrict the tradable universe to the specified FF12 group identifiers
+        (1–11). Symbols in group 12 ("Other") are always excluded. When this
+        parameter is provided and a symbol lacks a known FF12 mapping, the
+        symbol is excluded to avoid unintended trades.
+    allowed_symbols: set[str] | None, optional
+        When provided, restrict evaluation to the specified set of symbols
+        (case-sensitive match to CSV stem). Useful for single-symbol
+        simulations.
+    exclude_other_ff12: bool, default True
+        When True, symbols tagged with FF12 group 12 ("Other") are excluded.
+        Set to False to allow trading of symbols in the "Other" group. This is
+        ignored when sector data is unavailable.
     """
     # TODO: review
 
@@ -827,26 +767,39 @@ def evaluate_combined_strategy(
     closing_price_series_by_symbol: Dict[str, pandas.Series] = {}
 
     symbol_frames: List[tuple[Path, pandas.DataFrame]] = []
-    symbols_excluded_by_industry = load_symbols_excluded_by_industry()
+    symbols_excluded_by_industry = (
+        load_symbols_excluded_by_industry() if exclude_other_ff12 else set()
+    )
+    symbol_to_group_map_for_filtering: dict[str, int] | None = None
+    if allowed_fama_french_groups is not None:
+        # Build a mapping from symbol to FF12 group for filtering.
+        symbol_to_group_map_for_filtering = load_ff12_groups_by_symbol()
     for csv_file_path in data_directory.glob("*.csv"):
         if csv_file_path.stem == SP500_SYMBOL:
+            continue
+        if allowed_symbols is not None and csv_file_path.stem not in allowed_symbols:
             continue
         # Skip symbols classified as FF12==12 ("Other") when sector data exists.
         if csv_file_path.stem.upper() in symbols_excluded_by_industry:
             continue
+        # If an allowed group list is provided, enforce it here.
+        if symbol_to_group_map_for_filtering is not None:
+            group_identifier = symbol_to_group_map_for_filtering.get(
+                csv_file_path.stem.upper()
+            )
+            if group_identifier is None or group_identifier not in allowed_fama_french_groups:
+                continue
         price_data_frame = load_price_data(csv_file_path)
         if price_data_frame.empty:
             continue
-        if start_date is not None:
-            price_data_frame = price_data_frame.loc[
-                price_data_frame.index >= start_date
-            ]
-            if price_data_frame.empty:
-                continue
+        # Compute dollar-volume SMA using full look-back before any slicing so
+        # the initial bars after start_date have valid values.
         if "volume" in price_data_frame.columns:
-            dollar_volume_series = price_data_frame["close"] * price_data_frame["volume"]
+            dollar_volume_series_full = (
+                price_data_frame["close"] * price_data_frame["volume"]
+            )
             price_data_frame["simple_moving_average_dollar_volume"] = sma(
-                dollar_volume_series, DOLLAR_VOLUME_SMA_WINDOW
+                dollar_volume_series_full, DOLLAR_VOLUME_SMA_WINDOW
             )
         else:
             if (
@@ -857,6 +810,12 @@ def evaluate_combined_strategy(
                     "Volume column is required to compute dollar volume metrics"
                 )
             price_data_frame["simple_moving_average_dollar_volume"] = float("nan")
+        if start_date is not None:
+            price_data_frame = price_data_frame.loc[
+                price_data_frame.index >= start_date
+            ]
+            if price_data_frame.empty:
+                continue
         symbol_frames.append((csv_file_path, price_data_frame))
 
     if symbol_frames:
@@ -908,19 +867,29 @@ def evaluate_combined_strategy(
                         index=merged_volume_frame.index,
                         columns=merged_volume_frame.columns,
                     )
+                    # Precompute market total for the dynamic threshold per day
+                    market_total_series = merged_volume_frame.sum(axis=1)
                     for group_id, column_list in group_id_to_symbol_columns.items():
                         group_frame = merged_volume_frame[column_list]
                         group_total_series = group_frame.sum(axis=1)
-                        # Avoid divide-by-zero; values become NaN and compare False
+                        # Compute dynamic per-group threshold:
+                        # required_group_ratio(t) = global_threshold / group_share(t)
+                        # where group_share(t) = group_total(t) / market_total(t)
                         safe_group_total_series = group_total_series.where(
                             group_total_series > 0
                         )
+                        safe_market_total_series = market_total_series.where(
+                            market_total_series > 0
+                        )
+                        group_share_series = safe_group_total_series.divide(
+                            safe_market_total_series
+                        )
+                        dynamic_threshold_series = minimum_average_dollar_volume_ratio / group_share_series
+                        # Symbol's ratio within its group
                         ratio_frame = group_frame.divide(
                             safe_group_total_series, axis=0
                         )
-                        ratio_condition = (
-                            ratio_frame >= minimum_average_dollar_volume_ratio
-                        )
+                        ratio_condition = ratio_frame.ge(dynamic_threshold_series, axis=0)
                         ratio_eligibility_mask.loc[:, column_list] = ratio_condition
                     eligibility_mask &= ratio_eligibility_mask
                 else:
@@ -933,26 +902,45 @@ def evaluate_combined_strategy(
                         ratio_frame >= minimum_average_dollar_volume_ratio
                     )
 
-            # Apply group-wise top-N rank if requested.
+            # Apply global Top-N rank with at most 1 symbol per FF12 group.
             if top_dollar_volume_rank is not None:
                 if group_id_to_symbol_columns:
-                    rank_eligibility_mask = pandas.DataFrame(
+                    selected_mask = pandas.DataFrame(
                         False,
                         index=merged_volume_frame.index,
                         columns=merged_volume_frame.columns,
                     )
-                    for group_id, column_list in group_id_to_symbol_columns.items():
-                        group_frame = merged_volume_frame[column_list]
-                        group_rank_frame = group_frame.rank(
-                            axis=1, method="min", ascending=False
+                    # Build a symbol->group lookup once for fast access.
+                    symbol_to_group_lookup = {
+                        symbol: symbol_to_fama_french_group_id.get(symbol.upper())
+                        for symbol in merged_volume_frame.columns
+                    }
+                    # Iterate per day to select global Top-N with one per group cap.
+                    for current_date in merged_volume_frame.index:
+                        candidate_values = merged_volume_frame.loc[current_date].where(
+                            eligibility_mask.loc[current_date], other=pandas.NA
+                        ).dropna()
+                        if candidate_values.empty:
+                            continue
+                        sorted_symbols = (
+                            candidate_values.sort_values(ascending=False).index.tolist()
                         )
-                        group_rank_condition = (
-                            group_rank_frame <= top_dollar_volume_rank
-                        )
-                        rank_eligibility_mask.loc[:, column_list] = (
-                            group_rank_condition
-                        )
-                    eligibility_mask &= rank_eligibility_mask
+                        chosen_symbols: list[str] = []
+                        seen_groups: set[int] = set()
+                        for symbol in sorted_symbols:
+                            group_id = symbol_to_group_lookup.get(symbol)
+                            # Skip symbols without known group id
+                            if group_id is None:
+                                continue
+                            if group_id in seen_groups:
+                                continue
+                            chosen_symbols.append(symbol)
+                            seen_groups.add(group_id)
+                            if len(chosen_symbols) >= int(top_dollar_volume_rank):
+                                break
+                        if chosen_symbols:
+                            selected_mask.loc[current_date, chosen_symbols] = True
+                    eligibility_mask &= selected_mask
                 else:
                     # Fallback to global top-N when groups are not available.
                     rank_frame = merged_volume_frame.rank(
@@ -1051,6 +1039,13 @@ def evaluate_combined_strategy(
         else:
             buy_function(price_data_frame)
         rename_signal_columns(price_data_frame, buy_base_name, buy_strategy_name)
+        # Defensive: ensure expected buy/sell signal columns exist even if a
+        # caller passed a slightly different strategy identifier. If the fully
+        # qualified column is missing but the base one exists, create an alias.
+        expected_buy_col = f"{buy_strategy_name}_entry_signal"
+        base_buy_col = f"{buy_base_name}_entry_signal"
+        if expected_buy_col not in price_data_frame.columns and base_buy_col in price_data_frame.columns:
+            price_data_frame[expected_buy_col] = price_data_frame[base_buy_col]
         if buy_strategy_name != sell_strategy_name:
             sell_function = SELL_STRATEGIES[sell_base_name]
             if sell_window_size is not None and sell_slope_range is not None:
@@ -1066,6 +1061,10 @@ def evaluate_combined_strategy(
             else:
                 sell_function(price_data_frame)
             rename_signal_columns(price_data_frame, sell_base_name, sell_strategy_name)
+            expected_sell_col = f"{sell_strategy_name}_exit_signal"
+            base_sell_col = f"{sell_base_name}_exit_signal"
+            if expected_sell_col not in price_data_frame.columns and base_sell_col in price_data_frame.columns:
+                price_data_frame[expected_sell_col] = price_data_frame[base_sell_col]
 
         def entry_rule(current_row: pandas.Series) -> bool:
             symbol_is_eligible = bool(symbol_mask.loc[current_row.name])
@@ -1074,6 +1073,11 @@ def evaluate_combined_strategy(
         def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
             return bool(current_row[f"{sell_strategy_name}_exit_signal"])
 
+        cooldown_after_close = 5 if buy_base_name in {
+            "ema_sma_cross",
+            "ema_sma_cross_with_slope",
+            "ema_shift_cross_with_slope",
+        } else 0
         simulation_result = simulate_trades(
             data=price_data_frame,
             entry_rule=entry_rule,
@@ -1081,6 +1085,7 @@ def evaluate_combined_strategy(
             entry_price_column="open",
             exit_price_column="open",
             stop_loss_percentage=stop_loss_percentage,
+            cooldown_bars=cooldown_after_close,
         )
         simulation_results.append(simulation_result)
         all_trades.extend(simulation_result.trades)
@@ -1203,10 +1208,20 @@ def evaluate_combined_strategy(
         maximum_position_count,
         simulation_start_date,
         withdraw_amount,
+        margin_multiplier=margin_multiplier,
+        margin_interest_annual_rate=margin_interest_annual_rate,
+        trade_symbol_lookup=trade_symbol_lookup,
+        closing_price_series_by_symbol=closing_price_series_by_symbol,
+        settlement_lag_days=1,
     )
     annual_trade_counts = calculate_annual_trade_counts(all_trades)
     final_balance = simulate_portfolio_balance(
-        all_trades, starting_cash, maximum_position_count, withdraw_amount
+        all_trades,
+        starting_cash,
+        maximum_position_count,
+        withdraw_amount,
+        margin_multiplier=margin_multiplier,
+        margin_interest_annual_rate=margin_interest_annual_rate,
     )
     maximum_drawdown = calculate_max_drawdown(
         all_trades,
@@ -1215,6 +1230,8 @@ def evaluate_combined_strategy(
         trade_symbol_lookup,
         closing_price_series_by_symbol,
         withdraw_amount,
+        margin_multiplier=margin_multiplier,
+        margin_interest_annual_rate=margin_interest_annual_rate,
     )
     if all_trades:
         last_trade_exit_date = max(
@@ -1259,9 +1276,8 @@ def evaluate_ema_sma_cross_strategy(
 
     The function calculates the win rate of applying an EMA and SMA cross
     strategy to each CSV file in ``data_directory``. Entry occurs when the
-    exponential moving average crosses above the simple moving average and the
-    previous day's closing price is higher than the 150-day simple moving
-    average. Positions are opened at the next day's opening price. The position
+    exponential moving average crosses above the simple moving average. Positions
+    are opened at the next day's opening price. The position
     is closed when the exponential moving average crosses below the simple
     moving average, using the next day's opening price.
 

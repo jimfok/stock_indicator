@@ -63,7 +63,10 @@ def download_history(
 
     available_symbol_list = load_symbols()
     if available_symbol_list and symbol not in available_symbol_list and symbol != SP500_SYMBOL:
-        raise ValueError(f"Unknown symbol: {symbol}")
+        LOGGER.warning(
+            "Symbol %s is not in the local cache; attempting download from Yahoo Finance anyway",
+            symbol,
+        )
 
     cached_frame = pandas.DataFrame()
     if cache_path is not None and cache_path.exists():

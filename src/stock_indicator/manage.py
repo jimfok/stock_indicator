@@ -16,6 +16,7 @@ import pandas
 from pandas import DataFrame
 
 from . import data_loader, symbols, strategy, daily_job
+from .strategy_sets import load_strategy_set_mapping
 from .daily_job import determine_start_date
 from .symbols import SP500_SYMBOL
 from stock_indicator.sector_pipeline import pipeline
@@ -206,10 +207,16 @@ class StockShell(cmd.Cmd):
         starting_cash_value = 3000.0
         withdraw_amount = 0.0
         start_date_string: str | None = None
+        allowed_group_identifiers: set[int] | None = None
+        margin_multiplier: float = 1.0
+        strategy_id: str | None = None
         while argument_parts and (
             argument_parts[0].startswith("starting_cash=")
             or argument_parts[0].startswith("withdraw=")
             or argument_parts[0].startswith("start=")
+            or argument_parts[0].startswith("group=")
+            or argument_parts[0].startswith("margin=")
+            or argument_parts[0].startswith("strategy=")
         ):
             parameter_part = argument_parts.pop(0)
             name, value = parameter_part.split("=", 1)
@@ -221,6 +228,35 @@ class StockShell(cmd.Cmd):
                     return
                 start_date_string = value
                 continue
+            if name == "group":
+                try:
+                    parsed_values = [segment.strip() for segment in value.split(",") if segment.strip()]
+                    parsed_integers = {int(segment) for segment in parsed_values}
+                except ValueError:
+                    self.stdout.write("invalid group list\n")
+                    return
+                # Disallow 12 (Other); all identifiers must be between 1 and 11.
+                if any(identifier < 1 or identifier > 11 for identifier in parsed_integers):
+                    self.stdout.write("group identifiers must be between 1 and 11\n")
+                    return
+                if 12 in parsed_integers:
+                    self.stdout.write("group list must not include 12 (Other)\n")
+                    return
+                allowed_group_identifiers = parsed_integers
+                continue
+            if name == "margin":
+                try:
+                    margin_multiplier = float(value)
+                except ValueError:
+                    self.stdout.write("invalid margin multiplier\n")
+                    return
+                if margin_multiplier < 1.0:
+                    self.stdout.write("margin must be >= 1.0\n")
+                    return
+                continue
+            if name == "strategy":
+                strategy_id = value.strip()
+                continue
             try:
                 numeric_value = float(value)
             except ValueError:
@@ -230,51 +266,122 @@ class StockShell(cmd.Cmd):
                 starting_cash_value = numeric_value
             elif name == "withdraw":
                 withdraw_amount = numeric_value
-        if len(argument_parts) not in (3, 4, 5):
-            self.stdout.write(
-                "usage: start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [SHOW_DETAILS]\n"
-            )
-            return
-        volume_filter, buy_strategy_name, sell_strategy_name = argument_parts[:3]
+        # Also allow trailing options like strategy=, group=, margin=
+        # to appear after the volume filter and before/after STOP/SHOW.
+        post_scan_index = 0
+        while post_scan_index < len(argument_parts):
+            token = argument_parts[post_scan_index]
+            if token.startswith("strategy="):
+                strategy_id = token.split("=", 1)[1].strip()
+                argument_parts.pop(post_scan_index)
+                continue
+            if token.startswith("group="):
+                try:
+                    parsed_values = [segment.strip() for segment in token.split("=", 1)[1].split(",") if segment.strip()]
+                    parsed_integers = {int(segment) for segment in parsed_values}
+                except ValueError:
+                    self.stdout.write("invalid group list\n")
+                    return
+                if any(identifier < 1 or identifier > 11 for identifier in parsed_integers):
+                    self.stdout.write("group identifiers must be between 1 and 11\n")
+                    return
+                if 12 in parsed_integers:
+                    self.stdout.write("group list must not include 12 (Other)\n")
+                    return
+                allowed_group_identifiers = parsed_integers
+                argument_parts.pop(post_scan_index)
+                continue
+            if token.startswith("margin="):
+                try:
+                    margin_multiplier = float(token.split("=", 1)[1])
+                except ValueError:
+                    self.stdout.write("invalid margin multiplier\n")
+                    return
+                if margin_multiplier < 1.0:
+                    self.stdout.write("margin must be >= 1.0\n")
+                    return
+                argument_parts.pop(post_scan_index)
+                continue
+            post_scan_index += 1
+        # Two forms supported:
+        # - FILTER BUY SELL [STOP] [SHOW]
+        # - FILTER [STOP] [SHOW] with strategy=ID
         stop_loss_percentage = 1.0
-        show_trade_details = True  # TODO: review
-        if len(argument_parts) >= 4:
-            try:
-                stop_loss_percentage = float(argument_parts[3])
-            except ValueError:
-                self.stdout.write("invalid stop loss\n")
+        show_trade_details = True
+        if strategy_id:
+            if len(argument_parts) not in (1, 2, 3):
+                self.stdout.write(
+                    "usage: start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER [STOP_LOSS] [SHOW_DETAILS] strategy=ID [group=...] [margin=NUMBER]\n"
+                )
                 return
-        if len(argument_parts) == 5:
-            show_trade_details = argument_parts[4].lower() == "true"  # TODO: review
+            volume_filter = argument_parts[0]
+            if len(argument_parts) >= 2:
+                try:
+                    stop_loss_percentage = float(argument_parts[1])
+                except ValueError:
+                    self.stdout.write("invalid stop loss\n")
+                    return
+            if len(argument_parts) == 3:
+                show_trade_details = argument_parts[2].lower() == "true"
+            mapping = load_strategy_set_mapping()
+            if strategy_id not in mapping:
+                self.stdout.write(f"unknown strategy id: {strategy_id}\n")
+                return
+            buy_strategy_name, sell_strategy_name = mapping[strategy_id]
+        else:
+            if len(argument_parts) not in (3, 4, 5):
+                self.stdout.write(
+                    "usage: start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [margin=NUMBER] "
+                    "DOLLAR_VOLUME_FILTER (BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS] [group=1,2,...]\n"
+                )
+                return
+            volume_filter, buy_strategy_name, sell_strategy_name = argument_parts[:3]
+            if len(argument_parts) >= 4:
+                try:
+                    stop_loss_percentage = float(argument_parts[3])
+                except ValueError:
+                    self.stdout.write("invalid stop loss\n")
+                    return
+            if len(argument_parts) == 5:
+                show_trade_details = argument_parts[4].lower() == "true"
         minimum_average_dollar_volume: float | None = None  # TODO: review
         minimum_average_dollar_volume_ratio: float | None = None  # TODO: review
         top_dollar_volume_rank: int | None = None  # TODO: review
-        combined_percentage_match = re.fullmatch(
+        # Support both legacy Nth and new TopN syntaxes (case-insensitive)
+        combined_percentage_top_match = re.fullmatch(
+            r"dollar_volume>(\d+(?:\.\d{1,2})?)%,Top(\d+)",
+            volume_filter,
+            flags=re.IGNORECASE,
+        )
+        combined_percentage_nth_match = re.fullmatch(
             r"dollar_volume>(\d+(?:\.\d{1,2})?)%,(\d+)th",
             volume_filter,
         )
-        if combined_percentage_match is not None:
-            minimum_average_dollar_volume_ratio = (
-                float(combined_percentage_match.group(1)) / 100
-            )
-            top_dollar_volume_rank = int(combined_percentage_match.group(2))
+        if combined_percentage_top_match is not None or combined_percentage_nth_match is not None:
+            match_obj = combined_percentage_top_match or combined_percentage_nth_match
+            minimum_average_dollar_volume_ratio = float(match_obj.group(1)) / 100
+            top_dollar_volume_rank = int(match_obj.group(2))
         else:
-            combined_match = re.fullmatch(
+            combined_top_match = re.fullmatch(
+                r"dollar_volume>(\d+(?:\.\d+)?),Top(\d+)",
+                volume_filter,
+                flags=re.IGNORECASE,
+            )
+            combined_nth_match = re.fullmatch(
                 r"dollar_volume>(\d+(?:\.\d+)?),(\d+)th",
                 volume_filter,
             )
-            if combined_match is not None:
-                minimum_average_dollar_volume = float(combined_match.group(1))
-                top_dollar_volume_rank = int(combined_match.group(2))
+            if combined_top_match is not None or combined_nth_match is not None:
+                match_obj = combined_top_match or combined_nth_match
+                minimum_average_dollar_volume = float(match_obj.group(1))
+                top_dollar_volume_rank = int(match_obj.group(2))
             else:
                 percentage_match = re.fullmatch(
                     r"dollar_volume>(\d+(?:\.\d{1,2})?)%",
                     volume_filter,
                 )
                 if percentage_match is not None:
-                    minimum_average_dollar_volume_ratio = (
-                        float(percentage_match.group(1)) / 100
-                    )
+                    minimum_average_dollar_volume_ratio = float(percentage_match.group(1)) / 100
                 else:
                     volume_match = re.fullmatch(
                         r"dollar_volume>(\d+(?:\.\d+)?)",
@@ -283,18 +390,23 @@ class StockShell(cmd.Cmd):
                     if volume_match is not None:
                         minimum_average_dollar_volume = float(volume_match.group(1))
                     else:
-                        rank_match = re.fullmatch(
+                        rank_top_match = re.fullmatch(
+                            r"dollar_volume=Top(\d+)",
+                            volume_filter,
+                            flags=re.IGNORECASE,
+                        )
+                        rank_nth_match = re.fullmatch(
                             r"dollar_volume=(\d+)th",
                             volume_filter,
                         )
-                        if rank_match is not None:
-                            top_dollar_volume_rank = int(rank_match.group(1))
+                        if rank_top_match is not None or rank_nth_match is not None:
+                            top_dollar_volume_rank = int((rank_top_match or rank_nth_match).group(1))
                         else:
                             self.stdout.write(
                                 "unsupported filter; expected dollar_volume>NUMBER, "
-                                "dollar_volume>NUMBER%, dollar_volume=RANKth, "
-                                "dollar_volume>NUMBER,RANKth, or "
-                                "dollar_volume>NUMBER%,RANKth\n",
+                                "dollar_volume>NUMBER%, dollar_volume=TopN (or Nth), "
+                                "dollar_volume>NUMBER,TopN (or ,Nth), or "
+                                "dollar_volume>NUMBER%,TopN (or ,Nth)\n",
                             )
                             return
         try:  # TODO: review
@@ -325,6 +437,9 @@ class StockShell(cmd.Cmd):
             withdraw_amount=withdraw_amount,
             stop_loss_percentage=stop_loss_percentage,
             start_date=start_timestamp,
+            allowed_fama_french_groups=allowed_group_identifiers,
+            margin_multiplier=margin_multiplier,
+            margin_interest_annual_rate=0.048,
         )
         earliest_valid_googl_date = datetime.date(2014, 4, 3)
         filtered_trade_details_by_year: Dict[int, List[strategy.TradeDetail]] = {}
@@ -351,6 +466,40 @@ class StockShell(cmd.Cmd):
                 ),
                 key=lambda detail: detail.date,
             )
+        else:
+            # Build a flat, chronologically ordered list of all trade details
+            # to support concurrent position counts used in printing below.
+            all_trade_details = sorted(
+                (
+                    trade_detail
+                    for year_trades in evaluation_metrics.trade_details_by_year.values()
+                    for trade_detail in year_trades
+                ),
+                key=lambda detail: detail.date,
+            )
+        # Compute concurrent position counts for each event. Closes remove first,
+        # so their count excludes the closed position; opens add, so their count
+        # includes the newly opened position.
+        if all_trade_details:
+            # Ensure stable order for same-day events: process closes before opens
+            all_trade_details.sort(
+                key=lambda d: (d.date, 0 if d.action == "close" else 1)
+            )
+            open_symbols: Dict[str, bool] = {}
+            for trade_detail in all_trade_details:
+                symbol_name = trade_detail.symbol
+                if trade_detail.action == "close":
+                    currently_open = sum(1 for is_open in open_symbols.values() if is_open)
+                    # Exclude this closing position
+                    if open_symbols.get(symbol_name, False):
+                        trade_detail.concurrent_position_count = max(0, currently_open - 1)
+                        open_symbols[symbol_name] = False
+                    else:
+                        trade_detail.concurrent_position_count = currently_open
+                else:  # "open"
+                    currently_open = sum(1 for is_open in open_symbols.values() if is_open)
+                    trade_detail.concurrent_position_count = currently_open + 1
+                    open_symbols[symbol_name] = True
             close_trade_details = [
                 trade_detail
                 for trade_detail in all_trade_details
@@ -458,7 +607,8 @@ class StockShell(cmd.Cmd):
                         result_suffix = ""
                     self.stdout.write(
                         (
-                            f"  {trade_detail.date.date()} {trade_detail.symbol} "
+                            f"  {trade_detail.date.date()} ({trade_detail.concurrent_position_count}) "
+                            f"{trade_detail.symbol} "
                             f"{trade_detail.action} {trade_detail.price:.2f} "
                             # Show ratio within FF12 group and group total dollar volume
                             f"{trade_detail.group_simple_moving_average_dollar_volume_ratio:.4f} "
@@ -474,22 +624,30 @@ class StockShell(cmd.Cmd):
         available_buy = ", ".join(sorted(strategy.BUY_STRATEGIES.keys()))
         available_sell = ", ".join(sorted(strategy.SELL_STRATEGIES.keys()))
         self.stdout.write(
-            "start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [SHOW_DETAILS]\n"
+            "start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [margin=NUMBER] "
+            "DOLLAR_VOLUME_FILTER (BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS] [group=1,2,...]\n"
             "Evaluate trading strategies using cached data.\n"
             "Parameters:\n"
             "  starting_cash: Initial cash balance for the simulation. Defaults to 3000.\n"
             "  withdraw: Amount deducted from cash at each year end. Defaults to 0.\n"
             "  start: Date in YYYY-MM-DD format to begin the simulation. Defaults to the earliest available date.\n"
             "  DOLLAR_VOLUME_FILTER: Use dollar_volume>NUMBER (in millions),\n"
-            "    dollar_volume>N% to require the 50-day average dollar volume to\n"
-            "    exceed N percent of the total market, dollar_volume=Nth to\n"
-            "    select the N symbols with the highest previous-day dollar\n"
-            "    volume, or combine the threshold with ranking using\n"
-            "    dollar_volume>NUMBER,Nth or dollar_volume>N%,Nth.\n"
-            "  BUY_STRATEGY: Name of the buying strategy.\n"
-            "  SELL_STRATEGY: Name of the selling strategy.\n"
-            "  STOP_LOSS: Fractional loss that triggers an exit on the next day's open. Defaults to 1.0.\n"
+            "    dollar_volume>N% (effective market threshold computed per FF12\n"
+            "    group as N% divided by that group's market share),\n"
+            "    dollar_volume=TopN (global Top-N each day with at most one\n"
+            "    symbol per FF12 group), or combine with ranking using\n"
+            "    dollar_volume>NUMBER,TopN or dollar_volume>N%,TopN. Legacy 'Nth' is also accepted for\n"
+            "    backward compatibility. 'Other' (FF12=12) is excluded.\n"
+            "  BUY/SELL or strategy=ID: Either provide explicit buy/sell strategy names, "
+            "or a strategy id defined in data/strategy_sets.csv.\n"
+            "  STOP_LOSS: Fractional loss for stop orders. If intraday low hits\n"
+            "    the stop, exits on the same bar at the stop price; otherwise, if\n"
+            "    the close is below the stop, exits on the next day's open.\n"
+            "    Defaults to 1.0 (disabled).\n"
             "  SHOW_DETAILS: 'True' to print individual trades, 'False' to suppress them. Defaults to True.\n"
+            "  group: Optional comma-separated FF12 group ids (1-11) to restrict\n"
+            "    tradable symbols. Group 12 (Other) is always excluded. Example:\n"
+            "    group=1,2,4,6,7,8,10,11\n"
             "Strategies may be suffixed with _N to set the window size to N; the default window size is 40 when no suffix is provided.\n"
             "Slope-aware strategies follow the ema_sma_signal_with_slope_n_k pattern and accept _LOWER_UPPER bounds after the optional window size; both bounds are floating-point numbers and may be negative.\n"
             "Example: start_simulate start=1990-01-01 dollar_volume>50 ema_sma_cross_20 ema_sma_cross_20\n"
@@ -499,25 +657,533 @@ class StockShell(cmd.Cmd):
         )
 
     
+    def do_start_simulate_single_symbol(self, argument_line: str) -> None:  # noqa: D401
+        """start_simulate_single_symbol [symbol=SYMBOL] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [SHOW_DETAILS]
+        Evaluate strategies on a single symbol using full allocation per position.
+
+        When not provided, STOP_LOSS defaults to 1.0 and SHOW_DETAILS defaults to True.
+        """
+        argument_parts: List[str] = argument_line.split()
+        symbol_name: str | None = None
+        starting_cash_value = 3000.0
+        withdraw_amount = 0.0
+        start_date_string: str | None = None
+        strategy_id: str | None = None
+        while argument_parts and (
+            argument_parts[0].startswith("symbol=")
+            or argument_parts[0].startswith("starting_cash=")
+            or argument_parts[0].startswith("withdraw=")
+            or argument_parts[0].startswith("start=")
+            or argument_parts[0].startswith("strategy=")
+        ):
+            parameter_part = argument_parts.pop(0)
+            name, value = parameter_part.split("=", 1)
+            if name == "symbol":
+                symbol_name = value.strip().upper()
+                continue
+            if name == "start":
+                try:
+                    datetime.date.fromisoformat(value)
+                except ValueError:
+                    self.stdout.write("invalid start date\n")
+                    return
+                start_date_string = value
+                continue
+            if name == "strategy":
+                strategy_id = value.strip()
+                continue
+            try:
+                numeric_value = float(value)
+            except ValueError:
+                self.stdout.write(f"invalid {name}\n")
+                return
+            if name == "starting_cash":
+                starting_cash_value = numeric_value
+            elif name == "withdraw":
+                withdraw_amount = numeric_value
+        # Allow strategy=ID to appear after positional tokens as well
+        scan_index = 0
+        while scan_index < len(argument_parts):
+            token = argument_parts[scan_index]
+            if token.startswith("strategy="):
+                strategy_id = token.split("=", 1)[1].strip()
+                argument_parts.pop(scan_index)
+                continue
+            scan_index += 1
+        # Accept two forms:
+        # - BUY SELL [STOP] [SHOW]
+        # - [STOP] [SHOW] with strategy=ID
+        stop_loss_percentage = 1.0
+        show_trade_details = True
+        if strategy_id:
+            if len(argument_parts) not in (1, 2):
+                self.stdout.write(
+                    "usage: start_simulate_single_symbol [symbol=SYMBOL] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [STOP_LOSS] [SHOW_DETAILS] strategy=ID\n"
+                )
+                return
+            if len(argument_parts) >= 1:
+                try:
+                    stop_loss_percentage = float(argument_parts[0])
+                except ValueError:
+                    self.stdout.write("invalid stop loss\n")
+                    return
+            if len(argument_parts) == 2:
+                show_trade_details = argument_parts[1].lower() == "true"
+            mapping = load_strategy_set_mapping()
+            if strategy_id not in mapping:
+                self.stdout.write(f"unknown strategy id: {strategy_id}\n")
+                return
+            buy_strategy_name, sell_strategy_name = mapping[strategy_id]
+        else:
+            if len(argument_parts) not in (2, 3, 4):
+                self.stdout.write(
+                    "usage: start_simulate_single_symbol [symbol=SYMBOL] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
+                    "(BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS]\n"
+                )
+                return
+            buy_strategy_name, sell_strategy_name = argument_parts[:2]
+            if len(argument_parts) >= 3:
+                try:
+                    stop_loss_percentage = float(argument_parts[2])
+                except ValueError:
+                    self.stdout.write("invalid stop loss\n")
+                    return
+            if len(argument_parts) == 4:
+                show_trade_details = argument_parts[3].lower() == "true"
+        try:  # validate strategy names
+            buy_base_name, _, _ = strategy.parse_strategy_name(buy_strategy_name)
+            sell_base_name, _, _ = strategy.parse_strategy_name(sell_strategy_name)
+        except ValueError as error:
+            self.stdout.write(f"{error}\n")
+            return
+        if (
+            buy_base_name not in strategy.BUY_STRATEGIES
+            or sell_base_name not in strategy.SELL_STRATEGIES
+        ):
+            self.stdout.write("unsupported strategies\n")
+            return
+
+        # Determine data directory and ensure the symbol file exists
+        base_directory = STOCK_DATA_DIRECTORY if STOCK_DATA_DIRECTORY.exists() else DATA_DIRECTORY
+        if symbol_name is None:
+            self.stdout.write("symbol is required: provide symbol=SYMBOL\n")
+            return
+        data_file_path = base_directory / f"{symbol_name}.csv"
+        if not data_file_path.exists():
+            self.stdout.write(f"data file not found: {data_file_path}\n")
+            return
+
+        if start_date_string is None:
+            start_date_string = determine_start_date(base_directory)
+        start_timestamp = pandas.Timestamp(start_date_string)
+
+        evaluation_metrics = strategy.evaluate_combined_strategy(
+            base_directory,
+            buy_strategy_name,
+            sell_strategy_name,
+            starting_cash=starting_cash_value,
+            withdraw_amount=withdraw_amount,
+            stop_loss_percentage=stop_loss_percentage,
+            start_date=start_timestamp,
+            maximum_position_count=1,  # full allocation per position
+            allowed_symbols={symbol_name},
+            exclude_other_ff12=False,
+        )
+
+        # Compute concurrent position counts for accurate detail printing
+        all_trade_details = sorted(
+            (
+                trade_detail
+                for year_trades in evaluation_metrics.trade_details_by_year.values()
+                for trade_detail in year_trades
+            ),
+            key=lambda detail: detail.date,
+        )
+        if all_trade_details:
+            all_trade_details.sort(
+                key=lambda d: (d.date, 0 if d.action == "close" else 1)
+            )
+            open_state: Dict[str, bool] = {}
+            for detail in all_trade_details:
+                if detail.action == "close":
+                    current_open = sum(1 for is_open in open_state.values() if is_open)
+                    if open_state.get(detail.symbol, False):
+                        detail.concurrent_position_count = max(0, current_open - 1)
+                        open_state[detail.symbol] = False
+                    else:
+                        detail.concurrent_position_count = current_open
+                else:
+                    current_open = sum(1 for is_open in open_state.values() if is_open)
+                    detail.concurrent_position_count = current_open + 1
+                    open_state[detail.symbol] = True
+
+        self.stdout.write(
+            f"Simulation start date: {start_date_string}\n"
+        )
+        self.stdout.write(
+            (
+                f"Trades: {evaluation_metrics.total_trades}, "
+                f"Win rate: {evaluation_metrics.win_rate:.2%}, "
+                f"Mean profit %: {evaluation_metrics.mean_profit_percentage:.2%}, "
+                f"Mean loss %: {evaluation_metrics.mean_loss_percentage:.2%}, "
+                f"Max concurrent positions: {evaluation_metrics.maximum_concurrent_positions}, "
+                f"Final balance: {evaluation_metrics.final_balance:.2f}, "
+                f"CAGR: {evaluation_metrics.compound_annual_growth_rate:.2%}, "
+                f"Max drawdown: {evaluation_metrics.maximum_drawdown:.2%}\n"
+            )
+        )
+        for year, annual_return in sorted(
+            evaluation_metrics.annual_returns.items()
+        ):
+            trade_count = evaluation_metrics.annual_trade_counts.get(year, 0)
+            self.stdout.write(
+                f"Year {year}: {annual_return:.2%}, trade: {trade_count}\n"
+            )
+        if show_trade_details:
+            for year in sorted(evaluation_metrics.trade_details_by_year.keys()):
+                trade_details = evaluation_metrics.trade_details_by_year.get(year, [])
+                for trade_detail in trade_details:
+                    if (
+                        trade_detail.action == "close"
+                        and trade_detail.result is not None
+                        and trade_detail.percentage_change is not None
+                    ):
+                        result_suffix = (
+                            f" {trade_detail.result} {trade_detail.percentage_change:.2%}"
+                        )
+                    else:
+                        result_suffix = ""
+                    self.stdout.write(
+                        (
+                            f"  {trade_detail.date.date()} ({trade_detail.concurrent_position_count}) "
+                            f"{trade_detail.symbol} {trade_detail.action} {trade_detail.price:.2f} "
+                            f"{trade_detail.group_simple_moving_average_dollar_volume_ratio:.4f} "
+                            f"{trade_detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
+                            f"{trade_detail.group_total_simple_moving_average_dollar_volume / 1_000_000:.2f}M"
+                            f"{result_suffix}\n"
+                        )
+                    )
+
+    def help_start_simulate_single_symbol(self) -> None:
+        """Display help for the start_simulate_single_symbol command."""
+        self.stdout.write(
+            "start_simulate_single_symbol [symbol=SYMBOL] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
+            "(BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS]\n"
+            "Simulate strategies on a single symbol using full allocation per position.\n"
+            "Parameters:\n"
+            "  symbol: Ticker symbol to simulate (required).\n"
+            "  starting_cash: Initial cash balance. Defaults to 3000.\n"
+            "  withdraw: Amount deducted from cash at each year end. Defaults to 0.\n"
+            "  start: Start date in YYYY-MM-DD format. Defaults to earliest available.\n"
+            "  BUY/SELL or strategy=ID: Either provide explicit strategy names, or a strategy id defined in data/strategy_sets.csv.\n"
+            "  STOP_LOSS: Fractional loss for stop orders (same-bar at stop price when low hits; otherwise next-day open). Defaults to 1.0.\n"
+            "  SHOW_DETAILS: 'True' to print trade details, 'False' to suppress. Defaults to True.\n"
+        )
+
+    def do_start_simulate_n_symbol(self, argument_line: str) -> None:  # noqa: D401
+        """start_simulate_N_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [SHOW_DETAILS]
+        Evaluate strategies across a provided symbol list. Budget per position uses slot count equal to the number of symbols.
+
+        When not provided, STOP_LOSS defaults to 1.0 and SHOW_DETAILS defaults to True.
+        """
+        argument_parts: List[str] = argument_line.split()
+        symbol_list_input: str | None = None
+        starting_cash_value = 3000.0
+        withdraw_amount = 0.0
+        start_date_string: str | None = None
+        strategy_id: str | None = None
+        while argument_parts and (
+            argument_parts[0].startswith("symbols=")
+            or argument_parts[0].startswith("starting_cash=")
+            or argument_parts[0].startswith("withdraw=")
+            or argument_parts[0].startswith("start=")
+            or argument_parts[0].startswith("strategy=")
+        ):
+            parameter_part = argument_parts.pop(0)
+            name, value = parameter_part.split("=", 1)
+            if name == "symbols":
+                symbol_list_input = value
+                continue
+            if name == "start":
+                try:
+                    datetime.date.fromisoformat(value)
+                except ValueError:
+                    self.stdout.write("invalid start date\n")
+                    return
+                start_date_string = value
+                continue
+            try:
+                numeric_value = float(value)
+            except ValueError:
+                self.stdout.write(f"invalid {name}\n")
+                return
+            if name == "starting_cash":
+                starting_cash_value = numeric_value
+            elif name == "withdraw":
+                withdraw_amount = numeric_value
+        # Allow strategy=ID to appear after positional tokens as well
+        scan_index = 0
+        while scan_index < len(argument_parts):
+            token = argument_parts[scan_index]
+            if token.startswith("strategy="):
+                strategy_id = token.split("=", 1)[1].strip()
+                argument_parts.pop(scan_index)
+                continue
+            scan_index += 1
+
+        if symbol_list_input is None:
+            self.stdout.write(
+                "usage: start_simulate_N_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
+                "(BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS]\n"
+            )
+            return
+        stop_loss_percentage = 1.0
+        show_trade_details = True
+        if strategy_id:
+            if len(argument_parts) not in (1, 2):
+                self.stdout.write(
+                    "usage: start_simulate_N_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [STOP_LOSS] [SHOW_DETAILS] strategy=ID\n"
+                )
+                return
+            if len(argument_parts) >= 1:
+                try:
+                    stop_loss_percentage = float(argument_parts[0])
+                except ValueError:
+                    self.stdout.write("invalid stop loss\n")
+                    return
+            if len(argument_parts) == 2:
+                show_trade_details = argument_parts[1].lower() == "true"
+            mapping = load_strategy_set_mapping()
+            if strategy_id not in mapping:
+                self.stdout.write(f"unknown strategy id: {strategy_id}\n")
+                return
+            buy_strategy_name, sell_strategy_name = mapping[strategy_id]
+        else:
+            if len(argument_parts) not in (2, 3, 4):
+                self.stdout.write(
+                    "usage: start_simulate_N_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
+                    "(BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS]\n"
+                )
+                return
+            buy_strategy_name, sell_strategy_name = argument_parts[:2]
+            if len(argument_parts) >= 3:
+                try:
+                    stop_loss_percentage = float(argument_parts[2])
+                except ValueError:
+                    self.stdout.write("invalid stop loss\n")
+                    return
+            if len(argument_parts) == 4:
+                show_trade_details = argument_parts[3].lower() == "true"
+
+        try:  # validate strategy names
+            buy_base_name, _, _ = strategy.parse_strategy_name(buy_strategy_name)
+            sell_base_name, _, _ = strategy.parse_strategy_name(sell_strategy_name)
+        except ValueError as error:
+            self.stdout.write(f"{error}\n")
+            return
+        if (
+            buy_base_name not in strategy.BUY_STRATEGIES
+            or sell_base_name not in strategy.SELL_STRATEGIES
+        ):
+            self.stdout.write("unsupported strategies\n")
+            return
+
+        base_directory = STOCK_DATA_DIRECTORY if STOCK_DATA_DIRECTORY.exists() else DATA_DIRECTORY
+        requested_symbols = [
+            token.strip().upper()
+            for token in symbol_list_input.split(",")
+            if token.strip()
+        ]
+        if not requested_symbols:
+            self.stdout.write("no symbols provided\n")
+            return
+        existing_symbols: List[str] = []
+        for symbol_name in requested_symbols:
+            if (base_directory / f"{symbol_name}.csv").exists():
+                existing_symbols.append(symbol_name)
+            else:
+                self.stdout.write(f"warning: data file not found for {symbol_name}, skipping\n")
+        if not existing_symbols:
+            self.stdout.write("no valid symbols with data files found\n")
+            return
+
+        if start_date_string is None:
+            start_date_string = determine_start_date(base_directory)
+        start_timestamp = pandas.Timestamp(start_date_string)
+
+        evaluation_metrics = strategy.evaluate_combined_strategy(
+            base_directory,
+            buy_strategy_name,
+            sell_strategy_name,
+            starting_cash=starting_cash_value,
+            withdraw_amount=withdraw_amount,
+            stop_loss_percentage=stop_loss_percentage,
+            start_date=start_timestamp,
+            maximum_position_count=len(existing_symbols),  # slots = symbol count
+            allowed_symbols=set(existing_symbols),
+            exclude_other_ff12=False,  # honor explicit user list
+        )
+
+        # Compute concurrent position counts for detail printing
+        all_trade_details = sorted(
+            (
+                trade_detail
+                for year_trades in evaluation_metrics.trade_details_by_year.values()
+                for trade_detail in year_trades
+            ),
+            key=lambda detail: detail.date,
+        )
+        if all_trade_details:
+            all_trade_details.sort(
+                key=lambda d: (d.date, 0 if d.action == "close" else 1)
+            )
+            open_state: Dict[str, bool] = {}
+            for detail in all_trade_details:
+                if detail.action == "close":
+                    current_open = sum(1 for is_open in open_state.values() if is_open)
+                    if open_state.get(detail.symbol, False):
+                        detail.concurrent_position_count = max(0, current_open - 1)
+                        open_state[detail.symbol] = False
+                    else:
+                        detail.concurrent_position_count = current_open
+                else:
+                    current_open = sum(1 for is_open in open_state.values() if is_open)
+                    detail.concurrent_position_count = current_open + 1
+                    open_state[detail.symbol] = True
+
+        self.stdout.write(
+            f"Simulation start date: {start_date_string}\n"
+        )
+        self.stdout.write(
+            (
+                f"Trades: {evaluation_metrics.total_trades}, "
+                f"Win rate: {evaluation_metrics.win_rate:.2%}, "
+                f"Mean profit %: {evaluation_metrics.mean_profit_percentage:.2%}, "
+                f"Mean loss %: {evaluation_metrics.mean_loss_percentage:.2%}, "
+                f"Max concurrent positions: {evaluation_metrics.maximum_concurrent_positions}, "
+                f"Final balance: {evaluation_metrics.final_balance:.2f}, "
+                f"CAGR: {evaluation_metrics.compound_annual_growth_rate:.2%}, "
+                f"Max drawdown: {evaluation_metrics.maximum_drawdown:.2%}\n"
+            )
+        )
+        for year, annual_return in sorted(
+            evaluation_metrics.annual_returns.items()
+        ):
+            trade_count = evaluation_metrics.annual_trade_counts.get(year, 0)
+            self.stdout.write(
+                f"Year {year}: {annual_return:.2%}, trade: {trade_count}\n"
+            )
+        if show_trade_details:
+            for year in sorted(evaluation_metrics.trade_details_by_year.keys()):
+                trade_details = evaluation_metrics.trade_details_by_year.get(year, [])
+                for trade_detail in trade_details:
+                    if (
+                        trade_detail.action == "close"
+                        and trade_detail.result is not None
+                        and trade_detail.percentage_change is not None
+                    ):
+                        result_suffix = (
+                            f" {trade_detail.result} {trade_detail.percentage_change:.2%}"
+                        )
+                    else:
+                        result_suffix = ""
+                    self.stdout.write(
+                        (
+                            f"  {trade_detail.date.date()} ({trade_detail.concurrent_position_count}) "
+                            f"{trade_detail.symbol} {trade_detail.action} {trade_detail.price:.2f} "
+                            f"{trade_detail.group_simple_moving_average_dollar_volume_ratio:.4f} "
+                            f"{trade_detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
+                            f"{trade_detail.group_total_simple_moving_average_dollar_volume / 1_000_000:.2f}M"
+                            f"{result_suffix}\n"
+                        )
+                    )
+
+    def help_start_simulate_n_symbol(self) -> None:
+        """Display help for the start_simulate_N_symbol command."""
+        self.stdout.write(
+            "start_simulate_N_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
+            "(BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS]\n"
+            "Simulate strategies across a list of symbols; budget per position uses slots equal to the list length.\n"
+            "Parameters:\n"
+            "  symbols: Comma-separated ticker symbols to simulate (required).\n"
+            "  starting_cash: Initial cash balance. Defaults to 3000.\n"
+            "  withdraw: Amount deducted from cash at each year end. Defaults to 0.\n"
+            "  start: Start date in YYYY-MM-DD format. Defaults to earliest available.\n"
+            "  BUY/SELL or strategy=ID: Either provide explicit strategy names, or a strategy id defined in data/strategy_sets.csv.\n"
+            "  STOP_LOSS: Fractional loss for stop orders (same-bar at stop price when low hits; otherwise next-day open). Defaults to 1.0.\n"
+            "  SHOW_DETAILS: 'True' to print trade details, 'False' to suppress. Defaults to True.\n"
+        )
+
+    # Alias with capital 'N' to match user input variations
+    def do_start_simulate_N_symbol(self, argument_line: str) -> None:  # noqa: N802
+        self.do_start_simulate_n_symbol(argument_line)
+
+    def help_start_simulate_N_symbol(self) -> None:  # noqa: N802
+        self.help_start_simulate_n_symbol()
 
     # TODO: review
     def do_find_signal(self, argument_line: str) -> None:  # noqa: D401
-        """find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS
+        """find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS [group=...] [strategy=ID]
         Display the entry and exit signals generated for DATE."""
         usage_message = (
-            "usage: find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS\n"
+            "usage: find_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID) [group=1,2,...]\n"
         )
         argument_parts: List[str] = argument_line.split()
-        if len(argument_parts) != 5:
+        if len(argument_parts) not in (5, 6, 7):
             self.stdout.write(usage_message)
             return
-        (
-            date_string,
-            dollar_volume_filter,
-            buy_strategy_name,
-            sell_strategy_name,
-            stop_loss_string,
-        ) = argument_parts
+        # Optional group token may appear in any position after DATE; normalize
+        allowed_group_identifiers: set[int] | None = None
+        tokens: List[str] = []
+        strategy_id: str | None = None
+        for token in argument_parts:
+            if token.startswith("group="):
+                try:
+                    raw = token.split("=", 1)[1]
+                    parts = [p.strip() for p in raw.split(",") if p.strip()]
+                    parsed = {int(p) for p in parts}
+                except ValueError:
+                    self.stdout.write("invalid group list\n")
+                    return
+                if any(identifier < 1 or identifier > 11 for identifier in parsed):
+                    self.stdout.write("group identifiers must be between 1 and 11\n")
+                    return
+                if 12 in parsed:
+                    self.stdout.write("group list must not include 12 (Other)\n")
+                    return
+                allowed_group_identifiers = parsed
+            elif token.startswith("strategy="):
+                strategy_id = token.split("=", 1)[1].strip()
+            else:
+                tokens.append(token)
+        # Support two forms:
+        # 1) DATE FILTER BUY SELL STOP
+        # 2) DATE FILTER STOP with strategy=ID
+        if strategy_id:
+            if len(tokens) != 3:
+                self.stdout.write(usage_message)
+                return
+            (
+                date_string,
+                dollar_volume_filter,
+                stop_loss_string,
+            ) = tokens
+            mapping = load_strategy_set_mapping()
+            if strategy_id not in mapping:
+                self.stdout.write(f"unknown strategy id: {strategy_id}\n")
+                return
+            buy_strategy_name, sell_strategy_name = mapping[strategy_id]
+        else:
+            if len(tokens) != 5:
+                self.stdout.write(usage_message)
+                return
+            (
+                date_string,
+                dollar_volume_filter,
+                buy_strategy_name,
+                sell_strategy_name,
+                stop_loss_string,
+            ) = tokens
         try:
             datetime.date.fromisoformat(date_string)
         except ValueError:
@@ -534,6 +1200,7 @@ class StockShell(cmd.Cmd):
             buy_strategy_name,
             sell_strategy_name,
             stop_loss_value,
+            allowed_group_identifiers,
         )
         entry_signal_list: List[str] = signal_data.get("entry_signals", [])
         exit_signal_list: List[str] = signal_data.get("exit_signals", [])
@@ -544,8 +1211,8 @@ class StockShell(cmd.Cmd):
     def help_find_signal(self) -> None:
         """Display help for the find_signal command."""
         self.stdout.write(
-            "find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS\n"
-            "Display entry and exit signals for DATE using the provided strategies.\n"
+            "find_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID) [group=1,2,...]\n"
+            "Display entry and exit signals for DATE using the provided strategies or a strategy id from data/strategy_sets.csv.\n"
         )
 
 

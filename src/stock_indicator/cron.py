@@ -12,7 +12,7 @@ import pandas
 
 from .symbols import update_symbol_cache, load_symbols, load_yf_symbols
 from .data_loader import download_history
-from .strategy import SUPPORTED_STRATEGIES
+from .strategy import SUPPORTED_STRATEGIES, load_ff12_groups_by_symbol
 
 LOGGER = logging.getLogger(__name__)
 
@@ -23,14 +23,16 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[
     str,
     str,
     float,
+    set[int] | None,
 ]:
     """Parse a cron job argument string.
 
     The expected format is ``dollar_volume>NUMBER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``,
     ``dollar_volume>NUMBER% BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``,
-    ``dollar_volume=Nth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``,
-    ``dollar_volume>NUMBER,Nth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``, or
-    ``dollar_volume>NUMBER%,Nth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``.
+    ``dollar_volume=TopN BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]`` (or legacy ``Nth``),
+    ``dollar_volume>NUMBER,TopN BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]`` (or 
+    legacy ``,Nth``), or ``dollar_volume>NUMBER%,TopN BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``
+    (or legacy ``,Nth``). Matching is case-insensitive for ``TopN``.
 
     Parameters
     ----------
@@ -46,47 +48,77 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[
         percentage.
     """
     argument_parts = argument_line.split()
-    if len(argument_parts) not in (3, 4):
+    if len(argument_parts) not in (3, 4, 5):
         raise ValueError(
             "argument_line must be 'dollar_volume>NUMBER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', "
             "'dollar_volume>NUMBER% BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', "
-            "'dollar_volume=RANKth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', "
-            "'dollar_volume>NUMBER,RANKth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]', or "
-            "'dollar_volume>NUMBER%,RANKth BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]'",
+            "'dollar_volume=TopN BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]' (or 'Nth'), "
+            "'dollar_volume>NUMBER,TopN' (or ',Nth'), or 'dollar_volume>NUMBER%,TopN' (or ',Nth')",
         )
-    volume_filter, buy_strategy_name, sell_strategy_name = argument_parts[:3]
-    stop_loss_percentage = (
-        float(argument_parts[3]) if len(argument_parts) == 4 else 1.0
-    )
+    # Allow an optional group=1,2,... token to appear anywhere in the first
+    # few arguments. Extract it if present, then parse the remaining tokens as
+    # volume filter, buy strategy, sell strategy, [stop loss].
+    allowed_groups: set[int] | None = None
+    tokens: list[str] = []
+    for token in argument_parts:
+        if token.startswith("group="):
+            try:
+                raw = token.split("=", 1)[1]
+                parts = [p.strip() for p in raw.split(",") if p.strip()]
+                parsed = {int(p) for p in parts}
+            except ValueError as parse_error:  # noqa: BLE001
+                raise ValueError("Invalid group list; expected integers 1-11") from parse_error
+            if any(identifier < 1 or identifier > 11 for identifier in parsed):
+                raise ValueError("Group identifiers must be between 1 and 11")
+            if 12 in parsed:
+                raise ValueError("Group list must not include 12 (Other)")
+            allowed_groups = parsed
+        else:
+            tokens.append(token)
+    if len(tokens) not in (3, 4):
+        raise ValueError(
+            "Unsupported argument format; expected DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] with optional group=...",
+        )
+    volume_filter, buy_strategy_name, sell_strategy_name = tokens[:3]
+    stop_loss_percentage = float(tokens[3]) if len(tokens) == 4 else 1.0
     minimum_average_dollar_volume: float | None = None
     minimum_average_dollar_volume_ratio: float | None = None
     top_dollar_volume_rank: int | None = None
-    combined_percentage_match = re.fullmatch(
+    # Accept both TopN and legacy Nth; case-insensitive for Top
+    combined_percentage_top_match = re.fullmatch(
+        r"dollar_volume>(\d+(?:\.\d{1,2})?)%,Top(\d+)",
+        volume_filter,
+        flags=re.IGNORECASE,
+    )
+    combined_percentage_nth_match = re.fullmatch(
         r"dollar_volume>(\d+(?:\.\d{1,2})?)%,(\d+)th",
         volume_filter,
     )
-    if combined_percentage_match is not None:
-        minimum_average_dollar_volume_ratio = (
-            float(combined_percentage_match.group(1)) / 100
-        )
-        top_dollar_volume_rank = int(combined_percentage_match.group(2))
+    if combined_percentage_top_match is not None or combined_percentage_nth_match is not None:
+        match_obj = combined_percentage_top_match or combined_percentage_nth_match
+        minimum_average_dollar_volume_ratio = float(match_obj.group(1)) / 100
+        top_dollar_volume_rank = int(match_obj.group(2))
     else:
-        combined_match = re.fullmatch(
+        combined_top_match = re.fullmatch(
+            r"dollar_volume>(\d+(?:\.\d+)?),Top(\d+)",
+            volume_filter,
+            flags=re.IGNORECASE,
+        )
+        combined_nth_match = re.fullmatch(
             r"dollar_volume>(\d+(?:\.\d+)?),(\d+)th",
             volume_filter,
         )
-        if combined_match is not None:
-            minimum_average_dollar_volume = float(combined_match.group(1))
-            top_dollar_volume_rank = int(combined_match.group(2))
+        if combined_top_match is not None or combined_nth_match is not None:
+            match_obj = combined_top_match or combined_nth_match
+            minimum_average_dollar_volume = float(match_obj.group(1))
+            top_dollar_volume_rank = int(match_obj.group(2))
         else:
             percentage_match = re.fullmatch(
                 r"dollar_volume>(\d+(?:\.\d{1,2})?)%",
                 volume_filter,
             )
             if percentage_match is not None:
-                minimum_average_dollar_volume_ratio = (
-                    float(percentage_match.group(1)) / 100
-                )
+                minimum_average_dollar_volume_ratio = float(percentage_match.group(1)) / 100
             else:
                 volume_match = re.fullmatch(
                     r"dollar_volume>(\d+(?:\.\d+)?)",
@@ -95,18 +127,23 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[
                 if volume_match is not None:
                     minimum_average_dollar_volume = float(volume_match.group(1))
                 else:
-                    rank_match = re.fullmatch(
+                    rank_top_match = re.fullmatch(
+                        r"dollar_volume=Top(\d+)",
+                        volume_filter,
+                        flags=re.IGNORECASE,
+                    )
+                    rank_nth_match = re.fullmatch(
                         r"dollar_volume=(\d+)th",
                         volume_filter,
                     )
-                    if rank_match is not None:
-                        top_dollar_volume_rank = int(rank_match.group(1))
+                    if rank_top_match is not None or rank_nth_match is not None:
+                        top_dollar_volume_rank = int((rank_top_match or rank_nth_match).group(1))
                     else:
                         raise ValueError(
                             "Unsupported filter format. Expected 'dollar_volume>NUMBER', "
-                            "'dollar_volume>NUMBER%', 'dollar_volume=RANKth', "
-                            "'dollar_volume>NUMBER,RANKth', or "
-                            "'dollar_volume>NUMBER%,RANKth'.",
+                            "'dollar_volume>NUMBER%', 'dollar_volume=TopN' (or 'Nth'), "
+                            "'dollar_volume>NUMBER,TopN' (or ',Nth'), or "
+                            "'dollar_volume>NUMBER%,TopN' (or ',Nth').",
                         )
     return (
         minimum_average_dollar_volume_ratio
@@ -116,6 +153,7 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[
         buy_strategy_name,
         sell_strategy_name,
         stop_loss_percentage,
+        allowed_groups,
     )
 
 
@@ -129,6 +167,7 @@ def run_daily_tasks(
     data_directory: Path | None = None,
     minimum_average_dollar_volume: float | None = None,
     top_dollar_volume_rank: int | None = None,  # TODO: review
+    allowed_fama_french_groups: set[int] | None = None,
 ) -> Dict[str, List[str]]:
     """Execute the daily workflow for data retrieval and signal detection.
 
@@ -174,6 +213,32 @@ def run_daily_tasks(
             raise ValueError(
                 "No Yahoo Finance symbol list available. Run 'update_yf_symbols' first."
             )
+    # Apply FF12 group filtering if sector data is available.
+    try:
+        symbol_to_group = load_ff12_groups_by_symbol()
+    except Exception:  # noqa: BLE001
+        symbol_to_group = {}
+    if symbol_to_group:
+        # Always exclude 'Other' (12)
+        filtered_symbols: list[str] = []
+        for ticker in symbol_list:
+            group_id = symbol_to_group.get(ticker.upper())
+            if group_id is None:
+                if allowed_fama_french_groups is None:
+                    # When not restricting groups, keep symbols with unknown mapping
+                    filtered_symbols.append(ticker)
+                else:
+                    # When restricting, drop unknowns to be safe
+                    continue
+            else:
+                if group_id == 12:
+                    continue
+                if (
+                    allowed_fama_french_groups is None
+                    or group_id in allowed_fama_french_groups
+                ):
+                    filtered_symbols.append(ticker)
+        symbol_list = filtered_symbols
 
     entry_signal_symbols: List[str] = []
     exit_signal_symbols: List[str] = []
@@ -281,6 +346,7 @@ def run_daily_tasks_from_argument(
         buy_strategy_name,
         sell_strategy_name,
         _,
+        allowed_groups,
     ) = parse_daily_task_arguments(argument_line)
     return run_daily_tasks(
         buy_strategy_name=buy_strategy_name,
@@ -292,4 +358,5 @@ def run_daily_tasks_from_argument(
         data_directory=data_directory,
         minimum_average_dollar_volume=minimum_average_dollar_volume,
         top_dollar_volume_rank=top_dollar_volume_rank,
+        allowed_fama_french_groups=allowed_groups,
     )
