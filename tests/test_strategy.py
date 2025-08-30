@@ -1415,6 +1415,39 @@ def test_attach_20_50_sma_cross_signals_mark_crosses() -> None:
     assert price_data_frame["20_50_sma_cross_exit_signal"].any()
 
 
+def test_attach_parametrized_20_50_sma_cross_uses_custom_windows() -> None:
+    """Custom short/long windows should override 20/50 defaults."""
+    # TODO: review
+
+    import stock_indicator.strategy as strategy_module
+    from stock_indicator.indicators import sma
+
+    close_values = (
+        [100.0] * 50
+        + list(range(100, 50, -1))
+        + list(range(50, 200))
+        + list(range(200, 50, -1))
+    )
+    price_data_frame = pandas.DataFrame({"close": close_values})
+
+    # Use 15/30 instead of 20/50
+    strategy_module.attach_20_50_sma_cross_signals(
+        price_data_frame, short_window_size=15, long_window_size=30
+    )
+
+    sma_short = sma(price_data_frame["close"], 15)
+    sma_long = sma(price_data_frame["close"], 30)
+    expected_entry = (
+        (sma_short.shift(1) <= sma_long.shift(1)) & (sma_short > sma_long)
+    ).shift(1, fill_value=False)
+    expected_exit = (
+        (sma_short.shift(1) >= sma_long.shift(1)) & (sma_short < sma_long)
+    ).shift(1, fill_value=False)
+
+    assert price_data_frame["20_50_sma_cross_entry_signal"].equals(expected_entry)
+    assert price_data_frame["20_50_sma_cross_exit_signal"].equals(expected_exit)
+
+
 def test_attach_ema_sma_cross_and_rsi_signals_filters_by_rsi(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

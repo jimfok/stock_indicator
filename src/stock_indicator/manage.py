@@ -29,6 +29,46 @@ DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "data"
 STOCK_DATA_DIRECTORY = DATA_DIRECTORY / "stock_data"
 
 
+def _resolve_strategy_choice(raw_name: str, allowed: dict) -> str:
+    """Return the first supported strategy token from ``raw_name``.
+
+    Allows config values like "ema_a | ema_b" or "ema_a or ema_b"; picks the
+    first token whose base name exists in the provided ``allowed`` dict.
+    Falls back to the original name when none match.
+    """
+    # Split on common separators: "or", "|", ",", "/"
+    parts = re.split(r"\s*(?:\bor\b|\||,|/)\s*", raw_name.strip())
+    for token in parts:
+        if not token:
+            continue
+        try:
+            base_name, _, _ = strategy.parse_strategy_name(token)
+        except Exception:  # noqa: BLE001
+            continue
+        if base_name in allowed:
+            return token
+    return raw_name
+
+
+def _has_supported_strategy(expression: str, allowed: dict) -> bool:
+    """Return True if any option in a composite expression is supported.
+
+    Splits on "or", "|", ",", or "/" and checks if at least one token's
+    base strategy exists in the provided ``allowed`` mapping.
+    """
+    parts = re.split(r"\s*(?:\bor\b|\||,|/)\s*", expression.strip())
+    for token in parts:
+        if not token:
+            continue
+        try:
+            base_name, _, _ = strategy.parse_strategy_name(token)
+        except Exception:  # noqa: BLE001
+            continue
+        if base_name in allowed:
+            return True
+    return False
+
+
 class StockShell(cmd.Cmd):
     """Interactive command shell for stock data maintenance."""
 
@@ -328,6 +368,9 @@ class StockShell(cmd.Cmd):
                 self.stdout.write(f"unknown strategy id: {strategy_id}\n")
                 return
             buy_strategy_name, sell_strategy_name = mapping[strategy_id]
+            # Pass through composite strategy expressions; OR resolution handled in strategy layer
+            # Pass through composite strategy expressions
+            # Pass through composite strategy expressions
         else:
             if len(argument_parts) not in (3, 4, 5):
                 self.stdout.write(
@@ -409,15 +452,9 @@ class StockShell(cmd.Cmd):
                                 "dollar_volume>NUMBER%,TopN (or ,Nth)\n",
                             )
                             return
-        try:  # TODO: review
-            buy_base_name, _, _ = strategy.parse_strategy_name(buy_strategy_name)
-            sell_base_name, _, _ = strategy.parse_strategy_name(sell_strategy_name)
-        except ValueError as error:
-            self.stdout.write(f"{error}\n")
-            return
-        if (
-            buy_base_name not in strategy.BUY_STRATEGIES
-            or sell_base_name not in strategy.SELL_STRATEGIES
+        # Validate strategies; allow composite expressions (A or B)
+        if not _has_supported_strategy(buy_strategy_name, strategy.BUY_STRATEGIES) or not _has_supported_strategy(
+            sell_strategy_name, strategy.SELL_STRATEGIES
         ):
             self.stdout.write("unsupported strategies\n")
             return
@@ -734,6 +771,7 @@ class StockShell(cmd.Cmd):
                 self.stdout.write(f"unknown strategy id: {strategy_id}\n")
                 return
             buy_strategy_name, sell_strategy_name = mapping[strategy_id]
+            # Pass through composite strategy expressions
         else:
             if len(argument_parts) not in (2, 3, 4):
                 self.stdout.write(
@@ -750,15 +788,9 @@ class StockShell(cmd.Cmd):
                     return
             if len(argument_parts) == 4:
                 show_trade_details = argument_parts[3].lower() == "true"
-        try:  # validate strategy names
-            buy_base_name, _, _ = strategy.parse_strategy_name(buy_strategy_name)
-            sell_base_name, _, _ = strategy.parse_strategy_name(sell_strategy_name)
-        except ValueError as error:
-            self.stdout.write(f"{error}\n")
-            return
-        if (
-            buy_base_name not in strategy.BUY_STRATEGIES
-            or sell_base_name not in strategy.SELL_STRATEGIES
+        # Validate strategies; support composite expressions
+        if not _has_supported_strategy(buy_strategy_name, strategy.BUY_STRATEGIES) or not _has_supported_strategy(
+            sell_strategy_name, strategy.SELL_STRATEGIES
         ):
             self.stdout.write("unsupported strategies\n")
             return
@@ -975,15 +1007,9 @@ class StockShell(cmd.Cmd):
             if len(argument_parts) == 4:
                 show_trade_details = argument_parts[3].lower() == "true"
 
-        try:  # validate strategy names
-            buy_base_name, _, _ = strategy.parse_strategy_name(buy_strategy_name)
-            sell_base_name, _, _ = strategy.parse_strategy_name(sell_strategy_name)
-        except ValueError as error:
-            self.stdout.write(f"{error}\n")
-            return
-        if (
-            buy_base_name not in strategy.BUY_STRATEGIES
-            or sell_base_name not in strategy.SELL_STRATEGIES
+        # Validate strategies; support composite expressions
+        if not _has_supported_strategy(buy_strategy_name, strategy.BUY_STRATEGIES) or not _has_supported_strategy(
+            sell_strategy_name, strategy.SELL_STRATEGIES
         ):
             self.stdout.write("unsupported strategies\n")
             return

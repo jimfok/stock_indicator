@@ -243,9 +243,31 @@ def run_daily_tasks(
     entry_signal_symbols: List[str] = []
     exit_signal_symbols: List[str] = []
 
-    if buy_strategy_name not in SUPPORTED_STRATEGIES:
+    # Allow parameterized strategy names by parsing out the base name.
+    from .strategy import (
+        BUY_STRATEGIES,
+        SELL_STRATEGIES,
+        parse_strategy_name,
+        _extract_sma_factor,
+        _extract_short_long_windows_for_20_50,
+    )
+
+    try:
+        buy_base_name, buy_window_size, buy_slope_range = parse_strategy_name(
+            buy_strategy_name
+        )
+    except Exception as parse_error:  # noqa: BLE001
+        raise ValueError(f"Unknown strategy: {buy_strategy_name}") from parse_error
+    try:
+        sell_base_name, sell_window_size, sell_slope_range = parse_strategy_name(
+            sell_strategy_name
+        )
+    except Exception as parse_error:  # noqa: BLE001
+        raise ValueError(f"Unknown strategy: {sell_strategy_name}") from parse_error
+
+    if buy_base_name not in BUY_STRATEGIES:
         raise ValueError(f"Unknown strategy: {buy_strategy_name}")
-    if sell_strategy_name not in SUPPORTED_STRATEGIES:
+    if sell_base_name not in SELL_STRATEGIES:
         raise ValueError(f"Unknown strategy: {sell_strategy_name}")
 
     symbol_data: List[tuple[str, pandas.DataFrame, float | None]] = []
@@ -290,10 +312,55 @@ def run_daily_tasks(
         symbol_data.sort(key=lambda item: item[2], reverse=True)
         symbol_data = symbol_data[:top_dollar_volume_rank]
 
+    def _apply_strategy(
+        full_name: str,
+        base_name: str,
+        window_size: int | None,
+        slope_range: tuple[float, float] | None,
+        table,
+        frame: pandas.DataFrame,
+    ) -> None:
+        kwargs: dict = {}
+        if base_name == "20_50_sma_cross":
+            maybe_windows = _extract_short_long_windows_for_20_50(full_name)
+            if maybe_windows is not None:
+                kwargs["short_window_size"], kwargs["long_window_size"] = maybe_windows
+        else:
+            if window_size is not None:
+                kwargs["window_size"] = window_size
+            if slope_range is not None:
+                kwargs["slope_range"] = slope_range
+            sma_factor_value = _extract_sma_factor(full_name)
+            if sma_factor_value is not None and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}:
+                kwargs["sma_window_factor"] = sma_factor_value
+        table[base_name](frame, **kwargs)
+        if base_name != full_name:
+            frame.rename(
+                columns={
+                    f"{base_name}_entry_signal": f"{full_name}_entry_signal",
+                    f"{base_name}_exit_signal": f"{full_name}_exit_signal",
+                },
+                inplace=True,
+            )
+
     for symbol, price_history_frame, _ in symbol_data:
-        SUPPORTED_STRATEGIES[buy_strategy_name](price_history_frame)
+        _apply_strategy(
+            buy_strategy_name,
+            buy_base_name,
+            buy_window_size,
+            buy_slope_range,
+            BUY_STRATEGIES,
+            price_history_frame,
+        )
         if buy_strategy_name != sell_strategy_name:
-            SUPPORTED_STRATEGIES[sell_strategy_name](price_history_frame)
+            _apply_strategy(
+                sell_strategy_name,
+                sell_base_name,
+                sell_window_size,
+                sell_slope_range,
+                SELL_STRATEGIES,
+                price_history_frame,
+            )
 
         entry_column_name = f"{buy_strategy_name}_entry_signal"
         exit_column_name = f"{sell_strategy_name}_exit_signal"

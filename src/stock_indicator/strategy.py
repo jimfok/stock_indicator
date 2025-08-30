@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import ceil
 from pathlib import Path
 from statistics import mean, stdev
 from typing import Callable, Dict, List
@@ -24,6 +25,78 @@ from .simulator import (
 )
 from .symbols import SP500_SYMBOL
 
+
+def _split_strategy_choices(strategy_name: str) -> list[str]:
+    """Split a strategy expression by common OR separators.
+
+    Supports "or", "|", "/", and comma as separators. Trims whitespace and
+    returns the list of non-empty tokens. If no separator is present, returns
+    a single-item list containing the original name.
+    """
+    parts = re.split(r"\s*(?:\bor\b|\||/|,)\s*", strategy_name.strip())
+    return [token for token in parts if token]
+
+
+def _extract_sma_factor(strategy_name: str) -> float | None:
+    """Extract an optional SMA window factor from a strategy name.
+
+    Supports two formats appended to the strategy identifier:
+    - Explicit suffix: "..._sma1.2" (preferred)
+    - Legacy numeric:  "..._40_-0.3_10.0_1.2" (fourth numeric segment)
+
+    Returns None when the extra factor is not present.
+    """
+    # Preferred explicit suffix format: ..._sma1.2
+    suffix_match = re.search(r"_sma([0-9]+(?:\.[0-9]+)?)$", strategy_name)
+    if suffix_match:
+        try:
+            return float(suffix_match.group(1))
+        except ValueError:  # noqa: PERF203
+            return None
+
+    # Legacy: trailing fourth numeric segment treated as factor
+    parts = strategy_name.split("_")
+    numeric_segments: list[str] = []
+    while parts:
+        token = parts[-1]
+        try:
+            float(token)
+        except ValueError:
+            break
+        numeric_segments.append(token)
+        parts.pop()
+    numeric_segments.reverse()
+    # Expect pattern: window(int), lower(float), upper(float), factor(float)
+    if len(numeric_segments) >= 4 and numeric_segments[0].isdigit():
+        try:
+            return float(numeric_segments[-1])
+        except ValueError:  # noqa: PERF203
+            return None
+    return None
+
+
+def _extract_short_long_windows_for_20_50(
+    strategy_name: str,
+) -> tuple[int, int] | None:
+    """Extract short/long SMA windows from a "20_50_sma_cross" style name.
+
+    Supports names like ``"20_50_sma_cross_15_30"`` in which the trailing
+    two integer segments override the default 20/50 windows. Returns
+    ``(short, long)`` when present and valid, otherwise ``None``.
+    """
+    parts = strategy_name.split("_")
+    if len(parts) < 2:
+        return None
+    try:
+        long_candidate = int(parts[-1])
+        short_candidate = int(parts[-2])
+    except ValueError:
+        return None
+    if short_candidate <= 0 or long_candidate <= 0:
+        return None
+    if short_candidate >= long_candidate:
+        return None
+    return short_candidate, long_candidate
 
 def load_symbols_excluded_by_industry() -> set[str]:
     """Return symbols that should be excluded based on industry classification.
@@ -243,6 +316,7 @@ def attach_ema_sma_cross_signals(
     price_data_frame: pandas.DataFrame,
     window_size: int = 40,
     require_close_above_long_term_sma: bool = False,
+    sma_window_factor: float | None = None,
 ) -> None:
     """Attach EMA/SMA cross entry and exit signals to ``price_data_frame``.
 
@@ -251,17 +325,28 @@ def attach_ema_sma_cross_signals(
     price_data_frame:
         DataFrame containing ``open`` and ``close`` price columns.
     window_size:
-        Number of periods for both EMA and SMA calculations.
+        Number of periods for EMA calculations.
     require_close_above_long_term_sma:
         When ``True``, entry signals are only generated if the previous day's
         closing price is greater than the 150-day simple moving average.
+    sma_window_factor:
+        Optional multiplier applied to ``window_size`` to determine the SMA
+        window as ``ceil(window_size * factor)``. When ``None``, uses
+        ``window_size`` for SMA as well.
     """
     # TODO: review
 
-    price_data_frame["ema_value"] = ema(price_data_frame["close"], window_size)
-    price_data_frame["sma_value"] = sma(price_data_frame["close"], window_size)
+    # Round close to 3 decimals before EMA/SMA to stabilize signals
+    _close_r3 = price_data_frame["close"].round(3)
+    price_data_frame["ema_value"] = ema(_close_r3, window_size)
+    # Allow SMA window to be a factor of EMA window, ceiling
+    if sma_window_factor is not None and sma_window_factor > 0:
+        adjusted_sma_window: int = int(ceil(window_size * float(sma_window_factor)))
+    else:
+        adjusted_sma_window = int(window_size)
+    price_data_frame["sma_value"] = sma(_close_r3, adjusted_sma_window)
     price_data_frame["long_term_sma_value"] = sma(
-        price_data_frame["close"], LONG_TERM_SMA_WINDOW
+        _close_r3, LONG_TERM_SMA_WINDOW
     )
     price_data_frame["ema_previous"] = price_data_frame["ema_value"].shift(1)
     price_data_frame["sma_previous"] = price_data_frame["sma_value"].shift(1)
@@ -293,12 +378,38 @@ def attach_ema_sma_cross_signals(
     )
 
 
-def attach_20_50_sma_cross_signals(price_data_frame: pandas.DataFrame) -> None:
-    """Attach 20/50 SMA cross entry and exit signals to ``price_data_frame``."""
+def attach_20_50_sma_cross_signals(
+    price_data_frame: pandas.DataFrame,
+    short_window_size: int = 20,
+    long_window_size: int = 50,
+) -> None:
+    """Attach SMA cross entry/exit signals using configurable windows.
+
+    By default this reproduces the classic 20/50 SMA cross. When invoked with
+    ``short_window_size`` and ``long_window_size``, it uses those windows
+    instead (e.g., 15/30).
+
+    Parameters
+    ----------
+    price_data_frame:
+        DataFrame containing a ``close`` column.
+    short_window_size:
+        Number of periods for the short simple moving average (default ``20``).
+    long_window_size:
+        Number of periods for the long simple moving average (default ``50``).
+    """
     # TODO: review
 
-    price_data_frame["sma_20_value"] = sma(price_data_frame["close"], 20)
-    price_data_frame["sma_50_value"] = sma(price_data_frame["close"], 50)
+    if short_window_size <= 0 or long_window_size <= 0:
+        raise ValueError("SMA window sizes must be positive integers")
+    if short_window_size >= long_window_size:
+        raise ValueError(
+            "short_window_size must be smaller than long_window_size for a cross"
+        )
+
+    _close_r3 = price_data_frame["close"].round(3)
+    price_data_frame["sma_20_value"] = sma(_close_r3, short_window_size)
+    price_data_frame["sma_50_value"] = sma(_close_r3, long_window_size)
     price_data_frame["sma_20_previous"] = price_data_frame["sma_20_value"].shift(1)
     price_data_frame["sma_50_previous"] = price_data_frame["sma_50_value"].shift(1)
     sma_20_crosses_above_sma_50 = (
@@ -324,6 +435,7 @@ def attach_ema_sma_cross_with_slope_signals(
     price_data_frame: pandas.DataFrame,
     window_size: int = 40,
     slope_range: tuple[float, float] = (-0.3, 2.14),
+    sma_window_factor: float | None = None,
 ) -> None:
     """Attach EMA/SMA cross signals filtered by simple moving average slope.
 
@@ -340,9 +452,13 @@ def attach_ema_sma_cross_with_slope_signals(
     price_data_frame:
         DataFrame containing ``open`` and ``close`` price columns.
     window_size:
-        Number of periods for both EMA and SMA calculations.
+        Number of periods for EMA calculations.
     slope_range:
         Inclusive range ``(lower_bound, upper_bound)`` for the SMA slope.
+    sma_window_factor:
+        Optional multiplier applied to ``window_size`` to determine the SMA
+        window as ``ceil(window_size * factor)``. When ``None``, uses
+        ``window_size`` for SMA as well.
 
     Raises
     ------
@@ -361,6 +477,7 @@ def attach_ema_sma_cross_with_slope_signals(
         price_data_frame,
         window_size,
         require_close_above_long_term_sma=True,
+        sma_window_factor=sma_window_factor,
     )
     price_data_frame["sma_slope"] = (
         price_data_frame["sma_value"] - price_data_frame["sma_previous"]
@@ -416,8 +533,9 @@ def attach_ema_shift_cross_with_slope_signals(
         )
 
     # Core moving averages
-    price_data_frame["ema_value"] = ema(price_data_frame["close"], window_size)
-    price_data_frame["shifted_close"] = price_data_frame["close"].shift(3)
+    _close_r3 = price_data_frame["close"].round(3)
+    price_data_frame["ema_value"] = ema(_close_r3, window_size)
+    price_data_frame["shifted_close"] = price_data_frame["close"].round(3).shift(3)
     price_data_frame["shifted_ema_value"] = ema(
         price_data_frame["shifted_close"], window_size
     )
@@ -494,6 +612,10 @@ def parse_strategy_name(
     strategy ``"ema_sma_cross_with_slope"`` with a window size of ``40`` and a
     slope range from ``-0.5`` to ``0.5``.
 
+    Any optional trailing ``_sma{factor}`` suffix (e.g., ``_sma1.2``) is ignored
+    for base-name/window/slope parsing and should be obtained via
+    :func:`_extract_sma_factor` if needed.
+
     Parameters
     ----------
     strategy_name:
@@ -513,7 +635,13 @@ def parse_strategy_name(
         If the strategy name ends with an underscore, specifies a non-positive
         window size, or contains an unexpected number of numeric segments.
     """
-    name_parts = strategy_name.split("_")
+    # Strip optional trailing "_sma{factor}" before numeric parsing
+    stripped_name = strategy_name
+    sma_suffix_match = re.search(r"^(.*)_sma([0-9]+(?:\.[0-9]+)?)$", strategy_name)
+    if sma_suffix_match:
+        stripped_name = sma_suffix_match.group(1)
+
+    name_parts = stripped_name.split("_")
     if "" in name_parts:
         raise ValueError(f"Malformed strategy name: {strategy_name}")
 
@@ -735,15 +863,24 @@ def evaluate_combined_strategy(
     """
     # TODO: review
 
-    buy_base_name, buy_window_size, buy_slope_range = parse_strategy_name(
-        buy_strategy_name
-    )
-    sell_base_name, sell_window_size, sell_slope_range = parse_strategy_name(
-        sell_strategy_name
-    )
-    if buy_base_name not in BUY_STRATEGIES:
+    # Support composite strategy expressions like "A or B"; require that at
+    # least one option is a supported base strategy on each side.
+    buy_choice_names = _split_strategy_choices(buy_strategy_name)
+    sell_choice_names = _split_strategy_choices(sell_strategy_name)
+
+    def _has_supported(tokens: list[str], table: dict) -> bool:
+        for token in tokens:
+            try:
+                base, _, _ = parse_strategy_name(token)
+            except Exception:  # noqa: BLE001
+                continue
+            if base in table:
+                return True
+        return False
+
+    if not _has_supported(buy_choice_names, BUY_STRATEGIES):
         raise ValueError(f"Unsupported strategy: {buy_strategy_name}")
-    if sell_base_name not in SELL_STRATEGIES:
+    if not _has_supported(sell_choice_names, SELL_STRATEGIES):
         raise ValueError(f"Unsupported strategy: {sell_strategy_name}")
 
     if (
@@ -810,12 +947,11 @@ def evaluate_combined_strategy(
                     "Volume column is required to compute dollar volume metrics"
                 )
             price_data_frame["simple_moving_average_dollar_volume"] = float("nan")
-        if start_date is not None:
-            price_data_frame = price_data_frame.loc[
-                price_data_frame.index >= start_date
-            ]
-            if price_data_frame.empty:
-                continue
+        # Important: do NOT slice by start_date here. We keep full
+        # price history so long-window indicators (e.g., 150-day SMA)
+        # computed later have proper lookback across year boundaries.
+        # We will slice to the actual simulation_start_date right before
+        # running the trade simulation.
         symbol_frames.append((csv_file_path, price_data_frame))
 
     if symbol_frames:
@@ -1025,61 +1161,111 @@ def evaluate_combined_strategy(
         )
 
     for csv_file_path, price_data_frame, symbol_mask in selected_symbol_data:
-        buy_function = BUY_STRATEGIES[buy_base_name]
-        if buy_window_size is not None and buy_slope_range is not None:
-            buy_function(
-                price_data_frame,
-                window_size=buy_window_size,
-                slope_range=buy_slope_range,
-            )
-        elif buy_window_size is not None:
-            buy_function(price_data_frame, window_size=buy_window_size)
-        elif buy_slope_range is not None:
-            buy_function(price_data_frame, slope_range=buy_slope_range)
-        else:
-            buy_function(price_data_frame)
-        rename_signal_columns(price_data_frame, buy_base_name, buy_strategy_name)
-        # Defensive: ensure expected buy/sell signal columns exist even if a
-        # caller passed a slightly different strategy identifier. If the fully
-        # qualified column is missing but the base one exists, create an alias.
-        expected_buy_col = f"{buy_strategy_name}_entry_signal"
-        base_buy_col = f"{buy_base_name}_entry_signal"
-        if expected_buy_col not in price_data_frame.columns and base_buy_col in price_data_frame.columns:
-            price_data_frame[expected_buy_col] = price_data_frame[base_buy_col]
-        if buy_strategy_name != sell_strategy_name:
-            sell_function = SELL_STRATEGIES[sell_base_name]
-            if sell_window_size is not None and sell_slope_range is not None:
-                sell_function(
-                    price_data_frame,
-                    window_size=sell_window_size,
-                    slope_range=sell_slope_range,
-                )
-            elif sell_window_size is not None:
-                sell_function(price_data_frame, window_size=sell_window_size)
-            elif sell_slope_range is not None:
-                sell_function(price_data_frame, slope_range=sell_slope_range)
+        # Build signals for all buy-side choices
+        buy_signal_columns: list[str] = []
+        buy_bases_for_cooldown: set[str] = set()
+        for buy_name in _split_strategy_choices(buy_strategy_name):
+            try:
+                base_name, window_size, slope_range = parse_strategy_name(buy_name)
+            except Exception:
+                continue
+            if base_name not in BUY_STRATEGIES:
+                continue
+            buy_bases_for_cooldown.add(base_name)
+            buy_function = BUY_STRATEGIES[base_name]
+            kwargs: dict = {}
+            if base_name == "20_50_sma_cross":
+                short_long = _extract_short_long_windows_for_20_50(buy_name)
+                if short_long is not None:
+                    kwargs["short_window_size"], kwargs["long_window_size"] = short_long
             else:
-                sell_function(price_data_frame)
-            rename_signal_columns(price_data_frame, sell_base_name, sell_strategy_name)
-            expected_sell_col = f"{sell_strategy_name}_exit_signal"
-            base_sell_col = f"{sell_base_name}_exit_signal"
-            if expected_sell_col not in price_data_frame.columns and base_sell_col in price_data_frame.columns:
-                price_data_frame[expected_sell_col] = price_data_frame[base_sell_col]
+                if window_size is not None:
+                    kwargs["window_size"] = window_size
+                if slope_range is not None:
+                    kwargs["slope_range"] = slope_range
+                # Optional SMA window factor support for EMA/SMA strategies
+                sma_factor_value = _extract_sma_factor(buy_name)
+                if sma_factor_value is not None and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}:
+                    kwargs["sma_window_factor"] = sma_factor_value
+            buy_function(price_data_frame, **kwargs)
+            rename_signal_columns(price_data_frame, base_name, buy_name)
+            col = f"{buy_name}_entry_signal"
+            if col in price_data_frame.columns:
+                buy_signal_columns.append(col)
+
+        # Build signals for all sell-side choices
+        sell_signal_columns: list[str] = []
+        for sell_name in _split_strategy_choices(sell_strategy_name):
+            try:
+                base_name, window_size, slope_range = parse_strategy_name(sell_name)
+            except Exception:
+                continue
+            if base_name not in SELL_STRATEGIES:
+                continue
+            sell_function = SELL_STRATEGIES[base_name]
+            kwargs: dict = {}
+            if base_name == "20_50_sma_cross":
+                short_long = _extract_short_long_windows_for_20_50(sell_name)
+                if short_long is not None:
+                    kwargs["short_window_size"], kwargs["long_window_size"] = short_long
+            else:
+                if window_size is not None:
+                    kwargs["window_size"] = window_size
+                if slope_range is not None:
+                    kwargs["slope_range"] = slope_range
+                sma_factor_value = _extract_sma_factor(sell_name)
+                if sma_factor_value is not None and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}:
+                    kwargs["sma_window_factor"] = sma_factor_value
+            sell_function(price_data_frame, **kwargs)
+            rename_signal_columns(price_data_frame, base_name, sell_name)
+            col = f"{sell_name}_exit_signal"
+            if col in price_data_frame.columns:
+                sell_signal_columns.append(col)
+
+        # Deduplicate column lists and build combined signals to avoid
+        # ambiguity when duplicate labels are present in the row index.
+        buy_signal_columns = list(dict.fromkeys(buy_signal_columns))
+        sell_signal_columns = list(dict.fromkeys(sell_signal_columns))
+        if buy_signal_columns:
+            price_data_frame["_combined_buy_entry"] = (
+                price_data_frame[buy_signal_columns].any(axis=1).fillna(False)
+            )
+        else:
+            price_data_frame["_combined_buy_entry"] = False
+        if sell_signal_columns:
+            price_data_frame["_combined_sell_exit"] = (
+                price_data_frame[sell_signal_columns].any(axis=1).fillna(False)
+            )
+        else:
+            price_data_frame["_combined_sell_exit"] = False
 
         def entry_rule(current_row: pandas.Series) -> bool:
             symbol_is_eligible = bool(symbol_mask.loc[current_row.name])
-            return bool(current_row[f"{buy_strategy_name}_entry_signal"]) and symbol_is_eligible
+            return bool(current_row["_combined_buy_entry"]) and symbol_is_eligible
 
         def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
-            return bool(current_row[f"{sell_strategy_name}_exit_signal"])
+            return bool(current_row["_combined_sell_exit"]) 
 
-        cooldown_after_close = 5 if buy_base_name in {
-            "ema_sma_cross",
-            "ema_sma_cross_with_slope",
-            "ema_shift_cross_with_slope",
-        } else 0
+        cooldown_after_close = 5 if any(
+            base in {"ema_sma_cross", "ema_sma_cross_with_slope", "ema_shift_cross_with_slope"}
+            for base in buy_bases_for_cooldown
+        ) else 0
+        # Slice to simulation_start_date only at simulation time so
+        # previously computed indicators (including long-term SMAs)
+        # retain lookback from pre-start history.
+        if simulation_start_date is not None:
+            run_frame = price_data_frame.loc[
+                price_data_frame.index >= simulation_start_date
+            ]
+        else:
+            run_frame = price_data_frame
+
+        if run_frame.empty:
+            # Nothing to simulate for this symbol in the requested window.
+            continue
+
         simulation_result = simulate_trades(
-            data=price_data_frame,
+            data=run_frame,
             entry_rule=entry_rule,
             exit_rule=exit_rule,
             entry_price_column="open",
@@ -1340,10 +1526,11 @@ def evaluate_ema_sma_cross_strategy(
                 f"Missing required columns: {missing_columns_string} in file {csv_path.name}"
             )
 
-        price_data_frame["ema_value"] = ema(price_data_frame["close"], window_size)
-        price_data_frame["sma_value"] = sma(price_data_frame["close"], window_size)
+        _close_r3 = price_data_frame["close"].round(3)
+        price_data_frame["ema_value"] = ema(_close_r3, window_size)
+        price_data_frame["sma_value"] = sma(_close_r3, window_size)
         price_data_frame["long_term_sma_value"] = sma(
-            price_data_frame["close"], LONG_TERM_SMA_WINDOW
+            _close_r3, LONG_TERM_SMA_WINDOW
         )
         price_data_frame["ema_previous"] = price_data_frame["ema_value"].shift(1)
         price_data_frame["sma_previous"] = price_data_frame["sma_value"].shift(1)

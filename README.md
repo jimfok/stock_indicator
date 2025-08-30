@@ -66,14 +66,14 @@ python -m stock_indicator.manage
 * `update_data_from_yf SYMBOL START END` saves historical data for the given symbol to
   `data/<SYMBOL>.csv`.
 * `update_all_data_from_yf START END` performs the download for every cached symbol.
-* `find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS`
-  recalculates the entry and exit signals for `DATE` using the provided
-  strategies instead of reading log files.
+* `find_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID)`
+  recalculates the entry and exit signals for `DATE` using explicit buy/sell
+  names or a strategy set id (see Strategy Sets below).
 
 For example:
 
 ```bash
-(stock-indicator) find_signal 2024-01-10 dollar_volume>1 ema_sma_cross ema_sma_cross 1.0
+(stock-indicator) find_signal 2024-01-10 dollar_volume>1 strategy=default 1.0
 ['AAA', 'BBB']
 ['CCC', 'DDD']
 ```
@@ -89,7 +89,7 @@ and a ranking when combined with a comma. The command below evaluates
 volume exceeds 10,000 million:
 
 ```bash
-(stock-indicator) start_simulate starting_cash=5000 withdraw=1000 dollar_volume>10000,6th ftd_ema_sma_cross ftd_ema_sma_cross
+(stock-indicator) start_simulate starting_cash=5000 withdraw=1000 dollar_volume>10000,6th strategy=default 1.0 true
 ```
 
 Here `dollar_volume>10000,6th` first drops symbols below the threshold and then
@@ -116,6 +116,35 @@ You can combine slope bounds with a custom EMA/SMA window size by placing the in
 ```
 
 When omitted, the window size defaults to 40 days.
+
+### Strategy Sets
+
+Define named strategy pairs in `data/strategy_sets.csv` and reference them
+with `strategy=ID`.
+
+- CSV columns: `strategy_id,buy,sell`
+- Example:
+
+```
+strategy_id,buy,sell
+default,ema_sma_cross_with_slope_40,ema_sma_cross_with_slope_50
+s1,ema_shift_cross_with_slope_35,ema_shift_cross_with_slope_35
+```
+
+Shorthand forms using a strategy id (omit explicit buy/sell tokens):
+
+- Start simulate
+  - `start_simulate [starting_cash=...] [withdraw=...] [start=YYYY-MM-DD] [margin=NUMBER] DOLLAR_VOLUME_FILTER [STOP_LOSS] [SHOW_DETAILS] strategy=ID [group=1,2,...]`
+- Single symbol
+  - `start_simulate_single_symbol symbol=QQQ [starting_cash=...] [withdraw=...] [start=YYYY-MM-DD] [STOP_LOSS] [SHOW_DETAILS] strategy=ID`
+- N symbols
+  - `start_simulate_N_symbol symbols=QQQ,SPY [starting_cash=...] [withdraw=...] [start=YYYY-MM-DD] [STOP_LOSS] [SHOW_DETAILS] strategy=ID`
+- Find signal
+  - `find_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID [group=1,2,...]`
+
+Notes:
+- When `strategy=ID` is present, do not include explicit `BUY`/`SELL` tokens.
+- Strategy ids are read from `data/strategy_sets.csv` at runtime.
 
 The tests `tests/test_manage.py::test_start_simulate_accepts_slope_range_strategy_names` and `tests/test_strategy.py::test_evaluate_combined_strategy_passes_slope_range` demonstrate the slope-bound syntax. The former shows that `start_simulate` recognizes strategy identifiers with slope ranges, while the latter verifies that the evaluation function passes the provided bounds to the strategy implementation.
 

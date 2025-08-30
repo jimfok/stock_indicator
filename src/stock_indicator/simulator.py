@@ -391,6 +391,30 @@ def simulate_portfolio_balance(
                 invested_amount=invested_amount, share_count=share_count
             )
             cash_balance -= invested_amount + entry_commission
+
+    # After processing all events, settle any remaining pending credits
+    # (e.g., proceeds from the last exit with T+settlement_lag_days).
+    # Accrue margin interest day-by-day up to each credit date and apply
+    # year-end withdrawals that occur between the last processed event and
+    # each settlement date.
+    if last_event_date is not None and pending_credits:
+        for credit_date in sorted(pending_credits.keys()):
+            # Apply withdrawals for any year boundaries crossed before this credit
+            if current_year is not None:
+                while credit_date.year > current_year:
+                    cash_balance -= withdraw_amount
+                    current_year += 1
+            # Accrue interest from the last processed date to the credit date
+            days_elapsed = (credit_date - last_event_date).days
+            if days_elapsed > 0 and cash_balance < 0:
+                daily_rate = margin_interest_annual_rate / 365.0
+                cash_balance -= (-cash_balance) * daily_rate * days_elapsed
+            # Apply the credit and advance the clock
+            cash_balance += pending_credits[credit_date]
+            last_event_date = credit_date
+        pending_credits.clear()
+
+    # Apply the final year-end withdrawal once for the last simulation year.
     if current_year is not None:
         cash_balance -= withdraw_amount
     return cash_balance
@@ -512,9 +536,17 @@ def calculate_max_drawdown(
         if cash_balance < 0:
             cash_balance -= (-cash_balance) * (margin_interest_annual_rate / 365.0)
 
-        portfolio_value = cash_balance + sum(
-            position_details.share_count * (position_details.last_known_price or 0.0)
-            for position_details in open_trades.values()
+        # Portfolio value includes cash, MTM of open positions, and receivables
+        # from pending settlements (e.g., T+1 proceeds). Including receivables
+        # prevents artificial dips on exit days that would otherwise inflate
+        # drawdown.
+        portfolio_value = (
+            cash_balance
+            + sum(
+                position_details.share_count * (position_details.last_known_price or 0.0)
+                for position_details in open_trades.values()
+            )
+            + sum(pending_credits.values())
         )
         if portfolio_value > maximum_portfolio_value:
             maximum_portfolio_value = portfolio_value
@@ -527,9 +559,13 @@ def calculate_max_drawdown(
         if next_day.year > current_year:
             cash_balance -= withdraw_amount
             maximum_portfolio_value = max(0.0, maximum_portfolio_value - withdraw_amount)
-            portfolio_value = cash_balance + sum(
-                position_details.share_count * (position_details.last_known_price or 0.0)
-                for position_details in open_trades.values()
+            portfolio_value = (
+                cash_balance
+                + sum(
+                    position_details.share_count * (position_details.last_known_price or 0.0)
+                    for position_details in open_trades.values()
+                )
+                + sum(pending_credits.values())
             )
             if portfolio_value > maximum_portfolio_value:
                 maximum_portfolio_value = portfolio_value

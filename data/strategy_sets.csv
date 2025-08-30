@@ -2,3 +2,4 @@ strategy_id,buy,sell
 s1,ema_sma_cross_with_slope_40,ema_sma_cross_with_slope_50
 s2,ema_shift_cross_with_slope_35,ema_shift_cross_with_slope_35
 s3,20_50_sma_cross,20_50_sma_cross
+s4,ema_sma_cross_with_slope_40|ema_shift_cross_with_slope_35,ema_sma_cross_with_slope_50|ema_shift_cross_with_slope_35
