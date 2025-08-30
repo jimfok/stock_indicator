@@ -138,7 +138,7 @@ Shorthand forms using a strategy id (omit explicit buy/sell tokens):
 - Single symbol
   - `start_simulate_single_symbol symbol=QQQ [starting_cash=...] [withdraw=...] [start=YYYY-MM-DD] [STOP_LOSS] [SHOW_DETAILS] strategy=ID`
 - N symbols
-  - `start_simulate_N_symbol symbols=QQQ,SPY [starting_cash=...] [withdraw=...] [start=YYYY-MM-DD] [STOP_LOSS] [SHOW_DETAILS] strategy=ID`
+  - `start_simulate_n_symbol symbols=QQQ,SPY [starting_cash=...] [withdraw=...] [start=YYYY-MM-DD] [STOP_LOSS] [SHOW_DETAILS] strategy=ID`
 - Find signal
   - `find_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID [group=1,2,...]`
 

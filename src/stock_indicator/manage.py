@@ -913,7 +913,7 @@ class StockShell(cmd.Cmd):
         )
 
     def do_start_simulate_n_symbol(self, argument_line: str) -> None:  # noqa: D401
-        """start_simulate_N_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [SHOW_DETAILS]
+        """start_simulate_n_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [SHOW_DETAILS]
         Evaluate strategies across a provided symbol list. Budget per position uses slot count equal to the number of symbols.
 
         When not provided, STOP_LOSS defaults to 1.0 and SHOW_DETAILS defaults to True.
@@ -965,7 +965,7 @@ class StockShell(cmd.Cmd):
 
         if symbol_list_input is None:
             self.stdout.write(
-                "usage: start_simulate_N_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
+                "usage: start_simulate_n_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
                 "(BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS]\n"
             )
             return
@@ -974,7 +974,7 @@ class StockShell(cmd.Cmd):
         if strategy_id:
             if len(argument_parts) not in (1, 2):
                 self.stdout.write(
-                    "usage: start_simulate_N_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [STOP_LOSS] [SHOW_DETAILS] strategy=ID\n"
+                    "usage: start_simulate_n_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [STOP_LOSS] [SHOW_DETAILS] strategy=ID\n"
                 )
                 return
             if len(argument_parts) >= 1:
@@ -993,7 +993,7 @@ class StockShell(cmd.Cmd):
         else:
             if len(argument_parts) not in (2, 3, 4):
                 self.stdout.write(
-                    "usage: start_simulate_N_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
+                    "usage: start_simulate_n_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
                     "(BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS]\n"
                 )
                 return
@@ -1125,9 +1125,9 @@ class StockShell(cmd.Cmd):
                     )
 
     def help_start_simulate_n_symbol(self) -> None:
-        """Display help for the start_simulate_N_symbol command."""
+        """Display help for the start_simulate_n_symbol command."""
         self.stdout.write(
-            "start_simulate_N_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
+            "start_simulate_n_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
             "(BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS]\n"
             "Simulate strategies across a list of symbols; budget per position uses slots equal to the list length.\n"
             "Parameters:\n"
@@ -1140,12 +1140,6 @@ class StockShell(cmd.Cmd):
             "  SHOW_DETAILS: 'True' to print trade details, 'False' to suppress. Defaults to True.\n"
         )
 
-    # Alias with capital 'N' to match user input variations
-    def do_start_simulate_N_symbol(self, argument_line: str) -> None:  # noqa: N802
-        self.do_start_simulate_n_symbol(argument_line)
-
-    def help_start_simulate_N_symbol(self) -> None:  # noqa: N802
-        self.help_start_simulate_n_symbol()
 
     # TODO: review
     def do_find_signal(self, argument_line: str) -> None:  # noqa: D401
