@@ -1654,8 +1654,9 @@ def evaluate_combined_strategy(
             else:
                 group_entry_ratio = float(entry_dollar_volume) / group_entry_total
             chip_metrics = calculate_chip_concentration_metrics(
-                price_data_frame.loc[: completed_trade.entry_date]
-            )
+                price_data_frame.loc[: completed_trade.entry_date],
+                lookback_window_size=60,
+            )  # TODO: review
             entry_detail = TradeDetail(
                 date=completed_trade.entry_date,
                 symbol=symbol_name,
