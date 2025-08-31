@@ -10,21 +10,17 @@ from stock_indicator import daily_job
 def test_run_daily_job_writes_log_file(tmp_path, monkeypatch):
     """run_daily_job should create a dated log file with signals."""
 
-    def fake_run_daily_tasks_from_argument(
-        argument_line: str,
-        start_date: str,
-        end_date: str,
-        symbol_list=None,
-        data_download_function=None,
-        data_directory: Path | None = None,
+    def fake_find_signal(
+        date_string: str,
+        dollar_volume_filter: str,
+        buy_strategy: str,
+        sell_strategy: str,
+        stop_loss: float,
+        allowed_groups: set[int] | None,
     ):
         return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
 
-    monkeypatch.setattr(
-        daily_job.cron,
-        "run_daily_tasks_from_argument",
-        fake_run_daily_tasks_from_argument,
-    )
+    monkeypatch.setattr(daily_job, "find_signal", fake_find_signal)
 
     log_directory = tmp_path / "logs"
     data_directory = tmp_path / "data"
@@ -59,6 +55,7 @@ def test_run_daily_job_accepts_percentage(tmp_path: Path, monkeypatch: pytest.Mo
         data_directory: Path | None = None,
         minimum_average_dollar_volume: float | None = None,
         top_dollar_volume_rank: int | None = None,
+        allowed_fama_french_groups: set[int] | None = None,
     ):
         captured_arguments["minimum_average_dollar_volume"] = minimum_average_dollar_volume
         captured_arguments["top_dollar_volume_rank"] = top_dollar_volume_rank
@@ -101,6 +98,7 @@ def test_run_daily_job_accepts_percentage_and_rank(
         data_directory: Path | None = None,
         minimum_average_dollar_volume: float | None = None,
         top_dollar_volume_rank: int | None = None,
+        allowed_fama_french_groups: set[int] | None = None,
     ):
         captured_arguments["minimum_average_dollar_volume"] = minimum_average_dollar_volume
         captured_arguments["top_dollar_volume_rank"] = top_dollar_volume_rank
@@ -170,22 +168,24 @@ def test_run_daily_job_uses_oldest_data_date(tmp_path, monkeypatch):
 def test_run_daily_job_expands_strategy_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """run_daily_job should replace ``strategy=ID`` with buy and sell names."""
 
-    captured_argument: dict[str, str] = {}
+    captured_parameters: dict[str, object] = {}
 
-    def fake_run_daily_tasks_from_argument(
-        argument_line: str,
-        start_date: str,
-        end_date: str,
-        symbol_list=None,
-        data_download_function=None,
-        data_directory: Path | None = None,
+    def fake_find_signal(
+        date_string: str,
+        dollar_volume_filter: str,
+        buy_strategy: str,
+        sell_strategy: str,
+        stop_loss: float,
+        allowed_groups: set[int] | None,
     ):
-        captured_argument["value"] = argument_line
+        captured_parameters["dollar_volume_filter"] = dollar_volume_filter
+        captured_parameters["buy_strategy"] = buy_strategy
+        captured_parameters["sell_strategy"] = sell_strategy
+        captured_parameters["stop_loss"] = stop_loss
+        captured_parameters["allowed_groups"] = allowed_groups
         return {"entry_signals": [], "exit_signals": []}
 
-    monkeypatch.setattr(
-        daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument
-    )
+    monkeypatch.setattr(daily_job, "find_signal", fake_find_signal)
     monkeypatch.setattr(
         daily_job.strategy_sets,
         "load_strategy_set_mapping",
@@ -203,10 +203,11 @@ def test_run_daily_job_expands_strategy_id(tmp_path: Path, monkeypatch: pytest.M
         current_date=current_date,
     )
 
-    assert (
-        captured_argument["value"]
-        == "group=1,2 dollar_volume>1 buy_one sell_two 0.5"
-    )
+    assert captured_parameters["dollar_volume_filter"] == "dollar_volume>1"
+    assert captured_parameters["buy_strategy"] == "buy_one"
+    assert captured_parameters["sell_strategy"] == "sell_two"
+    assert captured_parameters["stop_loss"] == 0.5
+    assert captured_parameters["allowed_groups"] == {1, 2}
 
 
 def test_run_daily_job_unknown_strategy_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -275,7 +276,7 @@ def test_find_signal_detects_previous_day_crossover(
         )
     (data_directory / "AAA.csv").write_text("".join(csv_lines), encoding="utf-8")
 
-    monkeypatch.setattr(daily_job, "DATA_DIRECTORY", data_directory)
+    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
     monkeypatch.setattr(daily_job.cron, "update_symbol_cache", lambda: None)
     monkeypatch.setattr(daily_job.cron, "load_symbols", lambda: ["AAA"])
 

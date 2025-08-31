@@ -148,6 +148,7 @@ def run_daily_job(
     Path
         Path to the log file containing the entry and exit signals.
     """
+    global STOCK_DATA_DIRECTORY
     if current_date is None:
         current_date = datetime.date.today()
     # Track whether caller used defaults; only then add budget lines to logs
@@ -159,14 +160,45 @@ def run_daily_job(
 
     current_date_string = current_date.isoformat()
     LOGGER.info("Starting daily tasks for %s", current_date_string)
-    start_date_string = determine_start_date(data_directory)
     normalized_argument_line = _expand_strategy_argument_line(argument_line)
-    signal_result: Dict[str, list[str]] = cron.run_daily_tasks_from_argument(
-        normalized_argument_line,
-        start_date=start_date_string,
-        end_date=current_date_string,
-        data_directory=data_directory,
-    )
+
+    token_list = normalized_argument_line.split()
+    allowed_groups: set[int] | None = None
+    if token_list and token_list[0].startswith("group="):
+        group_values = token_list.pop(0).split("=", 1)[1]
+        allowed_groups = {
+            int(value) for value in group_values.split(",") if value
+        }
+
+    if len(token_list) < 3:
+        raise ValueError(
+            "argument line must include dollar volume filter, buy strategy, and sell strategy",
+        )
+
+    dollar_volume_filter = token_list[0]
+    buy_strategy_name = token_list[1]
+    sell_strategy_name = token_list[2]
+    stop_loss_token = token_list[3] if len(token_list) > 3 else "1.0"
+    try:
+        stop_loss_value = float(stop_loss_token)
+    except ValueError as stop_loss_error:
+        raise ValueError(
+            f"invalid stop loss: {stop_loss_token}",
+        ) from stop_loss_error
+
+    original_stock_directory = STOCK_DATA_DIRECTORY
+    try:
+        STOCK_DATA_DIRECTORY = data_directory
+        signal_result: Dict[str, list[str]] = find_signal(
+            current_date_string,
+            dollar_volume_filter,
+            buy_strategy_name,
+            sell_strategy_name,
+            stop_loss_value,
+            allowed_groups,
+        )
+    finally:
+        STOCK_DATA_DIRECTORY = original_stock_directory
     log_directory.mkdir(parents=True, exist_ok=True)
     log_file_path = log_directory / f"{current_date_string}.log"
     entry_signals: List[str] = signal_result.get("entry_signals", [])
