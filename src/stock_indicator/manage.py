@@ -1258,6 +1258,7 @@ class StockShell(cmd.Cmd):
         self.stdout.write(
             "find_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID) [group=1,2,...]\n"
             "Display entry and exit signals for DATE using the provided strategies or a strategy id from data/strategy_sets.csv.\n"
+            "Signal calculation uses the same group dynamic ratio and Top-N rule as start_simulate.\n"
         )
 
 
