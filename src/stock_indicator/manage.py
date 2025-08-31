@@ -625,6 +625,50 @@ class StockShell(cmd.Cmd):
                 for year, annual_return in evaluation_metrics.annual_returns.items()
                 if year in filtered_trade_details_by_year
             }
+        trade_records: List[Dict[str, object]] = []
+        open_trade_events: Dict[str, strategy.TradeDetail] = {}
+        for detail in all_trade_details:
+            if detail.action == "open":
+                open_trade_events[detail.symbol] = detail
+            elif detail.action == "close":
+                entry_detail = open_trade_events.pop(detail.symbol, None)
+                if entry_detail is None:
+                    continue
+                trade_records.append(
+                    {
+                        "year": detail.date.year,
+                        "entry_date": entry_detail.date.date(),
+                        "concurrent_position_index": entry_detail.concurrent_position_count,
+                        "symbol": entry_detail.symbol,
+                        "price_concentration_score": entry_detail.price_concentration_score,
+                        "near_price_volume_ratio": entry_detail.near_price_volume_ratio,
+                        "above_price_volume_ratio": entry_detail.above_price_volume_ratio,
+                        "histogram_node_count": entry_detail.histogram_node_count,
+                        "exit_date": detail.date.date(),
+                        "result": detail.result,
+                        "percentage_change": detail.percentage_change,
+                    }
+                )
+        output_directory = Path("logs") / "simulate_result"
+        output_directory.mkdir(parents=True, exist_ok=True)
+        timestamp_string = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = output_directory / f"simulation_{timestamp_string}.csv"
+        pandas.DataFrame(
+            trade_records,
+            columns=[
+                "year",
+                "entry_date",
+                "concurrent_position_index",
+                "symbol",
+                "price_concentration_score",
+                "near_price_volume_ratio",
+                "above_price_volume_ratio",
+                "histogram_node_count",
+                "exit_date",
+                "result",
+                "percentage_change",
+            ],
+        ).to_csv(output_file, index=False)
         self.stdout.write(
             f"Simulation start date: {start_date_string}\n"
         )
