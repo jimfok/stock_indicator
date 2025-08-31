@@ -1412,3 +1412,85 @@ def test_update_sector_data_with_arguments(monkeypatch: pytest.MonkeyPatch, tmp_
         "output": tmp_path / "out.parquet",
     }
     assert output_buffer.getvalue() == "ok\n"
+
+
+def test_start_simulate_creates_csv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The command should write completed trades to a CSV file."""
+    import stock_indicator.manage as manage_module
+
+    from stock_indicator.strategy import StrategyMetrics, TradeDetail
+
+    open_trade_detail = TradeDetail(
+        date=pandas.Timestamp("2024-01-02"),
+        symbol="AAA",
+        action="open",
+        price=10.0,
+        simple_moving_average_dollar_volume=0.0,
+        total_simple_moving_average_dollar_volume=0.0,
+        simple_moving_average_dollar_volume_ratio=0.0,
+        price_concentration_score=1.0,
+        near_price_volume_ratio=0.5,
+        above_price_volume_ratio=0.3,
+        histogram_node_count=2,
+    )
+    close_trade_detail = TradeDetail(
+        date=pandas.Timestamp("2024-01-05"),
+        symbol="AAA",
+        action="close",
+        price=12.0,
+        simple_moving_average_dollar_volume=0.0,
+        total_simple_moving_average_dollar_volume=0.0,
+        simple_moving_average_dollar_volume_ratio=0.0,
+        result="win",
+        percentage_change=0.2,
+    )
+    metrics = StrategyMetrics(
+        total_trades=0,
+        win_rate=0.0,
+        mean_profit_percentage=0.0,
+        profit_percentage_standard_deviation=0.0,
+        mean_loss_percentage=0.0,
+        loss_percentage_standard_deviation=0.0,
+        mean_holding_period=0.0,
+        holding_period_standard_deviation=0.0,
+        maximum_concurrent_positions=1,
+        maximum_drawdown=0.0,
+        final_balance=0.0,
+        compound_annual_growth_rate=0.0,
+        annual_returns={2024: 0.0},
+        annual_trade_counts={2024: 0},
+        trade_details_by_year={2024: [open_trade_detail, close_trade_detail]},
+    )
+
+    def fake_evaluate(*_: object, **__: object) -> StrategyMetrics:
+        return metrics
+
+    monkeypatch.setattr(
+        manage_module.strategy, "evaluate_combined_strategy", fake_evaluate
+    )
+    monkeypatch.chdir(tmp_path)
+
+    shell = manage_module.StockShell(stdout=io.StringIO())
+    shell.onecmd(
+        "start_simulate start=2024-01-01 dollar_volume>1 ema_sma_cross ema_sma_cross"
+    )
+
+    result_directory = tmp_path / "logs" / "simulate_result"
+    csv_files = list(result_directory.glob("simulation_*.csv"))
+    assert len(csv_files) == 1
+    data_frame = pandas.read_csv(csv_files[0])
+    assert list(data_frame.columns) == [
+        "year",
+        "entry_date",
+        "concurrent_position_index",
+        "symbol",
+        "price_concentration_score",
+        "near_price_volume_ratio",
+        "above_price_volume_ratio",
+        "histogram_node_count",
+        "exit_date",
+        "result",
+        "percentage_change",
+    ]
