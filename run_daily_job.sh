@@ -1,21 +1,22 @@
 #!/bin/bash
 set -euo pipefail
 
-# ==== EDIT THESE TO MATCH YOUR MACHINE ====
-REPO="$HOME/git_projects/stock_indicator"
-SRC="$REPO/src"
-VENV="$REPO/venv"
+# Determine repository path from script location or override with environment variables
+SCRIPT_DIRECTORY="$(cd "$(dirname "$0")" && pwd)"
+REPOSITORY_ROOT="${REPO:-$SCRIPT_DIRECTORY}"
+SOURCE_DIRECTORY="${SRC:-$REPOSITORY_ROOT/src}"
+VIRTUAL_ENVIRONMENT_DIRECTORY="${VENV:-$REPOSITORY_ROOT/venv}"
 
 # Your daily_job argument line:
 ARG_LINE='dollar_volume>2.14%,Top3 strategy=s1 0.1'
 
-# ===== DO NOT EDIT BELOW UNLESS YOU KNOW WHY =====
-LOGDIR="$REPO/cron_logs"
-mkdir -p "$LOGDIR"
+# Set up logging directory
+LOG_DIRECTORY="$REPOSITORY_ROOT/cron_logs"
+mkdir -p "$LOG_DIRECTORY"
 
-# Ensure we’re in the right place so -m can resolve the package
-cd "$SRC"
+# Ensure the module can be resolved
+cd "$SOURCE_DIRECTORY"
 
 # Run as a module so `from . import cron` works
 # Stdout/stderr go to a rolling cron log for debugging
-"$VENV/bin/python" -m stock_indicator.daily_job "$ARG_LINE" >> "$LOGDIR/cron_stdout.log" 2>&1
+"$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -m stock_indicator.daily_job "$ARG_LINE" >> "$LOG_DIRECTORY/cron_stdout.log" 2>&1
