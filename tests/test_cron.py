@@ -203,6 +203,102 @@ def test_run_daily_tasks_honors_dollar_volume_rank(tmp_path, monkeypatch):
     assert result["exit_signals"] == []
 
 
+def test_run_daily_tasks_from_argument_group_ratio_and_rank(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``run_daily_tasks_from_argument`` should honor group ratio and ranking."""
+
+    volume_by_symbol = {"AAA": 2_000_000, "BBB": 100_000, "CCC": 5_000_000}
+    date_index = pandas.date_range("2020-01-01", periods=60, freq="D")
+    for symbol_name, volume_value in volume_by_symbol.items():
+        pandas.DataFrame(
+            {
+                "Date": date_index,
+                "open": [1.0] * 60,
+                "close": [1.0] * 60,
+                "volume": [volume_value] * 60,
+                "symbol": [symbol_name] * 60,
+            }
+        ).to_csv(tmp_path / f"{symbol_name}.csv", index=False)
+
+    def fake_strategy(price_history_frame: pandas.DataFrame) -> None:
+        entry_signals = [False] * 59 + [True]
+        price_history_frame["fake_strategy_entry_signal"] = entry_signals
+        price_history_frame["fake_strategy_exit_signal"] = [False] * 60
+
+    monkeypatch.setattr(
+        strategy, "BUY_STRATEGIES", {"fake_strategy": fake_strategy}
+    )
+    monkeypatch.setattr(
+        strategy, "SELL_STRATEGIES", {"fake_strategy": fake_strategy}
+    )
+    monkeypatch.setattr(
+        strategy, "SUPPORTED_STRATEGIES", {"fake_strategy": fake_strategy}
+    )
+
+    group_map = {"AAA": 1, "BBB": 1, "CCC": 2}
+    monkeypatch.setattr(strategy, "load_ff12_groups_by_symbol", lambda: group_map)
+    monkeypatch.setattr(cron, "load_ff12_groups_by_symbol", lambda: group_map)
+    monkeypatch.setattr(strategy, "load_symbols_excluded_by_industry", lambda: set())
+    monkeypatch.setattr(cron, "load_symbols_excluded_by_industry", lambda: set())
+
+    argument_line = "dollar_volume>1.6%,Top4 fake_strategy fake_strategy"
+    signal_result = cron.run_daily_tasks_from_argument(
+        argument_line,
+        start_date="2020-01-01",
+        end_date="2020-03-01",
+        data_directory=tmp_path,
+        symbol_list=["AAA", "BBB", "CCC"],
+    )
+
+    entry_signal_symbols = signal_result["entry_signals"]
+    assert "AAA" in entry_signal_symbols
+    assert "BBB" not in entry_signal_symbols
+
+    processed_symbol_names: list[str] = []
+
+    def fake_simulate_trades(
+        data: pandas.DataFrame, *args: object, **kwargs: object
+    ) -> strategy.SimulationResult:
+        processed_symbol_names.append(data["symbol"].iloc[0])
+        trade = strategy.Trade(
+            entry_date=data.index[-1],
+            exit_date=data.index[-1],
+            entry_price=float(data["open"].iloc[-1]),
+            exit_price=float(data["close"].iloc[-1]),
+            profit=0.0,
+            holding_period=0,
+        )
+        return strategy.SimulationResult(trades=[trade], total_profit=0.0)
+
+    monkeypatch.setattr(strategy, "simulate_trades", fake_simulate_trades)
+    monkeypatch.setattr(
+        strategy,
+        "simulate_portfolio_balance",
+        lambda trades, starting_cash, maximum_position_count, withdraw_amount=0.0, **kwargs: starting_cash,
+    )
+    monkeypatch.setattr(
+        strategy, "calculate_annual_returns", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(
+        strategy, "calculate_annual_trade_counts", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(
+        strategy, "calculate_max_drawdown", lambda *args, **kwargs: 0.0
+    )
+
+    strategy.evaluate_combined_strategy(
+        tmp_path,
+        "fake_strategy",
+        "fake_strategy",
+        minimum_average_dollar_volume_ratio=0.016,
+        top_dollar_volume_rank=4,
+        allowed_symbols={"AAA", "BBB", "CCC"},
+    )
+
+    assert set(entry_signal_symbols) == set(processed_symbol_names)
+
+
 def test_run_daily_tasks_applies_combined_filters(tmp_path, monkeypatch):
     """run_daily_tasks should respect both threshold and rank filters."""
     symbol_list = ["AAA", "BBB", "CCC"]
