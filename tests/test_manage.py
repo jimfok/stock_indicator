@@ -108,6 +108,7 @@ def test_find_signal_prints_recalculated_signals(monkeypatch: pytest.MonkeyPatch
         buy_strategy: str,
         sell_strategy: str,
         stop_loss: float,
+        allowed_group_identifiers: set[int] | None = None,
     ) -> dict[str, list[str]]:
         recorded_arguments["date"] = date_string
         recorded_arguments["filter"] = dollar_volume_filter
@@ -136,7 +137,7 @@ def test_find_signal_prints_recalculated_signals(monkeypatch: pytest.MonkeyPatch
 
 # TODO: review
 def test_find_signal_invalid_argument(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The command should require five arguments."""
+    """The command should reject incomplete arguments."""
     import stock_indicator.manage as manage_module
 
     call_record = {"called": False}
@@ -147,6 +148,7 @@ def test_find_signal_invalid_argument(monkeypatch: pytest.MonkeyPatch) -> None:
         buy_strategy: str,
         sell_strategy: str,
         stop_loss: float,
+        allowed_group_identifiers: set[int] | None = None,
     ) -> dict[str, list[str]]:
         call_record["called"] = True
         return {"entry_signals": [], "exit_signals": []}
@@ -160,8 +162,52 @@ def test_find_signal_invalid_argument(monkeypatch: pytest.MonkeyPatch) -> None:
     assert call_record["called"] is False
     assert (
         output_buffer.getvalue()
-        == "usage: find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS\n"
+        ==
+        "usage: find_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID) [group=1,2,...]\n"
     )
+
+
+# TODO: review
+def test_find_signal_with_strategy_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command should map a strategy id to buy and sell strategies."""
+    import stock_indicator.manage as manage_module
+
+    recorded_arguments: dict[str, object] = {}
+
+    def fake_find_signal(
+        date_string: str,
+        dollar_volume_filter: str,
+        buy_strategy: str,
+        sell_strategy: str,
+        stop_loss: float,
+        allowed_group_identifiers: set[int] | None = None,
+    ) -> dict[str, list[str]]:
+        recorded_arguments["date"] = date_string
+        recorded_arguments["filter"] = dollar_volume_filter
+        recorded_arguments["buy"] = buy_strategy
+        recorded_arguments["sell"] = sell_strategy
+        recorded_arguments["stop"] = stop_loss
+        recorded_arguments["group"] = allowed_group_identifiers
+        return {"entry_signals": [], "exit_signals": []}
+
+    monkeypatch.setattr(manage_module.daily_job, "find_signal", fake_find_signal)
+
+    def fake_load_mapping() -> dict[str, tuple[str, str]]:
+        return {"ID": ("ema_sma_cross", "ema_sma_cross")}
+
+    monkeypatch.setattr(manage_module, "load_strategy_set_mapping", fake_load_mapping)
+
+    shell = manage_module.StockShell(stdout=io.StringIO())
+    shell.onecmd("find_signal 2024-01-10 dollar_volume>1 1.0 strategy=ID")
+
+    assert recorded_arguments == {
+        "date": "2024-01-10",
+        "filter": "dollar_volume>1",
+        "buy": "ema_sma_cross",
+        "sell": "ema_sma_cross",
+        "stop": 1.0,
+        "group": None,
+    }
 
 
     

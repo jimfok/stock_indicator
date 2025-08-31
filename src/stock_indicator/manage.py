@@ -1168,15 +1168,18 @@ class StockShell(cmd.Cmd):
 
     # TODO: review
     def do_find_signal(self, argument_line: str) -> None:  # noqa: D401
-        """find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS [group=...] [strategy=ID]
+        """find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS
+        [group=...] or find_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID
+        [group=...]
+
         Display the entry and exit signals generated for DATE."""
         usage_message = (
             "usage: find_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID) [group=1,2,...]\n"
         )
         argument_parts: List[str] = argument_line.split()
-        if len(argument_parts) not in (5, 6, 7):
+        if len(argument_parts) < 4:
             self.stdout.write(usage_message)
-            return
+            return  # TODO: review
         # Optional group token may appear in any position after DATE; normalize
         allowed_group_identifiers: set[int] | None = None
         tokens: List[str] = []
