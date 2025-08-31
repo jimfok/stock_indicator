@@ -1,0 +1,15 @@
+{
+    "cash": 1541.75,
+    "margin": 1.5,
+    "maximum_position_count": 3,
+    "positions": [
+        {
+            "symbol": "TLT",
+            "Qty": 25
+        },
+        {
+            "symbol": "TSLA",
+            "Qty": 2
+        }
+    ]
+}

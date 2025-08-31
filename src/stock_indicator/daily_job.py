@@ -4,20 +4,25 @@
 from __future__ import annotations
 
 import argparse
+import json
 import datetime
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple, Any
 
 import pandas
 
 from . import cron
+from .data_loader import load_local_history
 
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_START_DATE = "2019-01-01"
 DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "data"
+STOCK_DATA_DIRECTORY = DATA_DIRECTORY / "stock_data"
 LOG_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "logs"
+LOCAL_DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "local_data"
+CURRENT_STATUS_FILE = LOCAL_DATA_DIRECTORY / "current_status.json"
 
 
 def determine_start_date(data_directory: Path) -> str:
@@ -64,8 +69,8 @@ def run_daily_job(
         Argument string in the format accepted by
         :func:`cron.run_daily_tasks_from_argument`.
     data_directory: Path | None, optional
-        Directory where downloaded price history data is written. Defaults to the
-        project's ``data`` directory.
+        Directory where downloaded per-symbol CSVs are written. Defaults to
+        ``data/stock_data`` under the project root.
     log_directory: Path | None, optional
         Directory where the log file is stored. Defaults to the ``logs``
         directory in the project root.
@@ -80,8 +85,10 @@ def run_daily_job(
     """
     if current_date is None:
         current_date = datetime.date.today()
+    # Track whether caller used defaults; only then add budget lines to logs
+    used_default_paths = data_directory is None and log_directory is None
     if data_directory is None:
-        data_directory = DATA_DIRECTORY
+        data_directory = STOCK_DATA_DIRECTORY
     if log_directory is None:
         log_directory = LOG_DIRECTORY
 
@@ -96,15 +103,219 @@ def run_daily_job(
     )
     log_directory.mkdir(parents=True, exist_ok=True)
     log_file_path = log_directory / f"{current_date_string}.log"
+    entry_signals: List[str] = signal_result.get("entry_signals", [])
+    exit_signals: List[str] = signal_result.get("exit_signals", [])
+
+    # Compute budget per position using simulator sizing: budget = equity * min(margin/slots, 1.0)
+    equity_value: float | None = None
+    margin_multiplier: float | None = None
+    slot_count: int | None = None
+    slot_weight: float | None = None
+    budget_per_entry: float | None = None
+    budgets_by_symbol: Dict[str, float] | None = None
+    if entry_signals and used_default_paths:
+        try:
+            portfolio_status = _load_portfolio_status(CURRENT_STATUS_FILE)
+            equity_value, margin_multiplier, slot_count, slot_weight = _compute_sizing_inputs(
+                portfolio_status, data_directory, current_date
+            )
+            if equity_value is not None and margin_multiplier is not None and slot_weight is not None:
+                budget_per_entry = equity_value * slot_weight
+                budgets_by_symbol = {symbol: budget_per_entry for symbol in entry_signals}
+            else:
+                LOGGER.warning(
+                    "Budget calculation skipped (equity=%s, margin=%s, slot_weight=%s)",
+                    equity_value,
+                    margin_multiplier,
+                    slot_weight,
+                )
+        except Exception as status_error:  # noqa: BLE001
+            LOGGER.warning("Could not compute budgets from current_status.json: %s", status_error)
+
     with log_file_path.open("w", encoding="utf-8") as log_file:
-        log_file.write(
-            f"entry_signals: {', '.join(signal_result['entry_signals'])}\n",
-        )
-        log_file.write(
-            f"exit_signals: {', '.join(signal_result['exit_signals'])}\n",
-        )
+        log_file.write(f"entry_signals: {', '.join(entry_signals)}\n")
+        if budget_per_entry is not None and budgets_by_symbol is not None:
+            if equity_value is not None:
+                log_file.write(f"equity_usd: {equity_value:.2f}\n")
+            if margin_multiplier is not None:
+                log_file.write(f"margin_multiplier: {margin_multiplier:.2f}\n")
+            if slot_count is not None:
+                log_file.write(f"slot_count: {slot_count}\n")
+            if slot_weight is not None:
+                log_file.write(f"slot_weight: {slot_weight:.4f}\n")
+            log_file.write(f"budget_per_entry_usd: {budget_per_entry:.2f}\n")
+            formatted_budgets = ", ".join(
+                f"{symbol}:{amount:.2f}" for symbol, amount in budgets_by_symbol.items()
+            )
+            log_file.write(f"entry_budgets: {formatted_budgets}\n")
+        log_file.write(f"exit_signals: {', '.join(exit_signals)}\n")
     LOGGER.info("Daily tasks completed; results written to %s", log_file_path)
     return log_file_path
+
+
+def _load_portfolio_status(status_file_path: Path) -> Dict[str, object]:
+    """Load and validate the current portfolio status JSON.
+
+    The expected minimal schema is::
+
+        {
+            "cash": <number>,
+            "margin": <number>,
+            "positions": [
+                {"symbol": "SYM", "Qty": <number>}, ...
+            ]
+        }
+
+    Only ``cash`` and ``margin`` are required for budget calculation. A missing
+    ``positions`` list does not prevent budget computation.
+
+    Parameters
+    ----------
+    status_file_path:
+        Path to ``local_data/current_status.json``.
+
+    Returns
+    -------
+    Dict[str, object]
+        Parsed JSON content.
+
+    Raises
+    ------
+    ValueError
+        If the JSON cannot be parsed or required fields are invalid.
+    """
+    if not status_file_path.exists():
+        raise ValueError(f"status file not found: {status_file_path}")
+    try:
+        raw_text = status_file_path.read_text(encoding="utf-8")
+        data = json.loads(raw_text)
+    except Exception as parse_error:  # noqa: BLE001
+        raise ValueError(f"invalid JSON in {status_file_path}") from parse_error
+
+    # Validate required fields
+    if "cash" not in data:
+        raise ValueError("missing 'cash' in current_status.json")
+    if "margin" not in data:
+        raise ValueError("missing 'margin' in current_status.json")
+    try:
+        float(data["cash"])  # ensure numeric
+        float(data["margin"])  # ensure numeric
+    except Exception as type_error:  # noqa: BLE001
+        raise ValueError("'cash' and 'margin' must be numbers") from type_error
+    return data
+
+
+def _compute_sizing_inputs(
+    portfolio_status: Dict[str, Any],
+    data_directory: Path,
+    valuation_date: datetime.date,
+) -> Tuple[float | None, float | None, int | None, float | None]:
+    """Compute equity, margin, slot count and slot weight for sizing.
+
+    - equity: cash + sum(position_qty * latest_close)
+    - margin: taken from current_status.json (default 1.0)
+    - slots: prefer JSON ('maximum_position_count'|'max_concurrent_positions'|'slots');
+      fallback to default 3 to match simulator defaults.
+    - slot_weight: min(margin / slots, 1.0) to mirror simulator sizing.
+
+    Returns a tuple (equity, margin, slots, slot_weight). Any None indicates
+    inputs were insufficient to compute the value.
+    """
+    try:
+        cash_balance = float(portfolio_status.get("cash", 0.0))
+    except Exception:  # noqa: BLE001
+        cash_balance = 0.0
+    try:
+        margin_multiplier = float(portfolio_status.get("margin", 1.0))
+    except Exception:  # noqa: BLE001
+        margin_multiplier = 1.0
+
+    equity_value = cash_balance
+    positions_list = portfolio_status.get("positions") or []
+    if isinstance(positions_list, list):
+        for position_item in positions_list:
+            try:
+                symbol_name = str(position_item.get("symbol"))
+                quantity_value = position_item.get("Qty")
+                if quantity_value is None:
+                    quantity_value = position_item.get("qty")
+                if quantity_value is None:
+                    quantity_value = position_item.get("quantity")
+                if not symbol_name or quantity_value is None:
+                    continue
+                position_size = float(quantity_value)
+                latest_close = _read_latest_close(symbol_name, data_directory, valuation_date)
+                if latest_close is None:
+                    LOGGER.warning(
+                        "No recent close for %s on or before %s; treating as 0",
+                        symbol_name,
+                        valuation_date,
+                    )
+                    continue
+                equity_value += position_size * latest_close
+            except Exception as position_error:  # noqa: BLE001
+                LOGGER.warning("Skipping position due to error: %s", position_error)
+
+    slot_count = _determine_slot_count(portfolio_status)
+    if slot_count is None or slot_count <= 0:
+        return equity_value, margin_multiplier, None, None
+
+    slot_weight = min(margin_multiplier / slot_count, 1.0)
+    return equity_value, margin_multiplier, slot_count, slot_weight
+
+
+def _determine_slot_count(portfolio_status: Dict[str, Any]) -> int | None:
+    """Determine the slot count from status JSON using common keys.
+
+    Recognized keys (first found wins):
+    - maximum_position_count
+    - max_concurrent_positions
+    - slots
+    Fallback: 3 (simulator default when unspecified).
+    """
+    for key_name in ("maximum_position_count", "max_concurrent_positions", "slots"):
+        if key_name in portfolio_status:
+            try:
+                value = int(portfolio_status[key_name])
+                if value > 0:
+                    return value
+            except Exception:  # noqa: BLE001
+                continue
+    return 3
+
+
+def _read_latest_close(
+    symbol: str,
+    data_directory: Path,
+    valuation_date: datetime.date,
+) -> float | None:
+    """Read the last available close on or before the valuation date.
+
+    Accepts both 'close' and 'Close' column names; assumes the CSV has a date
+    index in the first column (as written by our data loader).
+    """
+    csv_path = data_directory / f"{symbol}.csv"
+    if not csv_path.exists():
+        return None
+    try:
+        frame = pandas.read_csv(csv_path, index_col=0, parse_dates=True)
+        if frame.empty:
+            return None
+        timestamp = pandas.Timestamp(valuation_date)
+        eligible = frame.loc[frame.index <= timestamp]
+        if eligible.empty:
+            return None
+        last_row = eligible.iloc[-1]
+        if "close" in eligible.columns:
+            return float(last_row["close"])  # type: ignore[index]
+        if "Close" in eligible.columns:
+            return float(last_row["Close"])  # type: ignore[index]
+        for column_name in eligible.columns:
+            if str(column_name).lower() == "close":
+                return float(last_row[column_name])  # type: ignore[index]
+        return None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def find_signal(
@@ -134,7 +345,7 @@ def find_signal(
         Optional set of FF12 group identifiers (1–11) used to restrict the
         tradable universe. Group 12 (Other) is always excluded when sector data
         is available.
-    Historical data from the earliest available date in ``DATA_DIRECTORY`` is
+    Historical data from the earliest available date in ``data/stock_data`` is
     used to ensure sufficient look-back.
 
     Returns
@@ -151,12 +362,34 @@ def find_signal(
         else "group=" + ",".join(str(i) for i in sorted(allowed_fama_french_groups)) + " "
     )
     argument_line = f"{group_token}{dollar_volume_filter} {buy_strategy} {sell_strategy} {stop_loss}"
-    start_date_string = determine_start_date(DATA_DIRECTORY)
+    start_date_string = determine_start_date(STOCK_DATA_DIRECTORY)
+    # load_local_history slices using a half-open interval [start, end), so to
+    # evaluate signals for the exact date provided by callers, advance the end
+    # date by one day to make the target date inclusive.
+    try:
+        end_timestamp_inclusive = pandas.Timestamp(date_string)
+        end_timestamp_exclusive = end_timestamp_inclusive + pandas.Timedelta(days=1)
+        end_date_string = end_timestamp_exclusive.date().isoformat()
+    except Exception:  # noqa: BLE001
+        end_date_string = date_string
+
+    # Align symbol universe with simulator: evaluate all locally cached CSVs.
+    try:
+        local_symbols = [
+            csv_path.stem
+            for csv_path in STOCK_DATA_DIRECTORY.glob("*.csv")
+            if csv_path.stem and csv_path.stem != "^GSPC"
+        ]
+    except Exception:  # noqa: BLE001
+        local_symbols = None
+
     signal_result: Dict[str, List[str]] = cron.run_daily_tasks_from_argument(
         argument_line,
         start_date=start_date_string,
-        end_date=date_string,
-        data_directory=DATA_DIRECTORY,
+        end_date=end_date_string,
+        symbol_list=local_symbols,
+        data_directory=STOCK_DATA_DIRECTORY,
+        data_download_function=load_local_history,
     )
     return signal_result
 

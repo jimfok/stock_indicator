@@ -112,6 +112,9 @@ def load_symbols_excluded_by_industry() -> set[str]:
             DEFAULT_OUTPUT_PARQUET_PATH,
             DEFAULT_OUTPUT_CSV_PATH,
         )
+        from stock_indicator.sector_pipeline.overrides import (
+            SECTOR_OVERRIDES_CSV_PATH,
+        )
     except Exception:  # noqa: BLE001
         return excluded_symbols
     # Prefer Parquet for speed, fall back to CSV if needed.
@@ -127,10 +130,28 @@ def load_symbols_excluded_by_industry() -> set[str]:
     # Normalize expected columns and filter ff12==12
     sector_frame.columns = [str(c).strip().lower() for c in sector_frame.columns]
     if "ticker" not in sector_frame.columns or "ff12" not in sector_frame.columns:
-        return excluded_symbols
-    mask_other = sector_frame["ff12"] == 12
-    tickers_series = sector_frame.loc[mask_other, "ticker"].dropna().astype(str)
-    excluded_symbols = set(tickers_series.str.upper().tolist())
+        excluded_symbols = set()
+    else:
+        mask_other = sector_frame["ff12"] == 12
+        tickers_series = sector_frame.loc[mask_other, "ticker"].dropna().astype(str)
+        excluded_symbols = set(tickers_series.str.upper().tolist())
+
+    # Merge in any manual overrides that mark symbols as FF12=12
+    try:
+        import pandas as pd
+
+        if SECTOR_OVERRIDES_CSV_PATH.exists():
+            overrides = pd.read_csv(SECTOR_OVERRIDES_CSV_PATH)
+            overrides.columns = [str(c).strip().lower() for c in overrides.columns]
+            if "ticker" in overrides.columns and "ff12" in overrides.columns:
+                other_overrides = overrides[overrides["ff12"] == 12]
+                override_symbols = (
+                    other_overrides["ticker"].dropna().astype(str).str.upper().tolist()
+                )
+                excluded_symbols.update(override_symbols)
+    except Exception:  # noqa: BLE001
+        # If overrides cannot be read, proceed with what we have
+        pass
     return excluded_symbols
 
 
@@ -229,6 +250,361 @@ class StrategyMetrics:
     annual_returns: Dict[int, float]
     annual_trade_counts: Dict[int, int]
     trade_details_by_year: Dict[int, List[TradeDetail]] = field(default_factory=dict)
+
+
+def compute_signals_for_date(
+    data_directory: Path,
+    evaluation_date: pandas.Timestamp,
+    buy_strategy_name: str,
+    sell_strategy_name: str,
+    *,
+    minimum_average_dollar_volume: float | None = None,
+    top_dollar_volume_rank: int | None = None,
+    minimum_average_dollar_volume_ratio: float | None = None,
+    allowed_fama_french_groups: set[int] | None = None,
+    allowed_symbols: set[str] | None = None,
+    exclude_other_ff12: bool = True,
+) -> Dict[str, List[str]]:
+    """Compute entry/exit signals on ``evaluation_date`` using simulation filters.
+
+    This helper reproduces the symbol-universe preparation and selection logic
+    used by :func:`evaluate_combined_strategy` (group-aware ratio thresholds,
+    Top-N with one-per-group cap, entry gated by eligibility) but returns only
+    the symbols that have buy or sell signals on the last available bar at or
+    before ``evaluation_date``. The result does not depend on position sizing or
+    portfolio capacity and does not require running the trade simulator.
+
+    Parameters
+    ----------
+    data_directory:
+        Directory containing price CSV files.
+    evaluation_date:
+        Date at which signals are sampled. If a symbol has no row exactly on
+        this day, the most recent row before this day is used.
+    buy_strategy_name:
+        Strategy identifier for entry signals (may include parameters or
+        composite expressions like "A or B").
+    sell_strategy_name:
+        Strategy identifier for exit signals (same conventions as
+        ``buy_strategy_name``).
+    minimum_average_dollar_volume:
+        Absolute 50-day average dollar volume threshold in millions.
+    top_dollar_volume_rank:
+        Global Top-N ranking (with at most one symbol per FF12 group when
+        sector data is available).
+    minimum_average_dollar_volume_ratio:
+        Minimum ratio of total market 50-day average dollar volume. When
+        sector data is available, a dynamic per-group threshold is applied to
+        avoid bias toward larger groups.
+    allowed_fama_french_groups:
+        Restrict the tradable universe to the specified FF12 group identifiers
+        (1–11). Group 12 ("Other") is always excluded when sector data exists.
+    allowed_symbols:
+        Optional whitelist of symbols (CSV stems) to consider.
+    exclude_other_ff12:
+        When True, symbols in FF12 group 12 ("Other") are excluded.
+
+    Returns
+    -------
+    Dict[str, List[str]]
+        Mapping with keys ``"entry_signals"`` and ``"exit_signals"`` containing
+        lists of symbols that triggered the respective signals on the sampled
+        row.
+    """
+    # TODO: review
+
+    # Validate strategies first (supports composite expressions)
+    buy_choice_names = _split_strategy_choices(buy_strategy_name)
+    sell_choice_names = _split_strategy_choices(sell_strategy_name)
+
+    def _has_supported(tokens: list[str], table: dict) -> bool:
+        for token in tokens:
+            try:
+                base_name, _, _ = parse_strategy_name(token)
+            except Exception:  # noqa: BLE001
+                continue
+            if base_name in table:
+                return True
+        return False
+
+    if not _has_supported(buy_choice_names, BUY_STRATEGIES):
+        raise ValueError(f"Unsupported strategy: {buy_strategy_name}")
+    if not _has_supported(sell_choice_names, SELL_STRATEGIES):
+        raise ValueError(f"Unsupported strategy: {sell_strategy_name}")
+
+    # Load and normalize per-symbol frames, compute 50-day dollar-volume SMA
+    symbol_frames: List[tuple[Path, pandas.DataFrame]] = []
+    symbols_excluded_by_industry = (
+        load_symbols_excluded_by_industry() if exclude_other_ff12 else set()
+    )
+    symbol_to_group_map_for_filtering: dict[str, int] | None = None
+    if allowed_fama_french_groups is not None:
+        symbol_to_group_map_for_filtering = load_ff12_groups_by_symbol()
+    for csv_file_path in data_directory.glob("*.csv"):
+        if csv_file_path.stem == SP500_SYMBOL:
+            continue
+        if allowed_symbols is not None and csv_file_path.stem not in allowed_symbols:
+            continue
+        if csv_file_path.stem.upper() in symbols_excluded_by_industry:
+            continue
+        if symbol_to_group_map_for_filtering is not None:
+            group_identifier = symbol_to_group_map_for_filtering.get(
+                csv_file_path.stem.upper()
+            )
+            if (
+                group_identifier is None
+                or group_identifier not in allowed_fama_french_groups
+            ):
+                continue
+        price_data_frame = load_price_data(csv_file_path)
+        if price_data_frame.empty:
+            continue
+        if "volume" in price_data_frame.columns:
+            dollar_volume_series_full = (
+                price_data_frame["close"] * price_data_frame["volume"]
+            )
+            price_data_frame["simple_moving_average_dollar_volume"] = sma(
+                dollar_volume_series_full, DOLLAR_VOLUME_SMA_WINDOW
+            )
+        else:
+            if (
+                minimum_average_dollar_volume is not None
+                or top_dollar_volume_rank is not None
+                or minimum_average_dollar_volume_ratio is not None
+            ):
+                # Selection requires dollar-volume metrics
+                continue
+            price_data_frame["simple_moving_average_dollar_volume"] = float("nan")
+        symbol_frames.append((csv_file_path, price_data_frame))
+
+    if not symbol_frames:
+        return {"entry_signals": [], "exit_signals": []}
+
+    merged_volume_frame = pandas.concat(
+        {
+            csv_path.stem: frame["simple_moving_average_dollar_volume"]
+            for csv_path, frame in symbol_frames
+        },
+        axis=1,
+    )
+
+    # Build eligibility mask (group-aware when sector data is available)
+    if (
+        minimum_average_dollar_volume is None
+        and top_dollar_volume_rank is None
+        and minimum_average_dollar_volume_ratio is None
+    ):
+        eligibility_mask = pandas.DataFrame(
+            True, index=merged_volume_frame.index, columns=merged_volume_frame.columns
+        )
+    else:
+        eligibility_mask = ~merged_volume_frame.isna()
+        if minimum_average_dollar_volume is not None:
+            eligibility_mask &= (
+                merged_volume_frame / 1_000_000 >= minimum_average_dollar_volume
+            )
+
+        symbol_to_fama_french_group_id = load_ff12_groups_by_symbol()
+        group_id_to_symbol_columns: dict[int, List[str]] = {}
+        if symbol_to_fama_french_group_id:
+            for column_name in merged_volume_frame.columns:
+                group_id = symbol_to_fama_french_group_id.get(column_name.upper())
+                if group_id is None:
+                    continue
+                group_id_to_symbol_columns.setdefault(group_id, []).append(
+                    column_name
+                )
+        # Group-aware percentage threshold
+        if minimum_average_dollar_volume_ratio is not None:
+            if group_id_to_symbol_columns:
+                ratio_eligibility_mask = pandas.DataFrame(
+                    False,
+                    index=merged_volume_frame.index,
+                    columns=merged_volume_frame.columns,
+                )
+                market_total_series = merged_volume_frame.sum(axis=1)
+                for group_id, column_list in group_id_to_symbol_columns.items():
+                    group_frame = merged_volume_frame[column_list]
+                    group_total_series = group_frame.sum(axis=1)
+                    safe_group_total_series = group_total_series.where(
+                        group_total_series > 0
+                    )
+                    safe_market_total_series = market_total_series.where(
+                        market_total_series > 0
+                    )
+                    group_share_series = safe_group_total_series.divide(
+                        safe_market_total_series
+                    )
+                    dynamic_threshold_series = (
+                        minimum_average_dollar_volume_ratio / group_share_series
+                    )
+                    ratio_frame = group_frame.divide(
+                        safe_group_total_series, axis=0
+                    )
+                    ratio_condition = ratio_frame.ge(dynamic_threshold_series, axis=0)
+                    ratio_eligibility_mask.loc[:, column_list] = ratio_condition
+                eligibility_mask &= ratio_eligibility_mask
+            else:
+                total_volume_series = merged_volume_frame.sum(axis=1)
+                ratio_frame = merged_volume_frame.divide(
+                    total_volume_series.where(total_volume_series > 0), axis=0
+                )
+                eligibility_mask &= (
+                    ratio_frame >= minimum_average_dollar_volume_ratio
+                )
+
+        # Top-N, at most one per group when mappings exist
+        if top_dollar_volume_rank is not None:
+            if group_id_to_symbol_columns:
+                selected_mask = pandas.DataFrame(
+                    False,
+                    index=merged_volume_frame.index,
+                    columns=merged_volume_frame.columns,
+                )
+                symbol_to_group_lookup = {
+                    symbol: symbol_to_fama_french_group_id.get(symbol.upper())
+                    for symbol in merged_volume_frame.columns
+                }
+                for current_date in merged_volume_frame.index:
+                    candidate_values = merged_volume_frame.loc[current_date].where(
+                        eligibility_mask.loc[current_date], other=pandas.NA
+                    ).dropna()
+                    if candidate_values.empty:
+                        continue
+                    sorted_symbols = candidate_values.sort_values(
+                        ascending=False
+                    ).index.tolist()
+                    chosen_symbols: list[str] = []
+                    seen_groups: set[int] = set()
+                    for symbol in sorted_symbols:
+                        group_id = symbol_to_group_lookup.get(symbol)
+                        if group_id is None:
+                            continue
+                        if group_id in seen_groups:
+                            continue
+                        chosen_symbols.append(symbol)
+                        seen_groups.add(group_id)
+                        if len(chosen_symbols) >= int(top_dollar_volume_rank):
+                            break
+                    if chosen_symbols:
+                        selected_mask.loc[current_date, chosen_symbols] = True
+                eligibility_mask &= selected_mask
+            else:
+                rank_frame = merged_volume_frame.rank(
+                    axis=1, method="min", ascending=False
+                )
+                eligibility_mask &= rank_frame <= top_dollar_volume_rank
+
+    # Prepare per-symbol masks aligned to each frame
+    selected_symbol_data: List[tuple[Path, pandas.DataFrame, pandas.Series]] = []
+    for csv_file_path, price_data_frame in symbol_frames:
+        symbol_name = csv_file_path.stem
+        if symbol_name not in eligibility_mask.columns:
+            continue
+        symbol_mask = eligibility_mask[symbol_name]
+        symbol_mask = symbol_mask.reindex(price_data_frame.index, fill_value=False)
+        if not symbol_mask.any():
+            continue
+        selected_symbol_data.append((csv_file_path, price_data_frame, symbol_mask))
+
+    entry_signal_symbols: List[str] = []
+    exit_signal_symbols: List[str] = []
+
+    def _apply_strategy(
+        full_name: str,
+        base_name: str,
+        window_size: int | None,
+        slope_range: tuple[float, float] | None,
+        table: Dict[str, Callable[[pandas.DataFrame], None]],
+        frame: pandas.DataFrame,
+    ) -> None:
+        kwargs: dict = {}
+        if base_name == "20_50_sma_cross":
+            maybe_windows = _extract_short_long_windows_for_20_50(full_name)
+            if maybe_windows is not None:
+                kwargs["short_window_size"], kwargs["long_window_size"] = maybe_windows
+        else:
+            if window_size is not None:
+                kwargs["window_size"] = window_size
+            if slope_range is not None:
+                kwargs["slope_range"] = slope_range
+            sma_factor_value = _extract_sma_factor(full_name)
+            if sma_factor_value is not None and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}:
+                kwargs["sma_window_factor"] = sma_factor_value
+        table[base_name](frame, **kwargs)
+        if base_name != full_name:
+            frame.rename(
+                columns={
+                    f"{base_name}_entry_signal": f"{full_name}_entry_signal",
+                    f"{base_name}_exit_signal": f"{full_name}_exit_signal",
+                },
+                inplace=True,
+            )
+
+    # Build signals and sample the most recent bar at or before evaluation_date
+    for csv_file_path, price_data_frame, symbol_mask in selected_symbol_data:
+        # Build buy-side signals (support composite expressions)
+        buy_signal_columns: list[str] = []
+        for buy_name in buy_choice_names:
+            try:
+                base_name, window_size, slope_range = parse_strategy_name(buy_name)
+            except Exception:  # noqa: BLE001
+                continue
+            if base_name not in BUY_STRATEGIES:
+                continue
+            _apply_strategy(
+                buy_name, base_name, window_size, slope_range, BUY_STRATEGIES, price_data_frame
+            )
+            column_name = f"{buy_name}_entry_signal"
+            if column_name in price_data_frame.columns:
+                buy_signal_columns.append(column_name)
+
+        sell_signal_columns: list[str] = []
+        for sell_name in sell_choice_names:
+            try:
+                base_name, window_size, slope_range = parse_strategy_name(sell_name)
+            except Exception:  # noqa: BLE001
+                continue
+            if base_name not in SELL_STRATEGIES:
+                continue
+            _apply_strategy(
+                sell_name, base_name, window_size, slope_range, SELL_STRATEGIES, price_data_frame
+            )
+            column_name = f"{sell_name}_exit_signal"
+            if column_name in price_data_frame.columns:
+                sell_signal_columns.append(column_name)
+
+        # Combined columns (OR across choices)
+        buy_signal_columns = list(dict.fromkeys(buy_signal_columns))
+        sell_signal_columns = list(dict.fromkeys(sell_signal_columns))
+        if buy_signal_columns:
+            price_data_frame["_combined_buy_entry"] = (
+                price_data_frame[buy_signal_columns].any(axis=1).fillna(False)
+            )
+        else:
+            price_data_frame["_combined_buy_entry"] = False
+        if sell_signal_columns:
+            price_data_frame["_combined_sell_exit"] = (
+                price_data_frame[sell_signal_columns].any(axis=1).fillna(False)
+            )
+        else:
+            price_data_frame["_combined_sell_exit"] = False
+
+        # Sample the last available bar at or before evaluation_date
+        eligible_index = price_data_frame.index[price_data_frame.index <= evaluation_date]
+        if len(eligible_index) == 0:
+            continue
+        last_bar_timestamp = eligible_index[-1]
+        current_row = price_data_frame.loc[last_bar_timestamp]
+
+        # Entry requires signal AND eligibility on that bar
+        if bool(current_row["_combined_buy_entry"]) and bool(symbol_mask.loc[last_bar_timestamp]):
+            entry_signal_symbols.append(csv_file_path.stem)
+        # Exit ignores eligibility so existing positions can close
+        if bool(current_row["_combined_sell_exit"]):
+            exit_signal_symbols.append(csv_file_path.stem)
+
+    return {"entry_signals": entry_signal_symbols, "exit_signals": exit_signal_symbols}
 
 
 def load_price_data(csv_file_path: Path) -> pandas.DataFrame:

@@ -19,6 +19,9 @@ from . import data_loader, symbols, strategy, daily_job
 from .strategy_sets import load_strategy_set_mapping
 from .daily_job import determine_start_date
 from .symbols import SP500_SYMBOL
+from stock_indicator.sector_pipeline.overrides import (
+    assign_symbol_to_other_if_missing,
+)
 from stock_indicator.sector_pipeline import pipeline
 
 LOGGER = logging.getLogger(__name__)
@@ -92,7 +95,7 @@ class StockShell(cmd.Cmd):
 
     def do_update_yf_symbols(self, argument_line: str) -> None:  # noqa: D401
         """update_yf_symbols
-        Build a list of symbols that have data available from Yahoo Finance."""
+        Rebuild the YF-ready symbol list from local CSVs under data/stock_data/."""
         yf_symbols = symbols.update_yf_symbol_cache()
         self.stdout.write(f"YF symbol cache updated (count={len(yf_symbols)})\n")
 
@@ -100,8 +103,8 @@ class StockShell(cmd.Cmd):
         """Display help for the update_yf_symbols command."""
         self.stdout.write(
             "update_yf_symbols\n"
-            "Probe Yahoo Finance and write symbols with available data to data/symbols_yf.txt.\n"
-            "This command has no parameters.\n"
+            "Scan data/stock_data/*.csv and write symbols to data/symbols_yf.txt.\n"
+            "Use this to treat locally available CSVs as 'ready for daily jobs'.\n"
         )
 
     def do_update_data_from_yf(self, argument_line: str) -> None:  # noqa: D401
@@ -122,6 +125,20 @@ class StockShell(cmd.Cmd):
         output_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
         data_frame_with_date.to_csv(output_path, index=False)
         self.stdout.write(f"Data written to {output_path}\n")
+        # Ensure this symbol is tracked by the YF daily job list
+        try:
+            symbols.add_symbol_to_yf_cache(symbol_name)
+        except Exception as error:  # noqa: BLE001
+            LOGGER.warning(
+                "Could not update YF symbol list with %s: %s", symbol_name, error
+            )
+        # If sector data lacks this symbol, classify it as 'Other' (FF12=12)
+        try:
+            assign_symbol_to_other_if_missing(symbol_name)
+        except Exception as error:  # noqa: BLE001
+            LOGGER.warning(
+                "Could not assign default sector for %s: %s", symbol_name, error
+            )
         # Also ensure S&P 500 index data is maintained separately when updating a single symbol
         if symbol_name != SP500_SYMBOL:
             sp_frame: DataFrame = data_loader.download_history(
@@ -170,12 +187,20 @@ class StockShell(cmd.Cmd):
             output_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
             data_frame_with_date.to_csv(output_path, index=False)
             self.stdout.write(f"Data written to {output_path}\n")
+            # Keep YF symbol list in sync when a symbol successfully wrote
+            try:
+                symbols.add_symbol_to_yf_cache(symbol_name)
+            except Exception as error:  # noqa: BLE001
+                LOGGER.warning(
+                    "Could not update YF symbol list with %s: %s", symbol_name, error
+                )
 
     def help_update_all_data_from_yf(self) -> None:
         """Display help for the update_all_data_from_yf command."""
         self.stdout.write(
             "update_all_data_from_yf START END\n"
             "Download data from Yahoo Finance for all cached symbols and write CSVs to data/stock_data/.\n"
+            "Also appends symbols that successfully wrote CSVs to data/symbols_yf.txt for daily jobs.\n"
             "Parameters:\n"
             "  START: Start date in YYYY-MM-DD format.\n"
             "  END: End date in YYYY-MM-DD format.\n"

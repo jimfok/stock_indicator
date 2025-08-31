@@ -73,40 +73,34 @@ def load_symbols() -> list[str]:
 
 
 def update_yf_symbol_cache() -> List[str]:
-    """Build a list of symbols that have data available from Yahoo Finance.
+    """Rebuild the YF-ready symbol list by scanning local CSVs.
 
-    This function reads the SEC-derived cache (``symbols.txt``), probes Yahoo
-    Finance for a very short period for each symbol, and writes the subset that
-    returns non-empty data to ``symbols_yf.txt`` as a newline-separated list.
+    This treats ``data/symbols_yf.txt`` as the set of symbols that are ready
+    for simulations and daily updates. The function scans
+    ``data/stock_data/*.csv`` and writes the corresponding symbols (file names
+    without ``.csv``) to ``symbols_yf.txt``. The S&P 500 index symbol is
+    excluded.
 
     Returns the list of symbols written.
     """
-    # Local import to avoid imposing yfinance as a hard dependency for callers
-    import yfinance  # type: ignore
-
-    base_symbol_list = load_symbols()
-    available_list: List[str] = []
-    for ticker in base_symbol_list:
-        if ticker == SP500_SYMBOL:
-            # Exclude the index symbol from the YF company universe list
-            continue
-        try:
-            frame = yfinance.download(
-                ticker,
-                period="5d",
-                progress=False,
-                auto_adjust=True,
-            )
-        except Exception as error:  # noqa: BLE001
-            LOGGER.debug("Probe failed for %s: %s", ticker, error)
-            continue
-        if not frame.empty:
-            available_list.append(ticker)
-    available_list = sorted(set(available_list))
+    data_directory = Path(__file__).resolve().parent.parent.parent / "data"
+    stock_data_directory = data_directory / "stock_data"
+    discovered_symbols: List[str] = []
+    if stock_data_directory.exists():
+        for csv_path in stock_data_directory.glob("*.csv"):
+            symbol_name = csv_path.stem.strip().upper()
+            if not symbol_name or symbol_name == SP500_SYMBOL:
+                continue
+            discovered_symbols.append(symbol_name)
+    discovered_symbols = sorted(set(discovered_symbols))
     YF_SYMBOL_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    YF_SYMBOL_CACHE_PATH.write_text("\n".join(available_list) + "\n", encoding="utf-8")
-    LOGGER.info("YF symbol cache written to %s (count=%d)", YF_SYMBOL_CACHE_PATH, len(available_list))
-    return available_list
+    YF_SYMBOL_CACHE_PATH.write_text("\n".join(discovered_symbols) + "\n", encoding="utf-8")
+    LOGGER.info(
+        "YF symbol cache rebuilt from %s (count=%d)",
+        stock_data_directory,
+        len(discovered_symbols),
+    )
+    return discovered_symbols
 
 
 def load_yf_symbols() -> list[str]:
@@ -119,3 +113,29 @@ def load_yf_symbols() -> list[str]:
         return []
     file_content = YF_SYMBOL_CACHE_PATH.read_text(encoding="utf-8")
     return [line.strip() for line in file_content.splitlines() if line.strip()]
+
+
+def add_symbol_to_yf_cache(symbol: str) -> bool:
+    """Add ``symbol`` to the Yahoo Finance symbol cache file.
+
+    Ensures the cache at ``data/symbols_yf.txt`` exists and contains the
+    upper-cased ``symbol`` exactly once. The S&P 500 index symbol
+    (``SP500_SYMBOL``) is never added. Returns ``True`` when the list was
+    modified, ``False`` otherwise.
+
+    Parameters
+    ----------
+    symbol: str
+        Ticker symbol to add to the YF cache.
+    """
+    normalized_symbol = (symbol or "").strip().upper()
+    if not normalized_symbol or normalized_symbol == SP500_SYMBOL:
+        return False
+    existing_symbols = set(load_yf_symbols())
+    if normalized_symbol in existing_symbols:
+        return False
+    updated_symbols = sorted(existing_symbols | {normalized_symbol})
+    YF_SYMBOL_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    YF_SYMBOL_CACHE_PATH.write_text("\n".join(updated_symbols) + "\n", encoding="utf-8")
+    LOGGER.info("Added %s to YF symbol cache (%s)", normalized_symbol, YF_SYMBOL_CACHE_PATH)
+    return True

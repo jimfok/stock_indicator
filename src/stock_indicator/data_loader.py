@@ -119,3 +119,62 @@ def download_history(
                 )
                 raise
             time.sleep(1)
+
+
+def load_local_history(
+    symbol: str,
+    start: str,
+    end: str,
+    cache_path: Path | None = None,
+    **_: Any,
+) -> pandas.DataFrame:
+    """Load historical price data strictly from a local CSV.
+
+    This helper mirrors the return shape of :func:`download_history` but never
+    performs any network requests. When the CSV is missing, corrupt, or empty,
+    an empty data frame is returned. Column names are normalized to
+    ``snake_case`` to match the downloader.
+
+    Parameters
+    ----------
+    symbol: str
+        Stock ticker symbol (used only for logging).
+    start: str
+        Inclusive start date (``YYYY-MM-DD``) for the slice returned.
+    end: str
+        Exclusive end date (``YYYY-MM-DD``) for the slice returned.
+    cache_path: Path | None
+        Path to the local CSV file. If ``None``, an empty frame is returned.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Price history contained in the local CSV, sliced to ``[start, end)``
+        and with normalized column names. Empty if not available.
+    """
+    if cache_path is None or not cache_path.exists():
+        LOGGER.warning("Local CSV not found for %s: %s", symbol, cache_path)
+        return pandas.DataFrame()
+    try:
+        frame = pandas.read_csv(cache_path, index_col=0, parse_dates=True)
+    except Exception as read_error:  # noqa: BLE001
+        LOGGER.warning("Failed to read local CSV for %s: %s", symbol, read_error)
+        return pandas.DataFrame()
+    if frame.empty:
+        return frame
+
+    # Normalize columns to snake_case to match downloader
+    if isinstance(frame.columns, pandas.MultiIndex):
+        frame.columns = frame.columns.get_level_values(0)
+    frame.columns = [str(name).lower().replace(" ", "_") for name in frame.columns]
+
+    try:
+        # Slice to [start, end) to mirror yfinance behavior
+        start_ts = pandas.Timestamp(start)
+        end_ts = pandas.Timestamp(end)
+        sliced = frame.loc[(frame.index >= start_ts) & (frame.index < end_ts)]
+        # If slicing drops everything due to timezone mismatch or index dtype,
+        # fall back to returning the full frame rather than raising.
+        return sliced if not sliced.empty else frame
+    except Exception:  # noqa: BLE001
+        return frame
