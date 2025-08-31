@@ -667,6 +667,34 @@ class StockShell(cmd.Cmd):
                             result_suffix = f" {trade_detail.result}"
                     else:
                         result_suffix = ""
+                    open_metrics = ""
+                    if trade_detail.action == "open":
+                        price_score_text = (
+                            f"{trade_detail.price_concentration_score:.2f}"
+                            if trade_detail.price_concentration_score is not None
+                            else "N/A"
+                        )
+                        near_ratio_text = (
+                            f"{trade_detail.near_price_volume_ratio:.2f}"
+                            if trade_detail.near_price_volume_ratio is not None
+                            else "N/A"
+                        )
+                        above_ratio_text = (
+                            f"{trade_detail.above_price_volume_ratio:.2f}"
+                            if trade_detail.above_price_volume_ratio is not None
+                            else "N/A"
+                        )
+                        node_count_text = (
+                            f"{trade_detail.histogram_node_count}"
+                            if trade_detail.histogram_node_count is not None
+                            else "N/A"
+                        )
+                        open_metrics = (
+                            f" price_score={price_score_text}"
+                            f" near_pct={near_ratio_text}"
+                            f" above_pct={above_ratio_text}"
+                            f" node_count={node_count_text}"
+                        )
                     self.stdout.write(
                         (
                             f"  {trade_detail.date.date()} ({trade_detail.concurrent_position_count}) "
@@ -676,7 +704,7 @@ class StockShell(cmd.Cmd):
                             f"{trade_detail.group_simple_moving_average_dollar_volume_ratio:.4f} "
                             f"{trade_detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
                             f"{trade_detail.group_total_simple_moving_average_dollar_volume / 1_000_000:.2f}M"
-                            f"{result_suffix}\n"
+                            f"{open_metrics}{result_suffix}\n"
                         )
                     )
 
@@ -910,6 +938,34 @@ class StockShell(cmd.Cmd):
                         )
                     else:
                         result_suffix = ""
+                    open_metrics = ""
+                    if trade_detail.action == "open":
+                        price_score_text = (
+                            f"{trade_detail.price_concentration_score:.2f}"
+                            if trade_detail.price_concentration_score is not None
+                            else "N/A"
+                        )
+                        near_ratio_text = (
+                            f"{trade_detail.near_price_volume_ratio:.2f}"
+                            if trade_detail.near_price_volume_ratio is not None
+                            else "N/A"
+                        )
+                        above_ratio_text = (
+                            f"{trade_detail.above_price_volume_ratio:.2f}"
+                            if trade_detail.above_price_volume_ratio is not None
+                            else "N/A"
+                        )
+                        node_count_text = (
+                            f"{trade_detail.histogram_node_count}"
+                            if trade_detail.histogram_node_count is not None
+                            else "N/A"
+                        )
+                        open_metrics = (
+                            f" price_score={price_score_text}"
+                            f" near_pct={near_ratio_text}"
+                            f" above_pct={above_ratio_text}"
+                            f" node_count={node_count_text}"
+                        )
                     self.stdout.write(
                         (
                             f"  {trade_detail.date.date()} ({trade_detail.concurrent_position_count}) "
@@ -917,7 +973,7 @@ class StockShell(cmd.Cmd):
                             f"{trade_detail.group_simple_moving_average_dollar_volume_ratio:.4f} "
                             f"{trade_detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
                             f"{trade_detail.group_total_simple_moving_average_dollar_volume / 1_000_000:.2f}M"
-                            f"{result_suffix}\n"
+                            f"{open_metrics}{result_suffix}\n"
                         )
                     )
 
@@ -1138,6 +1194,34 @@ class StockShell(cmd.Cmd):
                         )
                     else:
                         result_suffix = ""
+                    open_metrics = ""
+                    if trade_detail.action == "open":
+                        price_score_text = (
+                            f"{trade_detail.price_concentration_score:.2f}"
+                            if trade_detail.price_concentration_score is not None
+                            else "N/A"
+                        )
+                        near_ratio_text = (
+                            f"{trade_detail.near_price_volume_ratio:.2f}"
+                            if trade_detail.near_price_volume_ratio is not None
+                            else "N/A"
+                        )
+                        above_ratio_text = (
+                            f"{trade_detail.above_price_volume_ratio:.2f}"
+                            if trade_detail.above_price_volume_ratio is not None
+                            else "N/A"
+                        )
+                        node_count_text = (
+                            f"{trade_detail.histogram_node_count}"
+                            if trade_detail.histogram_node_count is not None
+                            else "N/A"
+                        )
+                        open_metrics = (
+                            f" price_score={price_score_text}"
+                            f" near_pct={near_ratio_text}"
+                            f" above_pct={above_ratio_text}"
+                            f" node_count={node_count_text}"
+                        )
                     self.stdout.write(
                         (
                             f"  {trade_detail.date.date()} ({trade_detail.concurrent_position_count}) "
@@ -1145,7 +1229,7 @@ class StockShell(cmd.Cmd):
                             f"{trade_detail.group_simple_moving_average_dollar_volume_ratio:.4f} "
                             f"{trade_detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
                             f"{trade_detail.group_total_simple_moving_average_dollar_volume / 1_000_000:.2f}M"
-                            f"{result_suffix}\n"
+                            f"{open_metrics}{result_suffix}\n"
                         )
                     )
 

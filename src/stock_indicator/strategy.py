@@ -13,6 +13,7 @@ import re
 import pandas
 
 from .indicators import ema, kalman_filter, sma
+from .chip_filter import calculate_chip_concentration_metrics
 from .simulator import (
     SimulationResult,
     Trade,
@@ -349,9 +350,15 @@ class TradeDetail:
     symbol's share of the summed average dollar volume across the entire
     market, not just the eligible subset.
 
-    The ``result`` field marks whether a closed trade ended in a win or a
-    loss. For closing trades, ``percentage_change`` records the fractional
-    price change between entry and exit.
+    Chip concentration metrics record characteristics of the volume
+    distribution around the entry price. ``price_concentration_score`` is a
+    normalized Herfindahl index of the price-volume histogram. The
+    ``near_price_volume_ratio`` and ``above_price_volume_ratio`` values capture
+    the fractions of volume near and above the entry price. ``histogram_node_count``
+    approximates the number of significant volume clusters. The ``result``
+    field marks whether a closed trade ended in a win or a loss. For closing
+    trades, ``percentage_change`` records the fractional price change between
+    entry and exit.
     """
     # TODO: review
     date: pandas.Timestamp
@@ -364,6 +371,11 @@ class TradeDetail:
     # Group-aware metrics: totals and ratios computed within the symbol's FF12 group
     group_total_simple_moving_average_dollar_volume: float = 0.0
     group_simple_moving_average_dollar_volume_ratio: float = 0.0
+    # Chip concentration metrics calculated at trade entry
+    price_concentration_score: float | None = None
+    near_price_volume_ratio: float | None = None
+    above_price_volume_ratio: float | None = None
+    histogram_node_count: int | None = None
     # Number of concurrent open positions at this event.
     # For an "open" event, includes this position. For a "close" event,
     # excludes the position being closed.
@@ -1641,7 +1653,9 @@ def evaluate_combined_strategy(
                 group_entry_ratio = float(entry_volume_ratio)
             else:
                 group_entry_ratio = float(entry_dollar_volume) / group_entry_total
-
+            chip_metrics = calculate_chip_concentration_metrics(
+                price_data_frame.loc[: completed_trade.entry_date]
+            )
             entry_detail = TradeDetail(
                 date=completed_trade.entry_date,
                 symbol=symbol_name,
@@ -1652,6 +1666,10 @@ def evaluate_combined_strategy(
                 simple_moving_average_dollar_volume_ratio=entry_volume_ratio,
                 group_total_simple_moving_average_dollar_volume=group_entry_total,
                 group_simple_moving_average_dollar_volume_ratio=group_entry_ratio,
+                price_concentration_score=chip_metrics["price_score"],
+                near_price_volume_ratio=chip_metrics["near_price_volume_ratio"],
+                above_price_volume_ratio=chip_metrics["above_price_volume_ratio"],
+                histogram_node_count=chip_metrics["histogram_node_count"],
             )
             trade_result = "win" if completed_trade.profit > 0 else "lose"  # TODO: review
             group_exit_total = 0.0
