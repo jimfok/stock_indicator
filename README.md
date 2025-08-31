@@ -68,7 +68,8 @@ python -m stock_indicator.manage
 * `update_all_data_from_yf START END` performs the download for every cached symbol.
 * `find_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID)`
   recalculates the entry and exit signals for `DATE` using explicit buy/sell
-  names or a strategy set id (see Strategy Sets below).
+  names or a strategy set id (see Strategy Sets below). Signal calculation uses
+  the same group dynamic ratio and Top-N rule as `start_simulate`.
 
 For example:
 
@@ -80,7 +81,7 @@ For example:
 
 Developers can also call `daily_job.find_signal("2024-01-10", "dollar_volume>1", "ema_sma_cross", "ema_sma_cross", 1.0)` to compute
 the same data from Python code. This function recalculates signals rather than
-reading them from log files.
+reading them from log files. Signal calculation uses the same group dynamic ratio and Top-N rule as `start_simulate`.
 
 The shell can also simulate trading strategies. The `dollar_volume` filter
 accepts a minimum threshold in millions, a percentage of total market volume,
@@ -140,7 +141,7 @@ Shorthand forms using a strategy id (omit explicit buy/sell tokens):
 - N symbols
   - `start_simulate_n_symbol symbols=QQQ,SPY [starting_cash=...] [withdraw=...] [start=YYYY-MM-DD] [STOP_LOSS] [SHOW_DETAILS] strategy=ID`
 - Find signal
-  - `find_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID [group=1,2,...]`
+  - `find_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID [group=1,2,...]` — signal calculation uses the same group dynamic ratio and Top-N rule as `start_simulate`.
 
 Notes:
 - When `strategy=ID` is present, do not include explicit `BUY`/`SELL` tokens.
