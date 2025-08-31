@@ -167,6 +167,68 @@ def test_run_daily_job_uses_oldest_data_date(tmp_path, monkeypatch):
     assert captured_start_date["value"] == "2018-06-01"
 
 
+def test_run_daily_job_expands_strategy_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_daily_job should replace ``strategy=ID`` with buy and sell names."""
+
+    captured_argument: dict[str, str] = {}
+
+    def fake_run_daily_tasks_from_argument(
+        argument_line: str,
+        start_date: str,
+        end_date: str,
+        symbol_list=None,
+        data_download_function=None,
+        data_directory: Path | None = None,
+    ):
+        captured_argument["value"] = argument_line
+        return {"entry_signals": [], "exit_signals": []}
+
+    monkeypatch.setattr(
+        daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument
+    )
+    monkeypatch.setattr(
+        daily_job.strategy_sets,
+        "load_strategy_set_mapping",
+        lambda: {"s1": ("buy_one", "sell_two")},
+    )
+
+    log_directory = tmp_path / "logs"
+    data_directory = tmp_path / "data"
+    current_date = datetime.date(2024, 1, 10)
+
+    daily_job.run_daily_job(
+        "group=1,2 dollar_volume>1 strategy=s1 0.5",
+        data_directory=data_directory,
+        log_directory=log_directory,
+        current_date=current_date,
+    )
+
+    assert (
+        captured_argument["value"]
+        == "group=1,2 dollar_volume>1 buy_one sell_two 0.5"
+    )
+
+
+def test_run_daily_job_unknown_strategy_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_daily_job should raise when strategy id is not found."""
+
+    monkeypatch.setattr(
+        daily_job.strategy_sets, "load_strategy_set_mapping", lambda: {}
+    )
+
+    log_directory = tmp_path / "logs"
+    data_directory = tmp_path / "data"
+    current_date = datetime.date(2024, 1, 10)
+
+    with pytest.raises(ValueError, match="unknown strategy id: missing"):
+        daily_job.run_daily_job(
+            "dollar_volume>1 strategy=missing 0.2",
+            data_directory=data_directory,
+            log_directory=log_directory,
+            current_date=current_date,
+        )
+
+
 def test_find_signal_returns_cron_output(monkeypatch: pytest.MonkeyPatch) -> None:
     """find_signal should return the values from cron."""
 

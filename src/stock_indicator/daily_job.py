@@ -12,7 +12,7 @@ from typing import Dict, List, Tuple, Any
 
 import pandas
 
-from . import cron
+from . import cron, strategy_sets
 from .data_loader import load_local_history
 
 LOGGER = logging.getLogger(__name__)
@@ -52,6 +52,71 @@ def determine_start_date(data_directory: Path) -> str:
     if earliest_date is None:
         return DEFAULT_START_DATE
     return earliest_date.isoformat()
+
+
+def _expand_strategy_argument_line(argument_line: str) -> str:
+    """Expand a ``strategy=ID`` token into explicit buy and sell names.
+
+    The ``argument_line`` may optionally contain a ``group=`` token. When a
+    ``strategy=`` token is present, its identifier is looked up in
+    ``data/strategy_sets.csv`` via
+    :func:`strategy_sets.load_strategy_set_mapping`. The token is replaced by
+    the corresponding buy and sell strategy names while preserving the trailing
+    stop-loss value. The ``group=`` token, when provided, is kept at the
+    beginning of the returned string.
+
+    Parameters
+    ----------
+    argument_line:
+        Raw argument line possibly containing a ``strategy=`` token.
+
+    Returns
+    -------
+    str
+        Argument line with any ``strategy=ID`` token expanded.
+
+    Raises
+    ------
+    ValueError
+        If the provided strategy identifier is not found in the mapping.
+    """
+
+    parts = argument_line.split()
+    group_token: str | None = None
+    strategy_identifier: str | None = None
+    remaining_tokens: list[str] = []
+    for part in parts:
+        if part.startswith("group=") and group_token is None:
+            group_token = part
+        elif part.startswith("strategy=") and strategy_identifier is None:
+            strategy_identifier = part.split("=", 1)[1].strip()
+        else:
+            remaining_tokens.append(part)
+
+    if strategy_identifier is None:
+        tokens: list[str] = []
+        if group_token is not None:
+            tokens.append(group_token)
+        tokens.extend(remaining_tokens)
+        return " ".join(tokens)
+
+    if not remaining_tokens:
+        raise ValueError("missing dollar volume filter")
+    volume_filter = remaining_tokens[0]
+    stop_loss_token: str | None = remaining_tokens[1] if len(remaining_tokens) > 1 else None
+
+    mapping = strategy_sets.load_strategy_set_mapping()
+    if strategy_identifier not in mapping:
+        raise ValueError(f"unknown strategy id: {strategy_identifier}")
+    buy_name, sell_name = mapping[strategy_identifier]
+
+    tokens = []
+    if group_token is not None:
+        tokens.append(group_token)
+    tokens.extend([volume_filter, buy_name, sell_name])
+    if stop_loss_token is not None:
+        tokens.append(stop_loss_token)
+    return " ".join(tokens)
 
 
 def run_daily_job(
@@ -95,8 +160,9 @@ def run_daily_job(
     current_date_string = current_date.isoformat()
     LOGGER.info("Starting daily tasks for %s", current_date_string)
     start_date_string = determine_start_date(data_directory)
+    normalized_argument_line = _expand_strategy_argument_line(argument_line)
     signal_result: Dict[str, list[str]] = cron.run_daily_tasks_from_argument(
-        argument_line,
+        normalized_argument_line,
         start_date=start_date_string,
         end_date=current_date_string,
         data_directory=data_directory,
