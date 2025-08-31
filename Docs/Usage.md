@@ -56,17 +56,19 @@ Each execution of the daily job records entry and exit signals in a log file in
 the project's `logs` directory using the `<YYYY-MM-DD>.log` naming convention.
 The `find_signal` command recalculates the signals for a specific date rather than reading the log files.
 Signal calculation uses the same group dynamic ratio and Top-N rule as `start_simulate`.
-The management shell can compute signals for a specific day with:
+The management shell can compute signals for a specific day with either form:
 
 ```
 find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS
+find_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID
 ```
 
-The command prints the entry signal list on the first line and the exit signal
-list on the second line. For example:
+Accepted forms are `BUY SELL STOP_LOSS` or `STOP_LOSS strategy=ID`. The command
+prints the entry signal list on the first line and the exit signal list on the
+second line. For example:
 
 ```
-find_signal 2024-01-10 dollar_volume>1 ema_sma_cross ema_sma_cross 1.0
+find_signal 2024-01-10 dollar_volume>1 1.0 strategy=default
 ['AAA', 'BBB']
 ['CCC', 'DDD']
 ```

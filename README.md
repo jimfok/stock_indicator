@@ -66,15 +66,17 @@ python -m stock_indicator.manage
 * `update_data_from_yf SYMBOL START END` saves historical data for the given symbol to
   `data/<SYMBOL>.csv`.
 * `update_all_data_from_yf START END` performs the download for every cached symbol.
-* `find_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID)`
-  recalculates the entry and exit signals for `DATE` using explicit buy/sell
-  names or a strategy set id (see Strategy Sets below). Signal calculation uses
-  the same group dynamic ratio and Top-N rule as `start_simulate`.
+* `find_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID`
+  recalculates the entry and exit signals for `DATE`. Accepted forms are
+  `BUY SELL STOP_LOSS` or `STOP_LOSS strategy=ID`. The first form supplies
+  explicit buy and sell strategy names, while the second references a strategy
+  set identifier (see Strategy Sets below). Signal calculation uses the same
+  group dynamic ratio and Top-N rule as `start_simulate`.
 
 For example:
 
 ```bash
-(stock-indicator) find_signal 2024-01-10 dollar_volume>1 strategy=default 1.0
+(stock-indicator) find_signal 2024-01-10 dollar_volume>1 1.0 strategy=default
 ['AAA', 'BBB']
 ['CCC', 'DDD']
 ```
