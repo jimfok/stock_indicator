@@ -193,6 +193,148 @@ def load_ff12_groups_by_symbol() -> dict[str, int]:
     return symbol_to_group
 
 
+def _build_eligibility_mask(
+    merged_volume_frame: pandas.DataFrame,
+    *,
+    minimum_average_dollar_volume: float | None,
+    top_dollar_volume_rank: int | None,
+    minimum_average_dollar_volume_ratio: float | None,
+) -> pandas.DataFrame:
+    """Return a mask of symbols eligible for trading.
+
+    Parameters
+    ----------
+    merged_volume_frame:
+        DataFrame of dollar-volume averages with dates as index and symbols
+        as columns.
+    minimum_average_dollar_volume:
+        Minimum 50-day average dollar volume threshold in millions.
+    top_dollar_volume_rank:
+        Global Top-N rank applied after other filters.
+    minimum_average_dollar_volume_ratio:
+        Minimum ratio of the total market dollar volume. When Fama–French
+        groups are available, this ratio is applied within each group.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Boolean mask aligned to ``merged_volume_frame``.
+    """
+    # TODO: review
+
+    if merged_volume_frame.empty:
+        return pandas.DataFrame()
+
+    if (
+        minimum_average_dollar_volume is None
+        and top_dollar_volume_rank is None
+        and minimum_average_dollar_volume_ratio is None
+    ):
+        return pandas.DataFrame(
+            True,
+            index=merged_volume_frame.index,
+            columns=merged_volume_frame.columns,
+        )
+
+    eligibility_mask = ~merged_volume_frame.isna()
+    if minimum_average_dollar_volume is not None:
+        eligibility_mask &= (
+            merged_volume_frame / 1_000_000 >= minimum_average_dollar_volume
+        )
+
+    symbol_to_fama_french_group_id = load_ff12_groups_by_symbol()
+    group_id_to_symbol_columns: dict[int, List[str]] = {}
+    if symbol_to_fama_french_group_id:
+        for column_name in merged_volume_frame.columns:
+            group_identifier = symbol_to_fama_french_group_id.get(
+                column_name.upper()
+            )
+            if group_identifier is None:
+                continue
+            group_id_to_symbol_columns.setdefault(group_identifier, []).append(
+                column_name
+            )
+
+    if minimum_average_dollar_volume_ratio is not None:
+        if group_id_to_symbol_columns:
+            ratio_eligibility_mask = pandas.DataFrame(
+                False,
+                index=merged_volume_frame.index,
+                columns=merged_volume_frame.columns,
+            )
+            market_total_series = merged_volume_frame.sum(axis=1)
+            for group_identifier, column_list in group_id_to_symbol_columns.items():
+                group_frame = merged_volume_frame[column_list]
+                group_total_series = group_frame.sum(axis=1)
+                safe_group_total_series = group_total_series.where(
+                    group_total_series > 0
+                )
+                safe_market_total_series = market_total_series.where(
+                    market_total_series > 0
+                )
+                group_share_series = safe_group_total_series.divide(
+                    safe_market_total_series
+                )
+                dynamic_threshold_series = (
+                    minimum_average_dollar_volume_ratio / group_share_series
+                )
+                ratio_frame = group_frame.divide(
+                    safe_group_total_series, axis=0
+                )
+                ratio_condition = ratio_frame.ge(dynamic_threshold_series, axis=0)
+                ratio_eligibility_mask.loc[:, column_list] = ratio_condition
+            eligibility_mask &= ratio_eligibility_mask
+        else:
+            total_volume_series = merged_volume_frame.sum(axis=1)
+            ratio_frame = merged_volume_frame.divide(
+                total_volume_series.where(total_volume_series > 0), axis=0
+            )
+            eligibility_mask &= ratio_frame >= minimum_average_dollar_volume_ratio
+
+    if top_dollar_volume_rank is not None:
+        if group_id_to_symbol_columns:
+            selected_mask = pandas.DataFrame(
+                False,
+                index=merged_volume_frame.index,
+                columns=merged_volume_frame.columns,
+            )
+            symbol_to_group_lookup = {
+                symbol: symbol_to_fama_french_group_id.get(symbol.upper())
+                for symbol in merged_volume_frame.columns
+            }
+            for current_date in merged_volume_frame.index:
+                candidate_values = merged_volume_frame.loc[current_date].where(
+                    eligibility_mask.loc[current_date], other=pandas.NA
+                ).dropna()
+                if candidate_values.empty:
+                    continue
+                sorted_symbols = candidate_values.sort_values(
+                    ascending=False
+                ).index.tolist()
+                chosen_symbols: list[str] = []
+                seen_groups: set[int] = set()
+                for symbol_name in sorted_symbols:
+                    group_identifier = symbol_to_group_lookup.get(symbol_name)
+                    if group_identifier is None:
+                        continue
+                    if group_identifier in seen_groups:
+                        continue
+                    chosen_symbols.append(symbol_name)
+                    seen_groups.add(group_identifier)
+                    if len(chosen_symbols) >= int(top_dollar_volume_rank):
+                        break
+                if chosen_symbols:
+                    selected_mask.loc[current_date, chosen_symbols] = True
+            eligibility_mask &= selected_mask
+        else:
+            rank_frame = merged_volume_frame.rank(
+                axis=1, method="min", ascending=False
+            )
+            eligibility_mask &= rank_frame <= top_dollar_volume_rank
+
+    return eligibility_mask
+
+
 # Number of days used for moving averages.
 LONG_TERM_SMA_WINDOW: int = 150
 DOLLAR_VOLUME_SMA_WINDOW: int = 50
@@ -389,111 +531,12 @@ def compute_signals_for_date(
     )
 
     # Build eligibility mask (group-aware when sector data is available)
-    if (
-        minimum_average_dollar_volume is None
-        and top_dollar_volume_rank is None
-        and minimum_average_dollar_volume_ratio is None
-    ):
-        eligibility_mask = pandas.DataFrame(
-            True, index=merged_volume_frame.index, columns=merged_volume_frame.columns
-        )
-    else:
-        eligibility_mask = ~merged_volume_frame.isna()
-        if minimum_average_dollar_volume is not None:
-            eligibility_mask &= (
-                merged_volume_frame / 1_000_000 >= minimum_average_dollar_volume
-            )
-
-        symbol_to_fama_french_group_id = load_ff12_groups_by_symbol()
-        group_id_to_symbol_columns: dict[int, List[str]] = {}
-        if symbol_to_fama_french_group_id:
-            for column_name in merged_volume_frame.columns:
-                group_id = symbol_to_fama_french_group_id.get(column_name.upper())
-                if group_id is None:
-                    continue
-                group_id_to_symbol_columns.setdefault(group_id, []).append(
-                    column_name
-                )
-        # Group-aware percentage threshold
-        if minimum_average_dollar_volume_ratio is not None:
-            if group_id_to_symbol_columns:
-                ratio_eligibility_mask = pandas.DataFrame(
-                    False,
-                    index=merged_volume_frame.index,
-                    columns=merged_volume_frame.columns,
-                )
-                market_total_series = merged_volume_frame.sum(axis=1)
-                for group_id, column_list in group_id_to_symbol_columns.items():
-                    group_frame = merged_volume_frame[column_list]
-                    group_total_series = group_frame.sum(axis=1)
-                    safe_group_total_series = group_total_series.where(
-                        group_total_series > 0
-                    )
-                    safe_market_total_series = market_total_series.where(
-                        market_total_series > 0
-                    )
-                    group_share_series = safe_group_total_series.divide(
-                        safe_market_total_series
-                    )
-                    dynamic_threshold_series = (
-                        minimum_average_dollar_volume_ratio / group_share_series
-                    )
-                    ratio_frame = group_frame.divide(
-                        safe_group_total_series, axis=0
-                    )
-                    ratio_condition = ratio_frame.ge(dynamic_threshold_series, axis=0)
-                    ratio_eligibility_mask.loc[:, column_list] = ratio_condition
-                eligibility_mask &= ratio_eligibility_mask
-            else:
-                total_volume_series = merged_volume_frame.sum(axis=1)
-                ratio_frame = merged_volume_frame.divide(
-                    total_volume_series.where(total_volume_series > 0), axis=0
-                )
-                eligibility_mask &= (
-                    ratio_frame >= minimum_average_dollar_volume_ratio
-                )
-
-        # Top-N, at most one per group when mappings exist
-        if top_dollar_volume_rank is not None:
-            if group_id_to_symbol_columns:
-                selected_mask = pandas.DataFrame(
-                    False,
-                    index=merged_volume_frame.index,
-                    columns=merged_volume_frame.columns,
-                )
-                symbol_to_group_lookup = {
-                    symbol: symbol_to_fama_french_group_id.get(symbol.upper())
-                    for symbol in merged_volume_frame.columns
-                }
-                for current_date in merged_volume_frame.index:
-                    candidate_values = merged_volume_frame.loc[current_date].where(
-                        eligibility_mask.loc[current_date], other=pandas.NA
-                    ).dropna()
-                    if candidate_values.empty:
-                        continue
-                    sorted_symbols = candidate_values.sort_values(
-                        ascending=False
-                    ).index.tolist()
-                    chosen_symbols: list[str] = []
-                    seen_groups: set[int] = set()
-                    for symbol in sorted_symbols:
-                        group_id = symbol_to_group_lookup.get(symbol)
-                        if group_id is None:
-                            continue
-                        if group_id in seen_groups:
-                            continue
-                        chosen_symbols.append(symbol)
-                        seen_groups.add(group_id)
-                        if len(chosen_symbols) >= int(top_dollar_volume_rank):
-                            break
-                    if chosen_symbols:
-                        selected_mask.loc[current_date, chosen_symbols] = True
-                eligibility_mask &= selected_mask
-            else:
-                rank_frame = merged_volume_frame.rank(
-                    axis=1, method="min", ascending=False
-                )
-                eligibility_mask &= rank_frame <= top_dollar_volume_rank
+    eligibility_mask = _build_eligibility_mask(
+        merged_volume_frame,
+        minimum_average_dollar_volume=minimum_average_dollar_volume,
+        top_dollar_volume_rank=top_dollar_volume_rank,
+        minimum_average_dollar_volume_ratio=minimum_average_dollar_volume_ratio,
+    )
 
     # Prepare per-symbol masks aligned to each frame
     selected_symbol_data: List[tuple[Path, pandas.DataFrame, pandas.Series]] = []
@@ -1338,127 +1381,12 @@ def evaluate_combined_strategy(
             },
             axis=1,
         )
-        # Build eligibility mask using group-aware logic for percentage and rank
-        # filters when FF12 group mappings are available.
-        if (
-            minimum_average_dollar_volume is None
-            and top_dollar_volume_rank is None
-            and minimum_average_dollar_volume_ratio is None
-        ):
-            eligibility_mask = pandas.DataFrame(
-                True,
-                index=merged_volume_frame.index,
-                columns=merged_volume_frame.columns,
-            )
-        else:
-            eligibility_mask = ~merged_volume_frame.isna()
-            # Apply absolute threshold (in millions) across all symbols as-is.
-            if minimum_average_dollar_volume is not None:
-                eligibility_mask &= (
-                    merged_volume_frame / 1_000_000 >= minimum_average_dollar_volume
-                )
-
-            # Load FF12 groups for group-wise percentage and ranking.
-            symbol_to_fama_french_group_id = load_ff12_groups_by_symbol()
-            # Construct group -> columns mapping for the merged frame.
-            group_id_to_symbol_columns: dict[int, list[str]] = {}
-            if symbol_to_fama_french_group_id:
-                for column_name in merged_volume_frame.columns:
-                    group_id = symbol_to_fama_french_group_id.get(column_name.upper())
-                    if group_id is None:
-                        continue
-                    group_id_to_symbol_columns.setdefault(group_id, []).append(
-                        column_name
-                    )
-
-            # Apply group-wise percentage threshold if present.
-            if minimum_average_dollar_volume_ratio is not None:
-                if group_id_to_symbol_columns:
-                    ratio_eligibility_mask = pandas.DataFrame(
-                        False,
-                        index=merged_volume_frame.index,
-                        columns=merged_volume_frame.columns,
-                    )
-                    # Precompute market total for the dynamic threshold per day
-                    market_total_series = merged_volume_frame.sum(axis=1)
-                    for group_id, column_list in group_id_to_symbol_columns.items():
-                        group_frame = merged_volume_frame[column_list]
-                        group_total_series = group_frame.sum(axis=1)
-                        # Compute dynamic per-group threshold:
-                        # required_group_ratio(t) = global_threshold / group_share(t)
-                        # where group_share(t) = group_total(t) / market_total(t)
-                        safe_group_total_series = group_total_series.where(
-                            group_total_series > 0
-                        )
-                        safe_market_total_series = market_total_series.where(
-                            market_total_series > 0
-                        )
-                        group_share_series = safe_group_total_series.divide(
-                            safe_market_total_series
-                        )
-                        dynamic_threshold_series = minimum_average_dollar_volume_ratio / group_share_series
-                        # Symbol's ratio within its group
-                        ratio_frame = group_frame.divide(
-                            safe_group_total_series, axis=0
-                        )
-                        ratio_condition = ratio_frame.ge(dynamic_threshold_series, axis=0)
-                        ratio_eligibility_mask.loc[:, column_list] = ratio_condition
-                    eligibility_mask &= ratio_eligibility_mask
-                else:
-                    # Fallback to global ratio when groups are not available.
-                    total_volume_series = merged_volume_frame.sum(axis=1)
-                    ratio_frame = merged_volume_frame.divide(
-                        total_volume_series.where(total_volume_series > 0), axis=0
-                    )
-                    eligibility_mask &= (
-                        ratio_frame >= minimum_average_dollar_volume_ratio
-                    )
-
-            # Apply global Top-N rank with at most 1 symbol per FF12 group.
-            if top_dollar_volume_rank is not None:
-                if group_id_to_symbol_columns:
-                    selected_mask = pandas.DataFrame(
-                        False,
-                        index=merged_volume_frame.index,
-                        columns=merged_volume_frame.columns,
-                    )
-                    # Build a symbol->group lookup once for fast access.
-                    symbol_to_group_lookup = {
-                        symbol: symbol_to_fama_french_group_id.get(symbol.upper())
-                        for symbol in merged_volume_frame.columns
-                    }
-                    # Iterate per day to select global Top-N with one per group cap.
-                    for current_date in merged_volume_frame.index:
-                        candidate_values = merged_volume_frame.loc[current_date].where(
-                            eligibility_mask.loc[current_date], other=pandas.NA
-                        ).dropna()
-                        if candidate_values.empty:
-                            continue
-                        sorted_symbols = (
-                            candidate_values.sort_values(ascending=False).index.tolist()
-                        )
-                        chosen_symbols: list[str] = []
-                        seen_groups: set[int] = set()
-                        for symbol in sorted_symbols:
-                            group_id = symbol_to_group_lookup.get(symbol)
-                            # Skip symbols without known group id
-                            if group_id is None:
-                                continue
-                            if group_id in seen_groups:
-                                continue
-                            chosen_symbols.append(symbol)
-                            seen_groups.add(group_id)
-                            if len(chosen_symbols) >= int(top_dollar_volume_rank):
-                                break
-                        if chosen_symbols:
-                            selected_mask.loc[current_date, chosen_symbols] = True
-                    eligibility_mask &= selected_mask
-                else:
-                    # Fallback to global top-N when groups are not available.
-                    rank_frame = merged_volume_frame.rank(
-                        axis=1, method="min", ascending=False
-                    )
-                    eligibility_mask &= rank_frame <= top_dollar_volume_rank
+        eligibility_mask = _build_eligibility_mask(
+            merged_volume_frame,
+            minimum_average_dollar_volume=minimum_average_dollar_volume,
+            top_dollar_volume_rank=top_dollar_volume_rank,
+            minimum_average_dollar_volume_ratio=minimum_average_dollar_volume_ratio,
+        )
     else:
         merged_volume_frame = pandas.DataFrame()
         eligibility_mask = pandas.DataFrame()
