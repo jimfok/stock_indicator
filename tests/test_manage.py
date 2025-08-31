@@ -132,7 +132,10 @@ def test_find_signal_prints_recalculated_signals(monkeypatch: pytest.MonkeyPatch
         "sell": "ema_sma_cross",
         "stop": 1.0,
     }
-    assert output_buffer.getvalue().splitlines() == ["['AAA']", "['BBB']"]
+    assert output_buffer.getvalue().splitlines() == [
+        "entry signals: ['AAA']",
+        "exit signals: ['BBB']",
+    ]
 
 
 # TODO: review

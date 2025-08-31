@@ -1252,8 +1252,8 @@ class StockShell(cmd.Cmd):
         )
         entry_signal_list: List[str] = signal_data.get("entry_signals", [])
         exit_signal_list: List[str] = signal_data.get("exit_signals", [])
-        self.stdout.write(f"{entry_signal_list}\n")
-        self.stdout.write(f"{exit_signal_list}\n")
+        self.stdout.write(f"entry signals: {entry_signal_list}\n")
+        self.stdout.write(f"exit signals: {exit_signal_list}\n")
 
     # TODO: review
     def help_find_signal(self) -> None:
