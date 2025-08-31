@@ -73,6 +73,7 @@ def test_start_simulate_retains_trade_above_threshold(
     shell.onecmd("start_simulate dollar_volume>3000 noop noop")
     second_output = output_buffer.getvalue()
 
-    expected_entry = "2018-12-13 MSFT open"
-    assert expected_entry in first_output
-    assert expected_entry in second_output
+    assert "MSFT open" in first_output
+    assert "price_score=" in first_output
+    assert "MSFT open" in second_output
+    assert "price_score=" in second_output

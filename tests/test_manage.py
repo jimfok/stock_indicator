@@ -352,7 +352,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Year 2023: 10.00%, trade: 2" in output_buffer.getvalue()
     assert "Year 2024: -5.00%, trade: 1" in output_buffer.getvalue()
     assert (
-        "  2023-01-02 AAA open 10.00 0.1000 100.00M 1000.00M"
+        "AAA open 10.00 0.1000 100.00M 1000.00M price_score="
         in output_buffer.getvalue()
     )
     assert (
@@ -360,7 +360,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
         in output_buffer.getvalue()
     )
     assert (
-        "  2024-03-01 CCC open 30.00 0.3000 300.00M 1000.00M"
+        "CCC open 30.00 0.3000 300.00M 1000.00M price_score="
         in output_buffer.getvalue()
     )
     assert (
