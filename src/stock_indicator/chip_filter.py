@@ -6,7 +6,7 @@ import pandas
 
 def calculate_chip_concentration_metrics(
     ohlcv: pandas.DataFrame,
-    lookback_window_size: int = 120,
+    lookback_window_size: int = 60,
     bin_count: int = 50,
     near_price_band_ratio: float = 0.03,
 ) -> dict[str, float | int | None]:
@@ -16,7 +16,7 @@ def calculate_chip_concentration_metrics(
     ----------
     ohlcv : pandas.DataFrame
         Data frame with ``high``, ``low``, ``close`` and ``volume`` columns.
-    lookback_window_size : int, default 120
+    lookback_window_size : int, default 60
         Number of rows to include in the calculation window.
     bin_count : int, default 50
         Number of price bins used for the histogram.
