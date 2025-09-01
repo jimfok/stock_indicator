@@ -557,10 +557,10 @@ def test_evaluate_combined_strategy_passes_window_size_and_renames_columns(
     assert "ema_sma_cross_with_slope_40_exit_signal" in captured_column_names
 
 
-def test_evaluate_combined_strategy_passes_slope_range(
+def test_evaluate_combined_strategy_passes_angle_range(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The function should pass the slope range to the strategy function."""
+    """The function should pass the angle range to the strategy function."""
 
     date_index = pandas.date_range("2020-01-01", periods=2, freq="D")
     price_data_frame = pandas.DataFrame(
@@ -575,15 +575,18 @@ def test_evaluate_combined_strategy_passes_slope_range(
     price_data_frame.to_csv(csv_path, index=False)
 
     captured_arguments: dict[str, tuple[float, float] | None] = {
-        "slope_range": None
+        "angle_range": None
     }
 
     def fake_attach_signals(
         frame: pandas.DataFrame,
         window_size: int = 40,
-        slope_range: tuple[float, float] = (-0.3, 2.14),
+        angle_range: tuple[float, float] = (
+            -16.69924423399362,
+            64.95379922035721,
+        ),
     ) -> None:
-        captured_arguments["slope_range"] = slope_range
+        captured_arguments["angle_range"] = angle_range
         frame["ema_sma_cross_with_slope_entry_signal"] = [True, False]
         frame["ema_sma_cross_with_slope_exit_signal"] = [False, True]
 
@@ -611,14 +614,14 @@ def test_evaluate_combined_strategy_passes_slope_range(
 
     evaluate_combined_strategy(
         tmp_path,
-        "ema_sma_cross_with_slope_-0.5_0.5",
-        "ema_sma_cross_with_slope_-0.5_0.5",
+        "ema_sma_cross_with_slope_-26.6_26.6",
+        "ema_sma_cross_with_slope_-26.6_26.6",
     )
 
-    assert captured_arguments["slope_range"] == (-0.5, 0.5)
+    assert captured_arguments["angle_range"] == (-26.6, 26.6)
 
 
-def test_evaluate_combined_strategy_passes_slope_range_with_volume(
+def test_evaluate_combined_strategy_passes_angle_range_with_volume(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The function should pass slope range for strategies using volume."""
@@ -636,15 +639,15 @@ def test_evaluate_combined_strategy_passes_slope_range_with_volume(
     price_data_frame.to_csv(csv_path, index=False)
 
     captured_arguments: dict[str, tuple[float, float] | None] = {
-        "slope_range": None
+        "angle_range": None
     }
 
     def fake_attach_signals(
         frame: pandas.DataFrame,
         window_size: int = 40,
-        slope_range: tuple[float, float] = (-0.3, 2.14),
+        angle_range: tuple[float, float] = (-16.69924423399362, 64.95379922035721),
     ) -> None:
-        captured_arguments["slope_range"] = slope_range
+        captured_arguments["angle_range"] = angle_range
         frame["ema_sma_cross_with_slope_and_volume_entry_signal"] = [True, False]
         frame["ema_sma_cross_with_slope_and_volume_exit_signal"] = [False, True]
 
@@ -678,14 +681,14 @@ def test_evaluate_combined_strategy_passes_slope_range_with_volume(
 
     evaluate_combined_strategy(
         tmp_path,
-        "ema_sma_cross_with_slope_and_volume_-0.5_0.5",
-        "ema_sma_cross_with_slope_and_volume_-0.5_0.5",
+        "ema_sma_cross_with_slope_and_volume_-26.6_26.6",
+        "ema_sma_cross_with_slope_and_volume_-26.6_26.6",
     )
 
-    assert captured_arguments["slope_range"] == (-0.5, 0.5)
+    assert captured_arguments["angle_range"] == (-26.6, 26.6)
 
 
-def test_evaluate_combined_strategy_renames_columns_with_slope_range(
+def test_evaluate_combined_strategy_renames_columns_with_angle_range(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Signal column names should include the slope range suffix."""
@@ -702,7 +705,7 @@ def test_evaluate_combined_strategy_renames_columns_with_slope_range(
     def fake_attach_signals(
         frame: pandas.DataFrame,
         window_size: int = 40,
-        slope_range: tuple[float, float] = (-0.3, 2.14),
+        angle_range: tuple[float, float] = (-16.69924423399362, 64.95379922035721),
     ) -> None:
         frame["ema_sma_cross_with_slope_entry_signal"] = [True, False]
         frame["ema_sma_cross_with_slope_exit_signal"] = [False, True]
@@ -733,19 +736,19 @@ def test_evaluate_combined_strategy_renames_columns_with_slope_range(
 
     evaluate_combined_strategy(
         tmp_path,
-        "ema_sma_cross_with_slope_-0.5_0.5",
-        "ema_sma_cross_with_slope_-0.5_0.5",
+        "ema_sma_cross_with_slope_-26.6_26.6",
+        "ema_sma_cross_with_slope_-26.6_26.6",
     )
 
     assert (
-        "ema_sma_cross_with_slope_-0.5_0.5_entry_signal" in captured_column_names
+        "ema_sma_cross_with_slope_-26.6_26.6_entry_signal" in captured_column_names
     )
     assert (
-        "ema_sma_cross_with_slope_-0.5_0.5_exit_signal" in captured_column_names
+        "ema_sma_cross_with_slope_-26.6_26.6_exit_signal" in captured_column_names
     )
 
 
-def test_evaluate_combined_strategy_renames_columns_negative_positive_slope_range(
+def test_evaluate_combined_strategy_renames_columns_negative_positive_angle_range(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The function should include negative-to-positive slope values in names."""
@@ -762,7 +765,7 @@ def test_evaluate_combined_strategy_renames_columns_negative_positive_slope_rang
     def fake_attach_signals(
         frame: pandas.DataFrame,
         window_size: int = 40,
-        slope_range: tuple[float, float] = (-0.3, 2.14),
+        angle_range: tuple[float, float] = (-16.69924423399362, 64.95379922035721),
     ) -> None:
         frame["ema_sma_cross_with_slope_entry_signal"] = [True, False]
         frame["ema_sma_cross_with_slope_exit_signal"] = [False, True]
@@ -793,15 +796,15 @@ def test_evaluate_combined_strategy_renames_columns_negative_positive_slope_rang
 
     evaluate_combined_strategy(
         tmp_path,
-        "ema_sma_cross_with_slope_-0.1_1.2",
-        "ema_sma_cross_with_slope_-0.1_1.2",
+        "ema_sma_cross_with_slope_-5.7_50.2",
+        "ema_sma_cross_with_slope_-5.7_50.2",
     )
 
     assert (
-        "ema_sma_cross_with_slope_-0.1_1.2_entry_signal" in captured_column_names
+        "ema_sma_cross_with_slope_-5.7_50.2_entry_signal" in captured_column_names
     )
     assert (
-        "ema_sma_cross_with_slope_-0.1_1.2_exit_signal" in captured_column_names
+        "ema_sma_cross_with_slope_-5.7_50.2_exit_signal" in captured_column_names
     )
 
 def test_evaluate_combined_strategy_dollar_volume_filter(
@@ -1552,10 +1555,10 @@ def test_attach_ftd_ema_sma_cross_signals_requires_recent_ftd(
     ]
 
 
-def test_attach_ema_sma_cross_with_slope_filters_by_slope(
+def test_attach_ema_sma_cross_with_slope_filters_by_angle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The EMA/SMA cross entry applies slope filters and requires price above the SMA."""
+    """The EMA/SMA cross entry applies angle filters and requires price above the SMA."""
     # TODO: review
 
     import stock_indicator.strategy as strategy_module
@@ -1596,7 +1599,7 @@ def test_attach_ema_sma_cross_with_slope_filters_by_slope(
     )
 
     strategy_module.attach_ema_sma_cross_with_slope_signals(
-        price_data_frame, slope_range=(0.0, 0.2)
+        price_data_frame, angle_range=(0.0, 0.2), bounds_as_tangent=True
     )
 
     assert recorded_require_close_above_long_term_sma is True
@@ -1616,8 +1619,8 @@ def test_attach_ema_sma_cross_with_slope_filters_by_slope(
     ]
 
 
-def test_attach_ema_sma_cross_with_slope_signals_raises_value_error_for_invalid_slope_range() -> None:
-    """``attach_ema_sma_cross_with_slope_signals`` should validate the slope range."""
+def test_attach_ema_sma_cross_with_slope_signals_raises_value_error_for_invalid_angle_range() -> None:
+    """``attach_ema_sma_cross_with_slope_signals`` should validate the angle range."""
     # TODO: review
 
     import stock_indicator.strategy as strategy_module
@@ -1628,14 +1631,14 @@ def test_attach_ema_sma_cross_with_slope_signals_raises_value_error_for_invalid_
         ValueError, match="lower bound cannot exceed upper bound"
     ):
         strategy_module.attach_ema_sma_cross_with_slope_signals(
-            price_data_frame, slope_range=(1.0, -1.0)
+            price_data_frame, angle_range=(1.0, -1.0)
         )
 
 
-def test_attach_ema_sma_cross_testing_filters_by_slope_and_chip(
+def test_attach_ema_sma_cross_testing_filters_by_angle_and_chip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Entry applies slope and chip concentration filters without long-term SMA."""
+    """Entry applies angle and chip concentration filters without long-term SMA."""
     # TODO: review
 
     import stock_indicator.strategy as strategy_module
@@ -1695,7 +1698,7 @@ def test_attach_ema_sma_cross_testing_filters_by_slope_and_chip(
     )
 
     strategy_module.attach_ema_sma_cross_testing_signals(
-        price_data_frame, slope_range=(0.0, 0.2)
+        price_data_frame, angle_range=(0.0, 0.2), bounds_as_tangent=True
     )
 
     assert recorded_flag is False
@@ -1715,7 +1718,7 @@ def test_attach_ema_sma_cross_testing_filters_by_slope_and_chip(
     ]
 
 
-def test_attach_ema_sma_cross_testing_signals_raises_value_error_for_invalid_slope_range() -> None:
+def test_attach_ema_sma_cross_testing_signals_raises_value_error_for_invalid_angle_range() -> None:
     """``attach_ema_sma_cross_testing_signals`` should validate the slope range."""
     # TODO: review
 
@@ -1727,7 +1730,7 @@ def test_attach_ema_sma_cross_testing_signals_raises_value_error_for_invalid_slo
         ValueError, match="lower bound cannot exceed upper bound",
     ):
         strategy_module.attach_ema_sma_cross_testing_signals(
-            price_data_frame, slope_range=(1.0, -1.0)
+            price_data_frame, angle_range=(1.0, -1.0)
         )
 
 
@@ -1750,7 +1753,7 @@ def test_attach_ema_sma_cross_with_slope_and_volume_requires_higher_ema_volume(
     def fake_attach_ema_sma_cross_with_slope_signals(
         data_frame: pandas.DataFrame,
         window_size: int = 50,
-        slope_range: tuple[float, float] = (-0.3, 2.14),
+        angle_range: tuple[float, float] = (-16.69924423399362, 64.95379922035721),
     ) -> None:
         data_frame["ema_sma_cross_with_slope_entry_signal"] = pandas.Series(
             [False, True, True, True, True]
@@ -1777,7 +1780,7 @@ def test_attach_ema_sma_cross_with_slope_and_volume_requires_higher_ema_volume(
     ) == [False, False, False, False, True]
 
 
-def test_attach_ema_sma_cross_with_slope_and_volume_signals_raises_value_error_for_invalid_slope_range() -> None:
+def test_attach_ema_sma_cross_with_slope_and_volume_signals_raises_value_error_for_invalid_angle_range() -> None:
     """``attach_ema_sma_cross_with_slope_and_volume_signals`` should validate the slope range."""
     # TODO: review
 
@@ -1791,7 +1794,7 @@ def test_attach_ema_sma_cross_with_slope_and_volume_signals_raises_value_error_f
         ValueError, match="lower bound cannot exceed upper bound"
     ):
         strategy_module.attach_ema_sma_cross_with_slope_and_volume_signals(
-            price_data_frame, slope_range=(1.0, -1.0)
+            price_data_frame, angle_range=(1.0, -1.0)
         )
 
 
@@ -1944,54 +1947,54 @@ def test_supported_strategies_includes_ema_sma_double_cross() -> None:
 def test_parse_strategy_name_with_window_size() -> None:
     """``parse_strategy_name`` should parse the window size suffix."""
 
-    base_name, window_size, slope_range = parse_strategy_name(
+    base_name, window_size, angle_range = parse_strategy_name(
         "ema_sma_cross_with_slope_40"
     )
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size == 40
-    assert slope_range is None
+    assert angle_range is None
 
 
-def test_parse_strategy_name_with_window_and_slope_range() -> None:
-    """The parser should extract both window size and slope range."""
+def test_parse_strategy_name_with_window_and_angle_range() -> None:
+    """The parser should extract both window size and angle range."""
 
-    base_name, window_size, slope_range = parse_strategy_name(
-        "ema_sma_cross_with_slope_40_-0.5_0.5"
+    base_name, window_size, angle_range = parse_strategy_name(
+        "ema_sma_cross_with_slope_40_-26.6_26.6"
     )
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size == 40
-    assert slope_range == (-0.5, 0.5)
+    assert angle_range == (-26.6, 26.6)
 
 
-def test_parse_strategy_name_with_slope_range_only() -> None:
-    """The parser should handle slope range without window size."""
+def test_parse_strategy_name_with_angle_range_only() -> None:
+    """The parser should handle angle range without window size."""
 
-    base_name, window_size, slope_range = parse_strategy_name(
-        "ema_sma_cross_with_slope_-0.5_0.5"
+    base_name, window_size, angle_range = parse_strategy_name(
+        "ema_sma_cross_with_slope_-26.6_26.6"
     )
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size is None
-    assert slope_range == (-0.5, 0.5)
+    assert angle_range == (-26.6, 26.6)
 
 
 def test_parse_strategy_name_with_integer_slope_values() -> None:
     """``parse_strategy_name`` should convert integer slope bounds to floats."""
 
-    base_name, window_size, slope_range = parse_strategy_name(
+    base_name, window_size, angle_range = parse_strategy_name(
         "ema_sma_cross_with_slope_-1_2"
     )
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size is None
-    assert slope_range == (-1.0, 2.0)
+    assert angle_range == (-1.0, 2.0)
 
 
 def test_parse_strategy_name_without_suffix() -> None:
     """``parse_strategy_name`` should return ``None`` when no suffix is given."""
 
-    base_name, window_size, slope_range = parse_strategy_name("ema_sma_cross")
+    base_name, window_size, angle_range = parse_strategy_name("ema_sma_cross")
     assert base_name == "ema_sma_cross"
     assert window_size is None
-    assert slope_range is None
+    assert angle_range is None
 
 
 def test_parse_strategy_name_rejects_malformed_suffix() -> None:

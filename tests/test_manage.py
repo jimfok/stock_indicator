@@ -230,17 +230,18 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     from stock_indicator.strategy import StrategyMetrics, TradeDetail
 
     def fake_evaluate(
-        data_directory: Path,
-        buy_strategy_name: str,
-        sell_strategy_name: str,
-        minimum_average_dollar_volume: float | None,
-        top_dollar_volume_rank: int | None = None,
-        minimum_average_dollar_volume_ratio: float | None = None,
-        starting_cash: float = 3000.0,
-        withdraw_amount: float = 0.0,
-        stop_loss_percentage: float = 1.0,
-        start_date: pandas.Timestamp | None = None,
-    ) -> StrategyMetrics:
+            data_directory: Path,
+            buy_strategy_name: str,
+            sell_strategy_name: str,
+            minimum_average_dollar_volume: float | None,
+            top_dollar_volume_rank: int | None = None,
+            minimum_average_dollar_volume_ratio: float | None = None,
+            starting_cash: float = 3000.0,
+            withdraw_amount: float = 0.0,
+            stop_loss_percentage: float = 1.0,
+            start_date: pandas.Timestamp | None = None,
+            allowed_fama_french_groups: set[int] | None = None,
+        ) -> StrategyMetrics:
         call_record["strategies"] = (buy_strategy_name, sell_strategy_name)
         volume_record["threshold"] = minimum_average_dollar_volume
         if minimum_average_dollar_volume_ratio is not None:
@@ -391,6 +392,7 @@ def test_start_simulate_suppresses_trade_details(
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
         start_date: pandas.Timestamp | None = None,
+        **_: object,
     ) -> StrategyMetrics:
         trade_details_by_year = {
             2023: [
@@ -470,6 +472,7 @@ def test_start_simulate_filters_early_googl_trades(
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
         start_date: pandas.Timestamp | None = None,
+        allowed_fama_french_groups: set[int] | None = None,
     ) -> StrategyMetrics:
         trade_details_by_year = {
             2013: [
@@ -572,6 +575,7 @@ def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) ->
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
         start_date: pandas.Timestamp | None = None,
+        allowed_fama_french_groups: set[int] | None = None,
     ) -> StrategyMetrics:
         call_arguments["strategies"] = (buy_strategy_name, sell_strategy_name)
         threshold_record["threshold"] = minimum_average_dollar_volume
@@ -630,6 +634,7 @@ def test_start_simulate_accepts_start_date(monkeypatch: pytest.MonkeyPatch) -> N
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
         start_date: pandas.Timestamp | None = None,
+        allowed_fama_french_groups: set[int] | None = None,
     ) -> StrategyMetrics:
         recorded_arguments["start_date"] = start_date
         return StrategyMetrics(
@@ -1003,10 +1008,10 @@ def test_start_simulate_supports_slope_and_volume_strategy(
     )
 
 
-def test_start_simulate_accepts_slope_range_strategy_names(
+def test_start_simulate_accepts_angle_range_strategy_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The command should forward slope-range strategy names for evaluation."""
+    """The command should forward angle-range strategy names for evaluation."""
 
     import stock_indicator.manage as manage_module
 
@@ -1053,13 +1058,13 @@ def test_start_simulate_accepts_slope_range_strategy_names(
     shell = manage_module.StockShell(stdout=io.StringIO())
     shell.onecmd(
         "start_simulate dollar_volume>0 "
-        "ema_sma_cross_with_slope_-0.5_0.5 "
-        "ema_sma_cross_with_slope_-0.5_0.5"
+        "ema_sma_cross_with_slope_-26.6_26.6 "
+        "ema_sma_cross_with_slope_-26.6_26.6"
     )
 
     assert recorded_arguments["strategies"] == (
-        "ema_sma_cross_with_slope_-0.5_0.5",
-        "ema_sma_cross_with_slope_-0.5_0.5",
+        "ema_sma_cross_with_slope_-26.6_26.6",
+        "ema_sma_cross_with_slope_-26.6_26.6",
     )
 
 

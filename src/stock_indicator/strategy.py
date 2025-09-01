@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from math import ceil
 from pathlib import Path
 from statistics import mean, stdev
 from typing import Callable, Dict, List
 
 import re
+import numpy
 import pandas
 
 from .indicators import ema, kalman_filter, sma
@@ -25,6 +27,17 @@ from .simulator import (
     simulate_trades,
 )
 from .symbols import SP500_SYMBOL
+
+
+DEFAULT_SMA_ANGLE_RANGE: tuple[float, float] = (
+    math.degrees(math.atan(-0.3)),
+    math.degrees(math.atan(2.14)),
+)
+
+DEFAULT_SHIFTED_EMA_ANGLE_RANGE: tuple[float, float] = (
+    math.degrees(math.atan(-1.0)),
+    math.degrees(math.atan(1.0)),
+)
 
 
 def _split_strategy_choices(strategy_name: str) -> list[str]:
@@ -569,7 +582,7 @@ def compute_signals_for_date(
         full_name: str,
         base_name: str,
         window_size: int | None,
-        slope_range: tuple[float, float] | None,
+        angle_range: tuple[float, float] | None,
         table: Dict[str, Callable[[pandas.DataFrame], None]],
         frame: pandas.DataFrame,
     ) -> None:
@@ -581,8 +594,8 @@ def compute_signals_for_date(
         else:
             if window_size is not None:
                 kwargs["window_size"] = window_size
-            if slope_range is not None:
-                kwargs["slope_range"] = slope_range
+            if angle_range is not None:
+                kwargs["angle_range"] = angle_range
             sma_factor_value = _extract_sma_factor(full_name)
             if sma_factor_value is not None and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}:
                 kwargs["sma_window_factor"] = sma_factor_value
@@ -602,13 +615,13 @@ def compute_signals_for_date(
         buy_signal_columns: list[str] = []
         for buy_name in buy_choice_names:
             try:
-                base_name, window_size, slope_range = parse_strategy_name(buy_name)
+                base_name, window_size, angle_range = parse_strategy_name(buy_name)
             except Exception:  # noqa: BLE001
                 continue
             if base_name not in BUY_STRATEGIES:
                 continue
             _apply_strategy(
-                buy_name, base_name, window_size, slope_range, BUY_STRATEGIES, price_data_frame
+                buy_name, base_name, window_size, angle_range, BUY_STRATEGIES, price_data_frame
             )
             column_name = f"{buy_name}_entry_signal"
             if column_name in price_data_frame.columns:
@@ -617,13 +630,13 @@ def compute_signals_for_date(
         sell_signal_columns: list[str] = []
         for sell_name in sell_choice_names:
             try:
-                base_name, window_size, slope_range = parse_strategy_name(sell_name)
+                base_name, window_size, angle_range = parse_strategy_name(sell_name)
             except Exception:  # noqa: BLE001
                 continue
             if base_name not in SELL_STRATEGIES:
                 continue
             _apply_strategy(
-                sell_name, base_name, window_size, slope_range, SELL_STRATEGIES, price_data_frame
+                sell_name, base_name, window_size, angle_range, SELL_STRATEGIES, price_data_frame
             )
             column_name = f"{sell_name}_exit_signal"
             if column_name in price_data_frame.columns:
@@ -865,18 +878,19 @@ def attach_20_50_sma_cross_signals(
 def attach_ema_sma_cross_with_slope_signals(
     price_data_frame: pandas.DataFrame,
     window_size: int = 40,
-    slope_range: tuple[float, float] = (-0.3, 2.14),
+    angle_range: tuple[float, float] = DEFAULT_SMA_ANGLE_RANGE,
     sma_window_factor: float | None = None,
+    bounds_as_tangent: bool = False,
 ) -> None:
-    """Attach EMA/SMA cross signals filtered by simple moving average slope.
+    """Attach EMA/SMA cross signals filtered by simple moving average angle.
 
     Entry signals require the prior-day EMA cross, the simple moving average
-    slope to fall within ``slope_range``, and the closing price to remain above
-    the long-term simple moving average. Unless a slope range is provided in the
-    strategy name, this function uses the default range ``(-0.3, 2.14)``. The
-    magnitude of the slope depends on ``window_size``; larger windows produce
-    smaller slope values, so adjust ``slope_range`` accordingly when overriding
-    the default.
+    angle to fall within ``angle_range``, and the closing price to remain above
+    the long-term simple moving average. Unless an angle range is provided in
+    the strategy name, this function uses the default range derived from the
+    tangents ``(-0.3, 2.14)`` converted to degrees. The normalized slope scales
+    with ``window_size``; larger windows produce smaller relative changes, so
+    adjust ``angle_range`` accordingly when overriding the default.
 
     Parameters
     ----------
@@ -884,8 +898,10 @@ def attach_ema_sma_cross_with_slope_signals(
         DataFrame containing ``open`` and ``close`` price columns.
     window_size:
         Number of periods for EMA calculations.
-    slope_range:
-        Inclusive range ``(lower_bound, upper_bound)`` for the SMA slope.
+    angle_range:
+        Inclusive range ``(lower_bound, upper_bound)`` for the SMA angle in
+        degrees. When ``bounds_as_tangent`` is ``True``, interpret the bounds as
+        tangents and convert them to degrees.
     sma_window_factor:
         Optional multiplier applied to ``window_size`` to determine the SMA
         window as ``ceil(window_size * factor)``. When ``None``, uses
@@ -894,14 +910,17 @@ def attach_ema_sma_cross_with_slope_signals(
     Raises
     ------
     ValueError
-        If ``slope_range`` has a lower bound greater than its upper bound.
+        If ``angle_range`` has a lower bound greater than its upper bound.
     """
     # TODO: review
 
-    slope_lower_bound, slope_upper_bound = slope_range
-    if slope_lower_bound > slope_upper_bound:
+    angle_lower_bound, angle_upper_bound = angle_range
+    if bounds_as_tangent:
+        angle_lower_bound = math.degrees(math.atan(angle_lower_bound))
+        angle_upper_bound = math.degrees(math.atan(angle_upper_bound))
+    if angle_lower_bound > angle_upper_bound:
         raise ValueError(
-            "Invalid slope_range: lower bound cannot exceed upper bound"
+            "Invalid angle_range: lower bound cannot exceed upper bound"
         )
 
     attach_ema_sma_cross_signals(
@@ -910,13 +929,14 @@ def attach_ema_sma_cross_with_slope_signals(
         require_close_above_long_term_sma=True,
         sma_window_factor=sma_window_factor,
     )
-    price_data_frame["sma_slope"] = (
+    relative_change = (
         price_data_frame["sma_value"] - price_data_frame["sma_previous"]
-    )
+    ) / price_data_frame["sma_previous"]
+    price_data_frame["sma_angle"] = numpy.degrees(numpy.arctan(relative_change))
     price_data_frame["ema_sma_cross_with_slope_entry_signal"] = (
         price_data_frame["ema_sma_cross_entry_signal"]
-        & (price_data_frame["sma_slope"] >= slope_lower_bound)
-        & (price_data_frame["sma_slope"] <= slope_upper_bound)
+        & (price_data_frame["sma_angle"] >= angle_lower_bound)
+        & (price_data_frame["sma_angle"] <= angle_upper_bound)
     )
     price_data_frame["ema_sma_cross_with_slope_exit_signal"] = price_data_frame[
         "ema_sma_cross_exit_signal"
@@ -926,12 +946,13 @@ def attach_ema_sma_cross_with_slope_signals(
 def attach_ema_sma_cross_testing_signals(
     price_data_frame: pandas.DataFrame,
     window_size: int = 40,
-    slope_range: tuple[float, float] = (-0.3, 2.14),
+    angle_range: tuple[float, float] = DEFAULT_SMA_ANGLE_RANGE,
     near_pct: float = 0.12,
     above_pct: float = 0.10,
     sma_window_factor: float | None = None,
+    bounds_as_tangent: bool = False,
 ) -> None:
-    """Attach EMA/SMA cross testing signals with slope and chip filters.
+    """Attach EMA/SMA cross testing signals with angle and chip filters.
 
     Entry signals mirror :func:`attach_ema_sma_cross_with_slope_signals` but do
     not require the closing price to remain above the long-term simple moving
@@ -946,8 +967,10 @@ def attach_ema_sma_cross_testing_signals(
         ``volume`` columns.
     window_size:
         Number of periods for EMA calculations.
-    slope_range:
-        Inclusive range ``(lower_bound, upper_bound)`` for the SMA slope.
+    angle_range:
+        Inclusive range ``(lower_bound, upper_bound)`` for the SMA angle in
+        degrees. When ``bounds_as_tangent`` is ``True``, interpret the bounds as
+        tangents and convert them to degrees.
     near_pct:
         Maximum allowed fraction of volume near the current price.
     above_pct:
@@ -960,14 +983,17 @@ def attach_ema_sma_cross_testing_signals(
     Raises
     ------
     ValueError
-        If ``slope_range`` has a lower bound greater than its upper bound.
+        If ``angle_range`` has a lower bound greater than its upper bound.
     """
     # TODO: review
 
-    slope_lower_bound, slope_upper_bound = slope_range
-    if slope_lower_bound > slope_upper_bound:
+    angle_lower_bound, angle_upper_bound = angle_range
+    if bounds_as_tangent:
+        angle_lower_bound = math.degrees(math.atan(angle_lower_bound))
+        angle_upper_bound = math.degrees(math.atan(angle_upper_bound))
+    if angle_lower_bound > angle_upper_bound:
         raise ValueError(
-            "Invalid slope_range: lower bound cannot exceed upper bound"
+            "Invalid angle_range: lower bound cannot exceed upper bound"
         )
 
     attach_ema_sma_cross_signals(
@@ -976,9 +1002,10 @@ def attach_ema_sma_cross_testing_signals(
         require_close_above_long_term_sma=False,
         sma_window_factor=sma_window_factor,
     )
-    price_data_frame["sma_slope"] = (
+    relative_change = (
         price_data_frame["sma_value"] - price_data_frame["sma_previous"]
-    )
+    ) / price_data_frame["sma_previous"]
+    price_data_frame["sma_angle"] = numpy.degrees(numpy.arctan(relative_change))
 
     near_ratios: List[float | None] = []
     above_ratios: List[float | None] = []
@@ -1000,8 +1027,8 @@ def attach_ema_sma_cross_testing_signals(
     above_ok = price_data_frame["above_price_volume_ratio"].le(above_pct)
     price_data_frame["ema_sma_cross_testing_entry_signal"] = (
         price_data_frame["ema_sma_cross_entry_signal"]
-        & (price_data_frame["sma_slope"] >= slope_lower_bound)
-        & (price_data_frame["sma_slope"] <= slope_upper_bound)
+        & (price_data_frame["sma_angle"] >= angle_lower_bound)
+        & (price_data_frame["sma_angle"] <= angle_upper_bound)
         & near_ok.fillna(False)
         & above_ok.fillna(False)
     )
@@ -1013,9 +1040,10 @@ def attach_ema_sma_cross_testing_signals(
 def attach_ema_shift_cross_with_slope_signals(
     price_data_frame: pandas.DataFrame,
     window_size: int = 35,
-    slope_range: tuple[float, float] = (-1.0, 1.0),
+    angle_range: tuple[float, float] = DEFAULT_SHIFTED_EMA_ANGLE_RANGE,
+    bounds_as_tangent: bool = False,
 ) -> None:
-    """Attach EMA/EMA(shifted) cross signals filtered by EMA slope.
+    """Attach EMA/EMA(shifted) cross signals filtered by EMA angle.
 
     This strategy mirrors :func:`attach_ema_sma_cross_with_slope_signals` but
     replaces the simple moving average with an exponential moving average
@@ -1023,7 +1051,7 @@ def attach_ema_shift_cross_with_slope_signals(
 
     Entry conditions:
     - Previous day's EMA crosses above the shifted EMA
-    - The shifted EMA slope falls within ``slope_range``
+    - The shifted EMA angle falls within ``angle_range``
 
     Exit condition:
     - Previous day's EMA crosses below the shifted EMA
@@ -1035,22 +1063,28 @@ def attach_ema_shift_cross_with_slope_signals(
     window_size:
         Number of periods for both EMAs. Defaults to ``35`` when not specified
         in the strategy name.
-    slope_range:
-        Inclusive range ``(lower_bound, upper_bound)`` for the shifted EMA
-        slope (difference to previous value). Defaults to ``(-1.0, 1.0)``.
+    angle_range:
+        Inclusive range ``(lower_bound, upper_bound)`` for the shifted EMA angle
+        in degrees. When ``bounds_as_tangent`` is ``True``, interpret bounds as
+        tangents and convert them to degrees.
+    bounds_as_tangent:
+        When ``True``, interpret ``angle_range`` as tangent bounds rather than
+        degrees.
 
     Raises
     ------
     ValueError
-        If ``slope_range`` has a lower bound greater than its upper bound.
+        If ``angle_range`` has a lower bound greater than its upper bound.
     """
-    slope_lower_bound, slope_upper_bound = slope_range
-    if slope_lower_bound > slope_upper_bound:
+    angle_lower_bound, angle_upper_bound = angle_range
+    if bounds_as_tangent:
+        angle_lower_bound = math.degrees(math.atan(angle_lower_bound))
+        angle_upper_bound = math.degrees(math.atan(angle_upper_bound))
+    if angle_lower_bound > angle_upper_bound:
         raise ValueError(
-            "Invalid slope_range: lower bound cannot exceed upper bound"
+            "Invalid angle_range: lower bound cannot exceed upper bound",
         )
 
-    # Core moving averages
     _close_r3 = price_data_frame["close"].round(3)
     price_data_frame["ema_value"] = ema(_close_r3, window_size)
     price_data_frame["shifted_close"] = price_data_frame["close"].round(3).shift(3)
@@ -1058,13 +1092,9 @@ def attach_ema_shift_cross_with_slope_signals(
         price_data_frame["shifted_close"], window_size
     )
 
-    # Previous-day values for stable cross detection
     price_data_frame["ema_previous"] = price_data_frame["ema_value"].shift(1)
-    price_data_frame["shifted_ema_previous"] = price_data_frame[
-        "shifted_ema_value"
-    ].shift(1)
+    price_data_frame["shifted_ema_previous"] = price_data_frame["shifted_ema_value"].shift(1)
 
-    # Cross detection
     crosses_up = (
         (price_data_frame["ema_previous"] <= price_data_frame["shifted_ema_previous"])
         & (price_data_frame["ema_value"] > price_data_frame["shifted_ema_value"])
@@ -1074,20 +1104,20 @@ def attach_ema_shift_cross_with_slope_signals(
         & (price_data_frame["ema_value"] < price_data_frame["shifted_ema_value"])
     )
 
-    # Slope of shifted EMA
-    price_data_frame["shifted_ema_slope"] = (
-        price_data_frame["shifted_ema_value"]
-        - price_data_frame["shifted_ema_previous"]
+    relative_change = (
+        price_data_frame["shifted_ema_value"] - price_data_frame["shifted_ema_previous"]
+    ) / price_data_frame["shifted_ema_previous"]
+    price_data_frame["shifted_ema_angle"] = numpy.degrees(
+        numpy.arctan(relative_change)
     )
 
-    # Build signals using prior-day confirmation
     base_entry = crosses_up.shift(1, fill_value=False)
     base_exit = crosses_down.shift(1, fill_value=False)
 
     price_data_frame["ema_shift_cross_with_slope_entry_signal"] = (
         base_entry
-        & (price_data_frame["shifted_ema_slope"] >= slope_lower_bound)
-        & (price_data_frame["shifted_ema_slope"] <= slope_upper_bound)
+        & (price_data_frame["shifted_ema_angle"] >= angle_lower_bound)
+        & (price_data_frame["shifted_ema_angle"] <= angle_upper_bound)
     )
     price_data_frame["ema_shift_cross_with_slope_exit_signal"] = base_exit
 
@@ -1122,29 +1152,29 @@ SUPPORTED_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
 def parse_strategy_name(
     strategy_name: str,
 ) -> tuple[str, int | None, tuple[float, float] | None]:
-    """Split ``strategy_name`` into base name, window size, and slope range.
+    """Split ``strategy_name`` into base name, window size, and angle range.
 
     Strategy identifiers may include a numeric window size suffix or a pair of
-    floating-point numbers representing a slope range. These components are
+    floating-point numbers representing an angle range. These components are
     separated from the base name by underscores. For example,
     ``"ema_sma_cross_with_slope_40_-0.5_0.5"`` is interpreted as the base
-    strategy ``"ema_sma_cross_with_slope"`` with a window size of ``40`` and a
-    slope range from ``-0.5`` to ``0.5``.
+    strategy ``"ema_sma_cross_with_slope"`` with a window size of ``40`` and an
+    angle range from ``-0.5`` to ``0.5``.
 
     Any optional trailing ``_sma{factor}`` suffix (e.g., ``_sma1.2``) is ignored
-    for base-name/window/slope parsing and should be obtained via
+    for base-name/window/angle parsing and should be obtained via
     :func:`_extract_sma_factor` if needed.
 
     Parameters
     ----------
     strategy_name:
         The full strategy name possibly containing a numeric suffix and an
-        optional slope range.
+        optional angle range.
 
     Returns
     -------
     tuple[str, int | None, tuple[float, float] | None]
-        The base strategy name, the integer window size, and the slope range as
+        The base strategy name, the integer window size, and the angle range as
         a ``(lower, upper)`` tuple. When a component is not present, its value
         is ``None``.
 
@@ -1191,7 +1221,7 @@ def parse_strategy_name(
                 )
             return base_name, window_size, None
         raise ValueError(
-            "Malformed strategy name: expected two numeric segments for slope range "
+            "Malformed strategy name: expected two numeric segments for angle range "
             f"but found {segment_count} in '{strategy_name}'"
         )
 
@@ -1206,7 +1236,7 @@ def parse_strategy_name(
         window_value = numeric_segments[0]
         if not window_value.isdigit():
             raise ValueError(
-                "Malformed strategy name: expected two numeric segments for slope range "
+                "Malformed strategy name: expected two numeric segments for angle range "
                 f"but found {segment_count} in '{strategy_name}'"
             )
         window_size = int(window_value)
@@ -1571,7 +1601,7 @@ def evaluate_combined_strategy(
         buy_bases_for_cooldown: set[str] = set()
         for buy_name in _split_strategy_choices(buy_strategy_name):
             try:
-                base_name, window_size, slope_range = parse_strategy_name(buy_name)
+                base_name, window_size, angle_range = parse_strategy_name(buy_name)
             except Exception:
                 continue
             if base_name not in BUY_STRATEGIES:
@@ -1586,8 +1616,8 @@ def evaluate_combined_strategy(
             else:
                 if window_size is not None:
                     kwargs["window_size"] = window_size
-                if slope_range is not None:
-                    kwargs["slope_range"] = slope_range
+                if angle_range is not None:
+                    kwargs["angle_range"] = angle_range
                 # Optional SMA window factor support for EMA/SMA strategies
                 sma_factor_value = _extract_sma_factor(buy_name)
                 if sma_factor_value is not None and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}:
@@ -1615,7 +1645,7 @@ def evaluate_combined_strategy(
         sell_signal_columns: list[str] = []
         for sell_name in _split_strategy_choices(sell_strategy_name):
             try:
-                base_name, window_size, slope_range = parse_strategy_name(sell_name)
+                base_name, window_size, angle_range = parse_strategy_name(sell_name)
             except Exception:
                 continue
             if base_name not in SELL_STRATEGIES:
@@ -1629,8 +1659,8 @@ def evaluate_combined_strategy(
             else:
                 if window_size is not None:
                     kwargs["window_size"] = window_size
-                if slope_range is not None:
-                    kwargs["slope_range"] = slope_range
+                if angle_range is not None:
+                    kwargs["angle_range"] = angle_range
                 sma_factor_value = _extract_sma_factor(sell_name)
                 if sma_factor_value is not None and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}:
                     kwargs["sma_window_factor"] = sma_factor_value
