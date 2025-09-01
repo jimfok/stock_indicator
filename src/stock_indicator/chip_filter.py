@@ -4,6 +4,43 @@ import numpy
 import pandas
 
 
+# TODO: review
+NEAR_VOLUME_RATIO_MAX: float = 0.12
+# TODO: review
+ABOVE_VOLUME_RATIO_MAX: float = 0.10
+
+
+# TODO: review
+def passes_chip_concentration_filter(
+    near_volume_ratio: float | None, above_volume_ratio: float | None
+) -> bool:
+    """Validate chip concentration metrics against loose thresholds.
+
+    Parameters
+    ----------
+    near_volume_ratio:
+        Fraction of volume within the near-price band.
+    above_volume_ratio:
+        Fraction of volume above the current price.
+
+    Returns
+    -------
+    bool
+        ``True`` when both ratios are within ``[0, 1]`` and do not exceed the
+        ``loose`` thresholds. Otherwise ``False``.
+    """
+    if near_volume_ratio is None or above_volume_ratio is None:
+        return False
+    if not (0.0 <= near_volume_ratio <= 1.0):
+        return False
+    if not (0.0 <= above_volume_ratio <= 1.0):
+        return False
+    return (
+        near_volume_ratio <= NEAR_VOLUME_RATIO_MAX
+        and above_volume_ratio <= ABOVE_VOLUME_RATIO_MAX
+    )
+
+
 def calculate_chip_concentration_metrics(
     ohlcv: pandas.DataFrame,
     lookback_window_size: int = 60,
