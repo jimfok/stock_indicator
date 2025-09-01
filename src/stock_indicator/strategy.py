@@ -870,13 +870,13 @@ def attach_ema_sma_cross_with_slope_signals(
 ) -> None:
     """Attach EMA/SMA cross signals filtered by simple moving average slope.
 
-    Entry signals require the prior-day EMA cross, the previous closing price to
-    be above the 150-day simple moving average, and the simple moving average
-    slope to fall within ``slope_range``. Unless a slope range is provided in the
-    strategy name,
-    this function uses the default range ``(-0.3, 2.14)``. The magnitude of the
-    slope depends on ``window_size``; larger windows produce smaller slope
-    values, so adjust ``slope_range`` accordingly when overriding the default.
+    Entry signals require the prior-day EMA cross, the simple moving average
+    slope to fall within ``slope_range``, and the closing price to remain above
+    the long-term simple moving average. Unless a slope range is provided in the
+    strategy name, this function uses the default range ``(-0.3, 2.14)``. The
+    magnitude of the slope depends on ``window_size``; larger windows produce
+    smaller slope values, so adjust ``slope_range`` accordingly when overriding
+    the default.
 
     Parameters
     ----------
@@ -919,6 +919,93 @@ def attach_ema_sma_cross_with_slope_signals(
         & (price_data_frame["sma_slope"] <= slope_upper_bound)
     )
     price_data_frame["ema_sma_cross_with_slope_exit_signal"] = price_data_frame[
+        "ema_sma_cross_exit_signal"
+    ]
+
+
+def attach_ema_sma_cross_testing_signals(
+    price_data_frame: pandas.DataFrame,
+    window_size: int = 40,
+    slope_range: tuple[float, float] = (-0.3, 2.14),
+    near_pct: float = 0.12,
+    above_pct: float = 0.10,
+    sma_window_factor: float | None = None,
+) -> None:
+    """Attach EMA/SMA cross testing signals with slope and chip filters.
+
+    Entry signals mirror :func:`attach_ema_sma_cross_with_slope_signals` but do
+    not require the closing price to remain above the long-term simple moving
+    average. Instead, this variant recomputes chip concentration metrics and
+    validates that the near-price and above-price volume ratios fall below the
+    ``near_pct`` and ``above_pct`` thresholds.
+
+    Parameters
+    ----------
+    price_data_frame:
+        DataFrame containing ``open``, ``high``, ``low``, ``close`` and
+        ``volume`` columns.
+    window_size:
+        Number of periods for EMA calculations.
+    slope_range:
+        Inclusive range ``(lower_bound, upper_bound)`` for the SMA slope.
+    near_pct:
+        Maximum allowed fraction of volume near the current price.
+    above_pct:
+        Maximum allowed fraction of volume above the current price.
+    sma_window_factor:
+        Optional multiplier applied to ``window_size`` to determine the SMA
+        window as ``ceil(window_size * factor)``. When ``None``, uses
+        ``window_size`` for the SMA as well.
+
+    Raises
+    ------
+    ValueError
+        If ``slope_range`` has a lower bound greater than its upper bound.
+    """
+    # TODO: review
+
+    slope_lower_bound, slope_upper_bound = slope_range
+    if slope_lower_bound > slope_upper_bound:
+        raise ValueError(
+            "Invalid slope_range: lower bound cannot exceed upper bound"
+        )
+
+    attach_ema_sma_cross_signals(
+        price_data_frame,
+        window_size,
+        require_close_above_long_term_sma=False,
+        sma_window_factor=sma_window_factor,
+    )
+    price_data_frame["sma_slope"] = (
+        price_data_frame["sma_value"] - price_data_frame["sma_previous"]
+    )
+
+    near_ratios: List[float | None] = []
+    above_ratios: List[float | None] = []
+    for row_index in range(len(price_data_frame)):
+        chip_metrics = calculate_chip_concentration_metrics(
+            price_data_frame.iloc[: row_index + 1],
+            lookback_window_size=60,
+        )
+        near_ratios.append(chip_metrics["near_price_volume_ratio"])
+        above_ratios.append(chip_metrics["above_price_volume_ratio"])
+    price_data_frame["near_price_volume_ratio"] = pandas.Series(
+        near_ratios, index=price_data_frame.index
+    )
+    price_data_frame["above_price_volume_ratio"] = pandas.Series(
+        above_ratios, index=price_data_frame.index
+    )
+
+    near_ok = price_data_frame["near_price_volume_ratio"].le(near_pct)
+    above_ok = price_data_frame["above_price_volume_ratio"].le(above_pct)
+    price_data_frame["ema_sma_cross_testing_entry_signal"] = (
+        price_data_frame["ema_sma_cross_entry_signal"]
+        & (price_data_frame["sma_slope"] >= slope_lower_bound)
+        & (price_data_frame["sma_slope"] <= slope_upper_bound)
+        & near_ok.fillna(False)
+        & above_ok.fillna(False)
+    )
+    price_data_frame["ema_sma_cross_testing_exit_signal"] = price_data_frame[
         "ema_sma_cross_exit_signal"
     ]
 
@@ -1017,6 +1104,7 @@ BUY_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
     "ema_sma_cross": attach_ema_sma_cross_signals,
     "20_50_sma_cross": attach_20_50_sma_cross_signals,
     "ema_sma_cross_with_slope": attach_ema_sma_cross_with_slope_signals,
+    "ema_sma_cross_testing": attach_ema_sma_cross_testing_signals,
     "ema_shift_cross_with_slope": attach_ema_shift_cross_with_slope_signals,
 }
 
@@ -1477,6 +1565,7 @@ def evaluate_combined_strategy(
         )
 
     for csv_file_path, price_data_frame, symbol_mask in selected_symbol_data:
+        # TODO: review
         # Build signals for all buy-side choices
         buy_signal_columns: list[str] = []
         buy_bases_for_cooldown: set[str] = set()
@@ -1505,11 +1594,24 @@ def evaluate_combined_strategy(
                     kwargs["sma_window_factor"] = sma_factor_value
             buy_function(price_data_frame, **kwargs)
             rename_signal_columns(price_data_frame, base_name, buy_name)
-            col = f"{buy_name}_entry_signal"
-            if col in price_data_frame.columns:
-                buy_signal_columns.append(col)
+            entry_column_name = f"{buy_name}_entry_signal"
+            if entry_column_name in price_data_frame.columns:
+                buy_signal_columns.append(entry_column_name)
 
-        # Build signals for all sell-side choices
+        # Prepare a clean copy for sell strategies so they do not reuse
+        # indicators generated by buy-side evaluation.
+        sell_price_data_frame = price_data_frame.copy()
+        extraneous_columns = [
+            column_name
+            for column_name in sell_price_data_frame.columns
+            if column_name in {"ema_value", "sma_value"}
+            or column_name.startswith("ema_sma_cross_")
+        ]
+        sell_price_data_frame.drop(
+            columns=extraneous_columns, inplace=True, errors="ignore"
+        )
+
+        # Build signals for all sell-side choices on the cleaned frame
         sell_signal_columns: list[str] = []
         for sell_name in _split_strategy_choices(sell_strategy_name):
             try:
@@ -1532,11 +1634,15 @@ def evaluate_combined_strategy(
                 sma_factor_value = _extract_sma_factor(sell_name)
                 if sma_factor_value is not None and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}:
                     kwargs["sma_window_factor"] = sma_factor_value
-            sell_function(price_data_frame, **kwargs)
-            rename_signal_columns(price_data_frame, base_name, sell_name)
-            col = f"{sell_name}_exit_signal"
-            if col in price_data_frame.columns:
-                sell_signal_columns.append(col)
+            sell_function(sell_price_data_frame, **kwargs)
+            rename_signal_columns(sell_price_data_frame, base_name, sell_name)
+            entry_column_name = f"{sell_name}_entry_signal"
+            exit_column_name = f"{sell_name}_exit_signal"
+            if entry_column_name in sell_price_data_frame.columns:
+                price_data_frame[entry_column_name] = sell_price_data_frame[entry_column_name]
+            if exit_column_name in sell_price_data_frame.columns:
+                price_data_frame[exit_column_name] = sell_price_data_frame[exit_column_name]
+                sell_signal_columns.append(exit_column_name)
 
         # Deduplicate column lists and build combined signals to avoid
         # ambiguity when duplicate labels are present in the row index.
@@ -1550,7 +1656,7 @@ def evaluate_combined_strategy(
             price_data_frame["_combined_buy_entry"] = False
         if sell_signal_columns:
             price_data_frame["_combined_sell_exit"] = (
-                price_data_frame[sell_signal_columns].any(axis=1).fillna(False)
+                sell_price_data_frame[sell_signal_columns].any(axis=1).fillna(False)
             )
         else:
             price_data_frame["_combined_sell_exit"] = False
