@@ -1552,10 +1552,10 @@ def test_attach_ftd_ema_sma_cross_signals_requires_recent_ftd(
     ]
 
 
-def test_attach_ema_sma_cross_with_slope_filters_by_slope_and_chip_concentration(
+def test_attach_ema_sma_cross_with_slope_filters_by_slope(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The EMA/SMA cross entry applies slope and chip concentration filters."""
+    """The EMA/SMA cross entry applies slope filters and requires price above the SMA."""
     # TODO: review
 
     import stock_indicator.strategy as strategy_module
@@ -1595,38 +1595,16 @@ def test_attach_ema_sma_cross_with_slope_filters_by_slope_and_chip_concentration
         strategy_module, "attach_ema_sma_cross_signals", fake_attach_ema_sma_cross_signals
     )
 
-    near_sequence = [0.05, 0.13, 0.06, 0.11, 0.08]
-    above_sequence = [0.04, 0.09, 0.11, 0.08, 0.12]
-    call_index = {"value": -1}
-
-    def fake_calculate_chip_concentration_metrics(
-        frame: pandas.DataFrame,
-        lookback_window_size: int = 60,
-        bin_count: int = 50,
-        near_price_band_ratio: float = 0.03,
-    ) -> dict[str, float | int | None]:
-        call_index["value"] += 1
-        return {
-            "price_score": 0.0,
-            "near_price_volume_ratio": near_sequence[call_index["value"]],
-            "above_price_volume_ratio": above_sequence[call_index["value"]],
-            "histogram_node_count": 0,
-        }
-
-    monkeypatch.setattr(
-        strategy_module,
-        "calculate_chip_concentration_metrics",
-        fake_calculate_chip_concentration_metrics,
+    strategy_module.attach_ema_sma_cross_with_slope_signals(
+        price_data_frame, slope_range=(0.0, 0.2)
     )
 
-    strategy_module.attach_ema_sma_cross_with_slope_signals(price_data_frame)
-
-    assert recorded_require_close_above_long_term_sma is False
+    assert recorded_require_close_above_long_term_sma is True
     assert list(price_data_frame["ema_sma_cross_with_slope_entry_signal"]) == [
         False,
         False,
-        False,
         True,
+        False,
         False,
     ]
     assert list(price_data_frame["ema_sma_cross_with_slope_exit_signal"]) == [

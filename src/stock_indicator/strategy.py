@@ -13,10 +13,7 @@ import re
 import pandas
 
 from .indicators import ema, kalman_filter, sma
-from .chip_filter import (
-    calculate_chip_concentration_metrics,
-    passes_chip_concentration_filter,
-)
+from .chip_filter import calculate_chip_concentration_metrics
 from .simulator import (
     SimulationResult,
     Trade,
@@ -872,15 +869,14 @@ def attach_ema_sma_cross_with_slope_signals(
     sma_window_factor: float | None = None,
 ) -> None:
     """Attach EMA/SMA cross signals filtered by simple moving average slope.
-    
+
     Entry signals require the prior-day EMA cross, the simple moving average
-    slope to fall within ``slope_range``, and chip concentration metrics that
-    meet the ``loose`` thresholds (``near_price_volume_ratio`` ≤ ``0.12`` and
-    ``above_price_volume_ratio`` ≤ ``0.10``). Unless a slope range is provided
-    in the strategy name, this function uses the default range ``(-0.3, 2.14)``.
-    The magnitude of the slope depends on ``window_size``; larger windows
-    produce smaller slope values, so adjust ``slope_range`` accordingly when
-    overriding the default.
+    slope to fall within ``slope_range``, and the closing price to remain above
+    the long-term simple moving average. Unless a slope range is provided in the
+    strategy name, this function uses the default range ``(-0.3, 2.14)``. The
+    magnitude of the slope depends on ``window_size``; larger windows produce
+    smaller slope values, so adjust ``slope_range`` accordingly when overriding
+    the default.
 
     Parameters
     ----------
@@ -911,38 +907,16 @@ def attach_ema_sma_cross_with_slope_signals(
     attach_ema_sma_cross_signals(
         price_data_frame,
         window_size,
-        require_close_above_long_term_sma=False,
+        require_close_above_long_term_sma=True,
         sma_window_factor=sma_window_factor,
     )
     price_data_frame["sma_slope"] = (
         price_data_frame["sma_value"] - price_data_frame["sma_previous"]
     )
-    near_values: list[float | None] = []
-    above_values: list[float | None] = []
-    chip_pass_mask: list[bool] = []
-    for row_index in range(len(price_data_frame)):
-        chip_metrics = calculate_chip_concentration_metrics(
-            price_data_frame.iloc[: row_index + 1], lookback_window_size=60
-        )
-        near_ratio = chip_metrics["near_price_volume_ratio"]
-        above_ratio = chip_metrics["above_price_volume_ratio"]
-        near_values.append(near_ratio)
-        above_values.append(above_ratio)
-        chip_pass_mask.append(
-            passes_chip_concentration_filter(near_ratio, above_ratio)
-        )
-    price_data_frame["near_price_volume_ratio"] = pandas.Series(
-        near_values, index=price_data_frame.index
-    )
-    price_data_frame["above_price_volume_ratio"] = pandas.Series(
-        above_values, index=price_data_frame.index
-    )
-    chip_pass_series = pandas.Series(chip_pass_mask, index=price_data_frame.index)
     price_data_frame["ema_sma_cross_with_slope_entry_signal"] = (
         price_data_frame["ema_sma_cross_entry_signal"]
         & (price_data_frame["sma_slope"] >= slope_lower_bound)
         & (price_data_frame["sma_slope"] <= slope_upper_bound)
-        & chip_pass_series
     )
     price_data_frame["ema_sma_cross_with_slope_exit_signal"] = price_data_frame[
         "ema_sma_cross_exit_signal"
