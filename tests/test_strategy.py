@@ -1552,10 +1552,10 @@ def test_attach_ftd_ema_sma_cross_signals_requires_recent_ftd(
     ]
 
 
-def test_attach_ema_sma_cross_with_slope_requires_close_above_long_term_sma_and_slope_in_range(
+def test_attach_ema_sma_cross_with_slope_filters_by_slope_and_chip_concentration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The EMA/SMA cross entry requires long-term SMA, slope, and chip filters."""
+    """The EMA/SMA cross entry applies slope and chip concentration filters."""
     # TODO: review
 
     import stock_indicator.strategy as strategy_module
@@ -1576,6 +1576,7 @@ def test_attach_ema_sma_cross_with_slope_requires_close_above_long_term_sma_and_
         data_frame: pandas.DataFrame,
         window_size: int = 50,
         require_close_above_long_term_sma: bool = True,
+        sma_window_factor: float | None = None,
     ) -> None:
         nonlocal recorded_require_close_above_long_term_sma
         recorded_require_close_above_long_term_sma = require_close_above_long_term_sma
@@ -1620,7 +1621,7 @@ def test_attach_ema_sma_cross_with_slope_requires_close_above_long_term_sma_and_
 
     strategy_module.attach_ema_sma_cross_with_slope_signals(price_data_frame)
 
-    assert recorded_require_close_above_long_term_sma is True
+    assert recorded_require_close_above_long_term_sma is False
     assert list(price_data_frame["ema_sma_cross_with_slope_entry_signal"]) == [
         False,
         False,

@@ -872,11 +872,10 @@ def attach_ema_sma_cross_with_slope_signals(
     sma_window_factor: float | None = None,
 ) -> None:
     """Attach EMA/SMA cross signals filtered by simple moving average slope.
-
-    Entry signals require the prior-day EMA cross, the previous closing price to
-    be above the 150-day simple moving average, the simple moving average slope
-    to fall within ``slope_range``, and chip concentration metrics that meet the
-    ``loose`` thresholds (``near_price_volume_ratio`` ≤ ``0.12`` and
+    
+    Entry signals require the prior-day EMA cross, the simple moving average
+    slope to fall within ``slope_range``, and chip concentration metrics that
+    meet the ``loose`` thresholds (``near_price_volume_ratio`` ≤ ``0.12`` and
     ``above_price_volume_ratio`` ≤ ``0.10``). Unless a slope range is provided
     in the strategy name, this function uses the default range ``(-0.3, 2.14)``.
     The magnitude of the slope depends on ``window_size``; larger windows
@@ -912,7 +911,7 @@ def attach_ema_sma_cross_with_slope_signals(
     attach_ema_sma_cross_signals(
         price_data_frame,
         window_size,
-        require_close_above_long_term_sma=True,
+        require_close_above_long_term_sma=False,
         sma_window_factor=sma_window_factor,
     )
     price_data_frame["sma_slope"] = (
