@@ -1152,6 +1152,75 @@ def test_start_simulate_passes_distinct_window_sizes_and_columns(
     assert "ema_sma_cross_with_slope_50_exit_signal" in captured_details["columns"]
 
 
+def test_start_simulate_keeps_buy_and_sell_window_sizes_separate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The command should pass distinct window sizes to buy and sell strategies."""
+
+    import stock_indicator.manage as manage_module
+    import stock_indicator.strategy as strategy_module
+
+    date_index = pandas.date_range("2020-01-01", periods=60, freq="D")
+    price_data_frame = pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": [10.0] * 60,
+            "close": [10.0] * 60,
+            "volume": [1.0] * 60,
+        }
+    )
+    csv_path = tmp_path / "sample.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    captured_window_sizes: dict[str, int | None] = {"buy": None, "sell": None}
+
+    def fake_buy_strategy(frame: pandas.DataFrame, window_size: int = 40) -> None:
+        captured_window_sizes["buy"] = window_size
+        entry_flags = [True] + [False] * 59
+        frame["ema_sma_cross_with_slope_entry_signal"] = entry_flags
+        frame["ema_sma_cross_with_slope_exit_signal"] = [False] * 60
+
+    def fake_sell_strategy(frame: pandas.DataFrame, window_size: int = 50) -> None:
+        captured_window_sizes["sell"] = window_size
+        exit_flags = [False] * 59 + [True]
+        frame["ema_sma_cross_with_slope_entry_signal"] = [False] * 60
+        frame["ema_sma_cross_with_slope_exit_signal"] = exit_flags
+
+    monkeypatch.setitem(
+        strategy_module.BUY_STRATEGIES, "ema_sma_cross_with_slope", fake_buy_strategy
+    )
+    monkeypatch.setitem(
+        strategy_module.SELL_STRATEGIES, "ema_sma_cross_with_slope", fake_sell_strategy
+    )
+    monkeypatch.setattr(
+        strategy_module,
+        "simulate_trades",
+        lambda *args, **kwargs: SimulationResult(trades=[], total_profit=0.0),
+    )
+    monkeypatch.setattr(
+        strategy_module, "simulate_portfolio_balance", lambda *a, **k: 0.0
+    )
+    monkeypatch.setattr(
+        strategy_module, "calculate_annual_returns", lambda *a, **k: {}
+    )
+    monkeypatch.setattr(
+        strategy_module, "calculate_annual_trade_counts", lambda *a, **k: {}
+    )
+
+    monkeypatch.setattr(manage_module, "DATA_DIRECTORY", tmp_path)
+    monkeypatch.setattr(manage_module, "STOCK_DATA_DIRECTORY", tmp_path)
+
+    shell = manage_module.StockShell(stdout=io.StringIO())
+    shell.onecmd(
+        "start_simulate dollar_volume>0 "
+        "ema_sma_cross_with_slope_40 "
+        "ema_sma_cross_with_slope_50"
+    )
+
+    assert captured_window_sizes["buy"] == 40
+    assert captured_window_sizes["sell"] == 50
+
+
 def test_start_simulate_reports_missing_slope_bound() -> None:
     """The command should report a missing slope bound in strategy names."""
 
