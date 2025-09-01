@@ -109,13 +109,13 @@ whether individual trade details are printed.
 Strategies may also limit the simple moving average slope. These identifiers follow the `ema_sma_signal_with_slope_n_k` pattern where `n` and `k` are the lower and upper slope bounds. The bounds accept negative or positive floating-point numbers. For example:
 
 ```bash
-(stock-indicator) start_simulate dollar_volume>1 ema_sma_cross_with_slope_-0.1_1.2 ema_sma_cross_with_slope_-0.1_1.2
+(stock-indicator) start_simulate dollar_volume>1 ema_sma_cross_with_slope_-5.7_50.2 ema_sma_cross_with_slope_-5.7_50.2
 ```
 
 You can combine slope bounds with a custom EMA/SMA window size by placing the integer before the bounds:
 
 ```bash
-(stock-indicator) start_simulate dollar_volume>1 ema_sma_cross_with_slope_40_-0.1_1.2 ema_sma_cross_with_slope_40_-0.1_1.2
+(stock-indicator) start_simulate dollar_volume>1 ema_sma_cross_with_slope_40_-5.7_50.2 ema_sma_cross_with_slope_40_-5.7_50.2
 ```
 
 For experimentation, the `ema_sma_cross_testing` strategy offers the same
