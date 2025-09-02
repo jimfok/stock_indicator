@@ -30,10 +30,11 @@ The optional `start` argument sets the simulation start date, `starting_cash`
 sets the initial portfolio balance, and `withdraw` deducts a fixed amount at
 each year end. The `dollar_volume` clause accepts a `>` threshold expressed in
 millions or as a percentage using `%`, and an `=Nth` ranking. When both are
-separated by a comma, the parser applies them sequentially. The command above
-first filters symbols to those whose 50-day average dollar volume exceeds
-10,000 million and then selects the six symbols with the highest remaining
-averages. The tests
+separated by a comma, the parser applies them sequentially. A trailing
+`PickM` segment allows up to `M` symbols from any single sector when a ranking
+filter is used. The command above first filters symbols to those whose 50-day
+average dollar volume exceeds 10,000 million and then selects the six symbols
+with the highest remaining averages. The tests
 `tests/test_manage.py::test_start_simulate_dollar_volume_threshold_and_rank` and
 `tests/test_strategy.py::test_evaluate_combined_strategy_dollar_volume_filter_and_rank`
 exercise this combined syntax.

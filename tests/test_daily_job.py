@@ -56,6 +56,7 @@ def test_run_daily_job_accepts_percentage(tmp_path: Path, monkeypatch: pytest.Mo
         minimum_average_dollar_volume: float | None = None,
         top_dollar_volume_rank: int | None = None,
         allowed_fama_french_groups: set[int] | None = None,
+        maximum_symbols_per_group: int = 1,
     ):
         captured_arguments["minimum_average_dollar_volume"] = minimum_average_dollar_volume
         captured_arguments["top_dollar_volume_rank"] = top_dollar_volume_rank
@@ -99,6 +100,7 @@ def test_run_daily_job_accepts_percentage_and_rank(
         minimum_average_dollar_volume: float | None = None,
         top_dollar_volume_rank: int | None = None,
         allowed_fama_french_groups: set[int] | None = None,
+        maximum_symbols_per_group: int = 1,
     ):
         captured_arguments["minimum_average_dollar_volume"] = minimum_average_dollar_volume
         captured_arguments["top_dollar_volume_rank"] = top_dollar_volume_rank

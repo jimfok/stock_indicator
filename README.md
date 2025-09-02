@@ -101,6 +101,11 @@ selects the six highest-volume symbols from the remainder. The tests
 `tests/test_strategy.py::test_evaluate_combined_strategy_dollar_volume_filter_and_rank`
 demonstrate this combined syntax.
 
+The filter optionally accepts a trailing `PickM` segment to allow multiple
+symbols from the same sector when a ranking is used. For example
+`dollar_volume>1%,Top3,Pick2` selects the top three symbols by dollar volume
+with at most two symbols drawn from any single Fama–French group.
+
 An optional stop loss value and a trailing `True` or `False` flag may be added
 after the strategy names. The numeric stop loss sets the fractional decline
 that triggers an exit on the next day's open, and the boolean flag controls

@@ -213,6 +213,7 @@ def _build_eligibility_mask(
     minimum_average_dollar_volume: float | None,
     top_dollar_volume_rank: int | None,
     minimum_average_dollar_volume_ratio: float | None,
+    maximum_symbols_per_group: int = 1,
 ) -> pandas.DataFrame:
     """Return a mask of symbols eligible for trading.
 
@@ -228,6 +229,10 @@ def _build_eligibility_mask(
     minimum_average_dollar_volume_ratio:
         Minimum ratio of the total market dollar volume. When Fama–French
         groups are available, this ratio is applied within each group.
+    maximum_symbols_per_group:
+        Maximum number of symbols to select per Fama–French group when
+        ``top_dollar_volume_rank`` is specified. Defaults to one to preserve
+        the previous behavior.
 
     Returns
     -------
@@ -326,15 +331,16 @@ def _build_eligibility_mask(
                     ascending=False
                 ).index.tolist()
                 chosen_symbols: list[str] = []
-                seen_groups: set[int] = set()
+                group_counts: dict[int, int] = {}
                 for symbol_name in sorted_symbols:
                     group_identifier = symbol_to_group_lookup.get(symbol_name)
                     if group_identifier is None:
                         continue
-                    if group_identifier in seen_groups:
+                    current_count = group_counts.get(group_identifier, 0)
+                    if current_count >= maximum_symbols_per_group:
                         continue
                     chosen_symbols.append(symbol_name)
-                    seen_groups.add(group_identifier)
+                    group_counts[group_identifier] = current_count + 1
                     if len(chosen_symbols) >= int(top_dollar_volume_rank):
                         break
                 if chosen_symbols:
@@ -431,6 +437,7 @@ def compute_signals_for_date(
     allowed_fama_french_groups: set[int] | None = None,
     allowed_symbols: set[str] | None = None,
     exclude_other_ff12: bool = True,
+    maximum_symbols_per_group: int = 1,
 ) -> Dict[str, List[str]]:
     """Compute entry/exit signals on ``evaluation_date`` using simulation filters.
 
@@ -457,8 +464,8 @@ def compute_signals_for_date(
     minimum_average_dollar_volume:
         Absolute 50-day average dollar volume threshold in millions.
     top_dollar_volume_rank:
-        Global Top-N ranking (with at most one symbol per FF12 group when
-        sector data is available).
+        Global Top-N ranking. When sector data is available, a per-group cap
+        of ``maximum_symbols_per_group`` symbols is enforced.
     minimum_average_dollar_volume_ratio:
         Minimum ratio of total market 50-day average dollar volume. When
         sector data is available, a dynamic per-group threshold is applied to
@@ -470,6 +477,9 @@ def compute_signals_for_date(
         Optional whitelist of symbols (CSV stems) to consider.
     exclude_other_ff12:
         When True, symbols in FF12 group 12 ("Other") are excluded.
+    maximum_symbols_per_group:
+        Maximum number of symbols to select per group when
+        ``top_dollar_volume_rank`` is provided.
 
     Returns
     -------
@@ -561,6 +571,7 @@ def compute_signals_for_date(
         minimum_average_dollar_volume=minimum_average_dollar_volume,
         top_dollar_volume_rank=top_dollar_volume_rank,
         minimum_average_dollar_volume_ratio=minimum_average_dollar_volume_ratio,
+        maximum_symbols_per_group=maximum_symbols_per_group,
     )
 
     # Prepare per-symbol masks aligned to each frame
@@ -1339,6 +1350,7 @@ def evaluate_combined_strategy(
     sell_strategy_name: str,
     minimum_average_dollar_volume: float | None = None,
     top_dollar_volume_rank: int | None = None,  # TODO: review
+    maximum_symbols_per_group: int = 1,
     minimum_average_dollar_volume_ratio: float | None = None,
     starting_cash: float = 3000.0,
     withdraw_amount: float = 0.0,
@@ -1375,7 +1387,13 @@ def evaluate_combined_strategy(
     top_dollar_volume_rank: int | None, optional
         Retain only the ``N`` symbols with the highest 50-day simple moving
         average dollar volume on each trading day. When ``None``, no ranking
-        filter is applied.
+        filter is applied. When provided, at most
+        ``maximum_symbols_per_group`` symbols are selected from each
+        Fama–French group.
+    maximum_symbols_per_group: int, optional
+        Maximum number of symbols to keep per Fama–French group when a
+        ranking filter is applied. Defaults to one to preserve legacy
+        behavior.
     minimum_average_dollar_volume_ratio: float | None, optional
         Minimum fraction of the total market 50-day average dollar volume that
         a symbol must exceed to be eligible. Specify values as decimals, for
@@ -1516,6 +1534,7 @@ def evaluate_combined_strategy(
             minimum_average_dollar_volume=minimum_average_dollar_volume,
             top_dollar_volume_rank=top_dollar_volume_rank,
             minimum_average_dollar_volume_ratio=minimum_average_dollar_volume_ratio,
+            maximum_symbols_per_group=maximum_symbols_per_group,
         )
     else:
         merged_volume_frame = pandas.DataFrame()

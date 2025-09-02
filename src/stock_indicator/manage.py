@@ -415,6 +415,11 @@ class StockShell(cmd.Cmd):
         minimum_average_dollar_volume: float | None = None  # TODO: review
         minimum_average_dollar_volume_ratio: float | None = None  # TODO: review
         top_dollar_volume_rank: int | None = None  # TODO: review
+        maximum_symbols_per_group: int = 1
+        pick_match = re.fullmatch(r"(.*),Pick(\d+)", volume_filter, flags=re.IGNORECASE)
+        if pick_match is not None:
+            volume_filter = pick_match.group(1)
+            maximum_symbols_per_group = int(pick_match.group(2))
         # Support both legacy Nth and new TopN syntaxes (case-insensitive)
         combined_percentage_top_match = re.fullmatch(
             r"dollar_volume>(\d+(?:\.\d{1,2})?)%,Top(\d+)",
@@ -488,6 +493,12 @@ class StockShell(cmd.Cmd):
             start_date_string = determine_start_date(DATA_DIRECTORY)
         start_timestamp = pandas.Timestamp(start_date_string)
         # Load CSV price data from the dedicated stock data directory.
+        extra_arguments: dict[str, object] = {}
+        if maximum_symbols_per_group != 1:
+            extra_arguments["maximum_symbols_per_group"] = maximum_symbols_per_group
+        if margin_multiplier != 1.0:
+            extra_arguments["margin_multiplier"] = margin_multiplier
+            extra_arguments["margin_interest_annual_rate"] = 0.048
         evaluation_metrics = strategy.evaluate_combined_strategy(
             STOCK_DATA_DIRECTORY if STOCK_DATA_DIRECTORY.exists() else DATA_DIRECTORY,
             buy_strategy_name,
@@ -500,8 +511,7 @@ class StockShell(cmd.Cmd):
             stop_loss_percentage=stop_loss_percentage,
             start_date=start_timestamp,
             allowed_fama_french_groups=allowed_group_identifiers,
-            margin_multiplier=margin_multiplier,
-            margin_interest_annual_rate=0.048,
+            **extra_arguments,
         )
         earliest_valid_googl_date = datetime.date(2014, 4, 3)
         filtered_trade_details_by_year: Dict[int, List[strategy.TradeDetail]] = {}
