@@ -941,6 +941,49 @@ def test_evaluate_combined_strategy_dollar_volume_rank(
     assert set(processed_symbols) == {"AAA", "CCC"}
 
 
+def test_build_eligibility_mask_respects_pick_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_build_eligibility_mask should honor the per-group pick limit."""
+
+    import stock_indicator.strategy as strategy_module
+
+    data_index = pandas.to_datetime(["2020-01-01"])
+    volume_frame = pandas.DataFrame(
+        {
+            "AAA": [300.0],
+            "BBB": [200.0],
+            "CCC": [100.0],
+            "DDD": [400.0],
+            "EEE": [150.0],
+            "FFF": [50.0],
+        },
+        index=data_index,
+    )
+
+    group_mapping = {
+        "AAA": 1,
+        "BBB": 1,
+        "CCC": 1,
+        "DDD": 2,
+        "EEE": 2,
+        "FFF": 3,
+    }
+    monkeypatch.setattr(
+        strategy_module, "load_ff12_groups_by_symbol", lambda: group_mapping
+    )
+
+    mask = strategy_module._build_eligibility_mask(  # noqa: SLF001
+        volume_frame,
+        minimum_average_dollar_volume=None,
+        top_dollar_volume_rank=4,
+        minimum_average_dollar_volume_ratio=None,
+        maximum_symbols_per_group=2,
+    )
+    selected_symbols = mask.columns[mask.iloc[0]].tolist()
+    assert set(selected_symbols) == {"AAA", "BBB", "DDD", "EEE"}
+
+
 def test_evaluate_combined_strategy_symbols_enter_and_exit_daily_universe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

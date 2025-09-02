@@ -25,6 +25,7 @@ LOGGER = logging.getLogger(__name__)
 def parse_daily_task_arguments(argument_line: str) -> Tuple[
     float | None,
     int | None,
+    int,
     str,
     str,
     float,
@@ -35,9 +36,11 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[
     The expected format is ``dollar_volume>NUMBER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``,
     ``dollar_volume>NUMBER% BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``,
     ``dollar_volume=TopN BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]`` (or legacy ``Nth``),
-    ``dollar_volume>NUMBER,TopN BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]`` (or 
-    legacy ``,Nth``), or ``dollar_volume>NUMBER%,TopN BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``
-    (or legacy ``,Nth``). Matching is case-insensitive for ``TopN``.
+    ``dollar_volume>NUMBER,TopN BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]`` (or
+    legacy ``,Nth``), ``dollar_volume>NUMBER%,TopN BUY_STRATEGY SELL_STRATEGY [STOP_LOSS]``
+    (or legacy ``,Nth``), and the optional trailing ``,PickM`` token that limits
+    selections to at most ``M`` symbols per sector. Matching is case-insensitive
+    for ``TopN`` and ``PickM``.
 
     Parameters
     ----------
@@ -46,11 +49,12 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[
 
     Returns
     -------
-    Tuple[float | None, int | None, str, str, float]
+    Tuple[float | None, int | None, int, str, str, float, set[int] | None]
         Tuple containing either a minimum dollar volume threshold in millions
         or a ratio of the total market, followed by the ranking position, the
-        buy strategy name, the sell strategy name, and the stop loss
-        percentage.
+        maximum number of symbols per group, the buy strategy name, the sell
+        strategy name, the stop loss percentage, and any allowed FF12 group
+        identifiers.
     """
     argument_parts = argument_line.split()
     if len(argument_parts) not in (3, 4, 5):
@@ -89,6 +93,12 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[
     minimum_average_dollar_volume: float | None = None
     minimum_average_dollar_volume_ratio: float | None = None
     top_dollar_volume_rank: int | None = None
+    maximum_symbols_per_group: int = 1
+
+    pick_match = re.fullmatch(r"(.*),Pick(\d+)", volume_filter, flags=re.IGNORECASE)
+    if pick_match is not None:
+        volume_filter = pick_match.group(1)
+        maximum_symbols_per_group = int(pick_match.group(2))
     # Accept both TopN and legacy Nth; case-insensitive for Top
     combined_percentage_top_match = re.fullmatch(
         r"dollar_volume>(\d+(?:\.\d{1,2})?)%,Top(\d+)",
@@ -155,6 +165,7 @@ def parse_daily_task_arguments(argument_line: str) -> Tuple[
         if minimum_average_dollar_volume_ratio is not None
         else minimum_average_dollar_volume,
         top_dollar_volume_rank,
+        maximum_symbols_per_group,
         buy_strategy_name,
         sell_strategy_name,
         stop_loss_percentage,
@@ -173,13 +184,15 @@ def run_daily_tasks(
     minimum_average_dollar_volume: float | None = None,
     top_dollar_volume_rank: int | None = None,  # TODO: review
     allowed_fama_french_groups: set[int] | None = None,
+    maximum_symbols_per_group: int = 1,
 ) -> Dict[str, List[str]]:
     """Execute the daily workflow using simulation-grade selection logic.
 
-    This implementation aligns with :func:`strategy.evaluate_combined_strategy` by
-    applying group-aware ratio thresholds and Top-N (with one-per-group cap) and
-    gating only entries by eligibility. It returns the symbols that have signals
-    on the last available bar at or before ``end_date``.
+    This implementation aligns with :func:`strategy.evaluate_combined_strategy`
+    by applying group-aware ratio thresholds and Top-N selection with an
+    optional per-group cap controlled by ``maximum_symbols_per_group``. It
+    returns the symbols that have signals on the last available bar at or
+    before ``end_date``.
 
     Notes
     -----
@@ -220,6 +233,7 @@ def run_daily_tasks(
         allowed_fama_french_groups=allowed_fama_french_groups,
         allowed_symbols=allowed_symbol_set,
         exclude_other_ff12=True,
+        maximum_symbols_per_group=maximum_symbols_per_group,
     )
 
 
@@ -260,11 +274,15 @@ def run_daily_tasks_from_argument(
     (
         minimum_average_dollar_volume,
         top_dollar_volume_rank,
+        maximum_symbols_per_group,
         buy_strategy_name,
         sell_strategy_name,
         _,
         allowed_groups,
     ) = parse_daily_task_arguments(argument_line)
+    extra_kwargs: dict[str, object] = {}
+    if maximum_symbols_per_group != 1:
+        extra_kwargs["maximum_symbols_per_group"] = maximum_symbols_per_group
     return run_daily_tasks(
         buy_strategy_name=buy_strategy_name,
         sell_strategy_name=sell_strategy_name,
@@ -276,4 +294,5 @@ def run_daily_tasks_from_argument(
         minimum_average_dollar_volume=minimum_average_dollar_volume,
         top_dollar_volume_rank=top_dollar_volume_rank,
         allowed_fama_french_groups=allowed_groups,
+        **extra_kwargs,
     )
