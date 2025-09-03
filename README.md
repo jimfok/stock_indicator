@@ -126,8 +126,19 @@ You can combine slope bounds with a custom EMA/SMA window size by placing the in
 For experimentation, the `ema_sma_cross_testing` strategy offers the same
 optional window size and slope range suffixes. It omits the long-term simple
 moving average requirement and additionally filters signals using chip
-concentration metrics, enforcing default thresholds of 0.12 for the near-price
-volume ratio and 0.10 for the above-price volume ratio.
+concentration metrics. Strategy names follow the pattern
+`ema_sma_cross_testing_<window>_<lower>_<upper>_<near>_<above>`, where:
+
+* `<window>` — EMA and SMA window size (default `40`).
+* `<lower>` and `<upper>` — inclusive bounds for the simple moving average angle in degrees (defaults `-16.7` and `65`).
+* `<near>` — maximum fraction of volume near the current price (default `0.12`).
+* `<above>` — maximum fraction of volume above the current price (default `0.10`).
+
+Example with custom chip concentration thresholds:
+
+```bash
+(stock-indicator) start_simulate dollar_volume>1 ema_sma_cross_testing_40_-16.7_65_0.2_0.15 ema_sma_cross_testing_40_-16.7_65_0.2_0.15
+```
 
 When omitted, the window size defaults to 40 days.
 
