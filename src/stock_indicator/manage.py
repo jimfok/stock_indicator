@@ -45,7 +45,7 @@ def _resolve_strategy_choice(raw_name: str, allowed: dict) -> str:
         if not token:
             continue
         try:
-            base_name, _, _ = strategy.parse_strategy_name(token)
+            base_name, _, _, _, _ = strategy.parse_strategy_name(token)
         except Exception:  # noqa: BLE001
             continue
         if base_name in allowed:
@@ -64,7 +64,7 @@ def _has_supported_strategy(expression: str, allowed: dict) -> bool:
         if not token:
             continue
         try:
-            base_name, _, _ = strategy.parse_strategy_name(token)
+            base_name, _, _, _, _ = strategy.parse_strategy_name(token)
         except Exception:  # noqa: BLE001
             continue
         if base_name in allowed:

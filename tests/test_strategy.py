@@ -1990,54 +1990,81 @@ def test_supported_strategies_includes_ema_sma_double_cross() -> None:
 def test_parse_strategy_name_with_window_size() -> None:
     """``parse_strategy_name`` should parse the window size suffix."""
 
-    base_name, window_size, angle_range = parse_strategy_name(
+    base_name, window_size, angle_range, near_percentage, above_percentage = parse_strategy_name(
         "ema_sma_cross_with_slope_40"
     )
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size == 40
     assert angle_range is None
+    assert near_percentage is None
+    assert above_percentage is None
 
 
 def test_parse_strategy_name_with_window_and_angle_range() -> None:
     """The parser should extract both window size and angle range."""
 
-    base_name, window_size, angle_range = parse_strategy_name(
+    base_name, window_size, angle_range, near_percentage, above_percentage = parse_strategy_name(
         "ema_sma_cross_with_slope_40_-26.6_26.6"
     )
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size == 40
     assert angle_range == (-26.6, 26.6)
+    assert near_percentage is None
+    assert above_percentage is None
 
 
 def test_parse_strategy_name_with_angle_range_only() -> None:
     """The parser should handle angle range without window size."""
 
-    base_name, window_size, angle_range = parse_strategy_name(
+    base_name, window_size, angle_range, near_percentage, above_percentage = parse_strategy_name(
         "ema_sma_cross_with_slope_-26.6_26.6"
     )
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size is None
     assert angle_range == (-26.6, 26.6)
+    assert near_percentage is None
+    assert above_percentage is None
 
 
 def test_parse_strategy_name_with_integer_slope_values() -> None:
     """``parse_strategy_name`` should convert integer slope bounds to floats."""
 
-    base_name, window_size, angle_range = parse_strategy_name(
+    base_name, window_size, angle_range, near_percentage, above_percentage = parse_strategy_name(
         "ema_sma_cross_with_slope_-1_2"
     )
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size is None
     assert angle_range == (-1.0, 2.0)
+    assert near_percentage is None
+    assert above_percentage is None
+
+
+def test_parse_strategy_name_with_all_segments() -> None:
+    """The parser should handle window, angle range, and percentage thresholds."""
+
+    (
+        base_name,
+        window_size,
+        angle_range,
+        near_percentage,
+        above_percentage,
+    ) = parse_strategy_name("ema_sma_cross_with_slope_40_-26.6_26.6_0.5_1.0")
+    assert base_name == "ema_sma_cross_with_slope"
+    assert window_size == 40
+    assert angle_range == (-26.6, 26.6)
+    assert near_percentage == 0.5
+    assert above_percentage == 1.0
 
 
 def test_parse_strategy_name_without_suffix() -> None:
     """``parse_strategy_name`` should return ``None`` when no suffix is given."""
 
-    base_name, window_size, angle_range = parse_strategy_name("ema_sma_cross")
+    base_name, window_size, angle_range, near_percentage, above_percentage = parse_strategy_name("ema_sma_cross")
     assert base_name == "ema_sma_cross"
     assert window_size is None
     assert angle_range is None
+    assert near_percentage is None
+    assert above_percentage is None
 
 
 def test_parse_strategy_name_rejects_malformed_suffix() -> None:
