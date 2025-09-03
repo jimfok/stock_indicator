@@ -688,6 +688,70 @@ def test_evaluate_combined_strategy_passes_angle_range_with_volume(
     assert captured_arguments["angle_range"] == (-26.6, 26.6)
 
 
+def test_evaluate_combined_strategy_passes_near_and_above_percentages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The function should forward chip concentration thresholds."""
+
+    date_index = pandas.date_range("2020-01-01", periods=2, freq="D")
+    price_data_frame = pandas.DataFrame(
+        {"Date": date_index, "open": [10.0, 10.0], "close": [10.0, 10.0]}
+    )
+    csv_path = tmp_path / "chip.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    captured_parameters: dict[str, float | None] = {
+        "near_pct": None,
+        "above_pct": None,
+    }
+
+    def fake_attach_signals(
+        frame: pandas.DataFrame,
+        window_size: int = 40,
+        angle_range: tuple[float, float] = (
+            -16.69924423399362,
+            64.95379922035721,
+        ),
+        near_pct: float = 0.12,
+        above_pct: float = 0.10,
+    ) -> None:
+        captured_parameters["near_pct"] = near_pct
+        captured_parameters["above_pct"] = above_pct
+        frame["ema_sma_cross_testing_entry_signal"] = [True, False]
+        frame["ema_sma_cross_testing_exit_signal"] = [False, True]
+
+    def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
+        trade = Trade(
+            entry_date=date_index[0],
+            exit_date=date_index[1],
+            entry_price=10.0,
+            exit_price=10.0,
+            profit=0.0,
+            holding_period=1,
+        )
+        return SimulationResult(trades=[trade], total_profit=0.0)
+
+    monkeypatch.setattr(
+        strategy, "attach_ema_sma_cross_testing_signals", fake_attach_signals
+    )
+    monkeypatch.setitem(
+        strategy.BUY_STRATEGIES, "ema_sma_cross_testing", fake_attach_signals
+    )
+    monkeypatch.setitem(
+        strategy.SELL_STRATEGIES, "ema_sma_cross_testing", fake_attach_signals
+    )
+    monkeypatch.setattr(strategy, "simulate_trades", fake_simulate_trades)
+
+    evaluate_combined_strategy(
+        tmp_path,
+        "ema_sma_cross_testing_40_-1_1_0.15_0.2",
+        "ema_sma_cross_testing_40_-1_1_0.15_0.2",
+    )
+
+    assert captured_parameters["near_pct"] == 0.15
+    assert captured_parameters["above_pct"] == 0.2
+
+
 def test_evaluate_combined_strategy_renames_columns_with_angle_range(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

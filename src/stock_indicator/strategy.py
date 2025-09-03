@@ -594,9 +594,13 @@ def compute_signals_for_date(
         base_name: str,
         window_size: int | None,
         angle_range: tuple[float, float] | None,
-        table: Dict[str, Callable[[pandas.DataFrame], None]],
+        near_percentage: float | None,
+        above_percentage: float | None,
+        table: Dict[str, Callable[..., None]],
         frame: pandas.DataFrame,
     ) -> None:
+        """Apply a named strategy function to ``frame`` with parsed parameters."""
+
         kwargs: dict = {}
         if base_name == "20_50_sma_cross":
             maybe_windows = _extract_short_long_windows_for_20_50(full_name)
@@ -608,8 +612,18 @@ def compute_signals_for_date(
             if angle_range is not None:
                 kwargs["angle_range"] = angle_range
             sma_factor_value = _extract_sma_factor(full_name)
-            if sma_factor_value is not None and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}:
+            if (
+                sma_factor_value is not None
+                and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}
+            ):
                 kwargs["sma_window_factor"] = sma_factor_value
+            if (
+                base_name == "ema_sma_cross_testing"
+                and near_percentage is not None
+                and above_percentage is not None
+            ):
+                kwargs["near_pct"] = near_percentage
+                kwargs["above_pct"] = above_percentage
         table[base_name](frame, **kwargs)
         if base_name != full_name:
             frame.rename(
@@ -626,13 +640,26 @@ def compute_signals_for_date(
         buy_signal_columns: list[str] = []
         for buy_name in buy_choice_names:
             try:
-                base_name, window_size, angle_range, _, _ = parse_strategy_name(buy_name)
+                (
+                    base_name,
+                    window_size,
+                    angle_range,
+                    near_percentage,
+                    above_percentage,
+                ) = parse_strategy_name(buy_name)
             except Exception:  # noqa: BLE001
                 continue
             if base_name not in BUY_STRATEGIES:
                 continue
             _apply_strategy(
-                buy_name, base_name, window_size, angle_range, BUY_STRATEGIES, price_data_frame
+                buy_name,
+                base_name,
+                window_size,
+                angle_range,
+                near_percentage,
+                above_percentage,
+                BUY_STRATEGIES,
+                price_data_frame,
             )
             column_name = f"{buy_name}_entry_signal"
             if column_name in price_data_frame.columns:
@@ -641,13 +668,26 @@ def compute_signals_for_date(
         sell_signal_columns: list[str] = []
         for sell_name in sell_choice_names:
             try:
-                base_name, window_size, angle_range, _, _ = parse_strategy_name(sell_name)
+                (
+                    base_name,
+                    window_size,
+                    angle_range,
+                    near_percentage,
+                    above_percentage,
+                ) = parse_strategy_name(sell_name)
             except Exception:  # noqa: BLE001
                 continue
             if base_name not in SELL_STRATEGIES:
                 continue
             _apply_strategy(
-                sell_name, base_name, window_size, angle_range, SELL_STRATEGIES, price_data_frame
+                sell_name,
+                base_name,
+                window_size,
+                angle_range,
+                near_percentage,
+                above_percentage,
+                SELL_STRATEGIES,
+                price_data_frame,
             )
             column_name = f"{sell_name}_exit_signal"
             if column_name in price_data_frame.columns:
@@ -1141,7 +1181,7 @@ def attach_ema_shift_cross_with_slope_signals(
 ## Removed deprecated strategy: kalman_filtering
 
 # TODO: review
-BUY_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
+BUY_STRATEGIES: Dict[str, Callable[..., None]] = {
     "ema_sma_cross": attach_ema_sma_cross_signals,
     "20_50_sma_cross": attach_20_50_sma_cross_signals,
     "ema_sma_cross_with_slope": attach_ema_sma_cross_with_slope_signals,
@@ -1150,12 +1190,12 @@ BUY_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
 }
 
 # TODO: review
-SELL_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
+SELL_STRATEGIES: Dict[str, Callable[..., None]] = {
     **BUY_STRATEGIES,
 }
 
 # TODO: review
-SUPPORTED_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
+SUPPORTED_STRATEGIES: Dict[str, Callable[..., None]] = {
     **SELL_STRATEGIES,
 }
 
@@ -1663,7 +1703,13 @@ def evaluate_combined_strategy(
         buy_bases_for_cooldown: set[str] = set()
         for buy_name in _split_strategy_choices(buy_strategy_name):
             try:
-                base_name, window_size, angle_range, _, _ = parse_strategy_name(buy_name)
+                (
+                    base_name,
+                    window_size,
+                    angle_range,
+                    near_percentage,
+                    above_percentage,
+                ) = parse_strategy_name(buy_name)
             except Exception:
                 continue
             if base_name not in BUY_STRATEGIES:
@@ -1682,8 +1728,18 @@ def evaluate_combined_strategy(
                     kwargs["angle_range"] = angle_range
                 # Optional SMA window factor support for EMA/SMA strategies
                 sma_factor_value = _extract_sma_factor(buy_name)
-                if sma_factor_value is not None and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}:
+                if (
+                    sma_factor_value is not None
+                    and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}
+                ):
                     kwargs["sma_window_factor"] = sma_factor_value
+                if (
+                    base_name == "ema_sma_cross_testing"
+                    and near_percentage is not None
+                    and above_percentage is not None
+                ):
+                    kwargs["near_pct"] = near_percentage
+                    kwargs["above_pct"] = above_percentage
             buy_function(price_data_frame, **kwargs)
             rename_signal_columns(price_data_frame, base_name, buy_name)
             entry_column_name = f"{buy_name}_entry_signal"
@@ -1707,7 +1763,13 @@ def evaluate_combined_strategy(
         sell_signal_columns: list[str] = []
         for sell_name in _split_strategy_choices(sell_strategy_name):
             try:
-                base_name, window_size, angle_range, _, _ = parse_strategy_name(sell_name)
+                (
+                    base_name,
+                    window_size,
+                    angle_range,
+                    near_percentage,
+                    above_percentage,
+                ) = parse_strategy_name(sell_name)
             except Exception:
                 continue
             if base_name not in SELL_STRATEGIES:
@@ -1724,8 +1786,18 @@ def evaluate_combined_strategy(
                 if angle_range is not None:
                     kwargs["angle_range"] = angle_range
                 sma_factor_value = _extract_sma_factor(sell_name)
-                if sma_factor_value is not None and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}:
+                if (
+                    sma_factor_value is not None
+                    and base_name in {"ema_sma_cross", "ema_sma_cross_with_slope"}
+                ):
                     kwargs["sma_window_factor"] = sma_factor_value
+                if (
+                    base_name == "ema_sma_cross_testing"
+                    and near_percentage is not None
+                    and above_percentage is not None
+                ):
+                    kwargs["near_pct"] = near_percentage
+                    kwargs["above_pct"] = above_percentage
             sell_function(sell_price_data_frame, **kwargs)
             rename_signal_columns(sell_price_data_frame, base_name, sell_name)
             entry_column_name = f"{sell_name}_entry_signal"
