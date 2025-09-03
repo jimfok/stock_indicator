@@ -3,8 +3,12 @@
 
 from __future__ import annotations
 
+import os
+import sys
 import numpy
 import pandas
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 from stock_indicator.chip_filter import (
     calculate_chip_concentration_metrics,
@@ -53,7 +57,9 @@ def test_calculate_chip_concentration_metrics_includes_volume_profile_metrics() 
         }
     )
 
-    metrics = calculate_chip_concentration_metrics(ohlcv, lookback_window_size=60)
+    metrics = calculate_chip_concentration_metrics(
+        ohlcv, lookback_window_size=60, include_volume_profile=True
+    )
 
     expected_keys = {
         "price_score",
@@ -70,3 +76,32 @@ def test_calculate_chip_concentration_metrics_includes_volume_profile_metrics() 
     assert expected_keys.issubset(metrics.keys())
     for key in expected_keys:
         assert metrics[key] is not None
+
+
+def test_calculate_chip_concentration_metrics_excludes_volume_profile_by_default() -> None:
+    """Volume profile metrics are ``None`` unless explicitly requested."""
+
+    date_index = pandas.date_range("2020-01-01", periods=60, freq="D")
+    close_values = [float(value) for value in range(60, 120)]
+    high_values = close_values
+    low_values = [value - 1.0 for value in close_values]
+    volume_values = [100 for _ in range(60)]
+    ohlcv = pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": close_values,
+            "high": high_values,
+            "low": low_values,
+            "close": close_values,
+            "volume": volume_values,
+        }
+    )
+
+    metrics = calculate_chip_concentration_metrics(ohlcv, lookback_window_size=60)
+
+    assert metrics["hhi"] is None
+    assert metrics["distance_to_poc"] is None
+    assert metrics["above_volume_ratio_vp"] is None
+    assert metrics["below_volume_ratio_vp"] is None
+    assert metrics["hvn_count"] is None
+    assert metrics["lvn_depth"] is None

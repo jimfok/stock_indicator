@@ -1067,6 +1067,7 @@ def attach_ema_sma_cross_testing_signals(
         chip_metrics = calculate_chip_concentration_metrics(
             price_data_frame.iloc[: row_index + 1],
             lookback_window_size=60,
+            include_volume_profile=False,
         )
         near_ratios.append(chip_metrics["near_price_volume_ratio"])
         above_ratios.append(chip_metrics["above_price_volume_ratio"])
@@ -1931,6 +1932,7 @@ def evaluate_combined_strategy(
             chip_metrics = calculate_chip_concentration_metrics(
                 price_data_frame.loc[: completed_trade.entry_date],
                 lookback_window_size=60,
+                include_volume_profile=False,
             )  # TODO: review
             entry_detail = TradeDetail(
                 date=completed_trade.entry_date,
