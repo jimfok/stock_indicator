@@ -73,6 +73,77 @@ def _has_supported_strategy(expression: str, allowed: dict) -> bool:
     return False
 
 
+def save_trade_details_to_log(
+    evaluation_metrics: strategy.StrategyMetrics,
+    log_path: Path,
+) -> None:
+    """Write trade details to a log file.
+
+    Parameters
+    ----------
+    evaluation_metrics:
+        Aggregated metrics containing trade details for the simulation.
+    log_path:
+        Directory where the log file should be stored.
+    """
+    # TODO: review
+    log_path.mkdir(parents=True, exist_ok=True)
+    timestamp_string = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = log_path / f"trade_details_{timestamp_string}.log"
+    with output_file.open("w", encoding="utf-8") as file_handle:
+        trade_details_by_year = evaluation_metrics.trade_details_by_year or {}
+        for year in sorted(trade_details_by_year.keys()):
+            for trade_detail in trade_details_by_year.get(year, []):
+                if trade_detail.action == "close" and trade_detail.result is not None:
+                    if trade_detail.percentage_change is not None:
+                        result_suffix = (
+                            f" {trade_detail.result} "
+                            f"{trade_detail.percentage_change:.2%}"
+                        )
+                    else:
+                        result_suffix = f" {trade_detail.result}"
+                else:
+                    result_suffix = ""
+                open_metrics = ""
+                if trade_detail.action == "open":
+                    price_score_text = (
+                        f"{trade_detail.price_concentration_score:.2f}"
+                        if trade_detail.price_concentration_score is not None
+                        else "N/A"
+                    )
+                    near_ratio_text = (
+                        f"{trade_detail.near_price_volume_ratio:.2f}"
+                        if trade_detail.near_price_volume_ratio is not None
+                        else "N/A"
+                    )
+                    above_ratio_text = (
+                        f"{trade_detail.above_price_volume_ratio:.2f}"
+                        if trade_detail.above_price_volume_ratio is not None
+                        else "N/A"
+                    )
+                    node_count_text = (
+                        f"{trade_detail.histogram_node_count}"
+                        if trade_detail.histogram_node_count is not None
+                        else "N/A"
+                    )
+                    open_metrics = (
+                        f" price_score={price_score_text}"
+                        f" near_pct={near_ratio_text}"
+                        f" above_pct={above_ratio_text}"
+                        f" node_count={node_count_text}"
+                    )
+                line = (
+                    f"  {trade_detail.date.date()} "
+                    f"({trade_detail.concurrent_position_count}) "
+                    f"{trade_detail.symbol} {trade_detail.action} {trade_detail.price:.2f} "
+                    f"{trade_detail.group_simple_moving_average_dollar_volume_ratio:.4f} "
+                    f"{trade_detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
+                    f"{trade_detail.group_total_simple_moving_average_dollar_volume / 1_000_000:.2f}M"
+                    f"{open_metrics}{result_suffix}"
+                )
+                file_handle.write(line + "\n")
+
+
 class StockShell(cmd.Cmd):
     """Interactive command shell for stock data maintenance."""
 
@@ -680,6 +751,9 @@ class StockShell(cmd.Cmd):
                 "percentage_change",
             ],
         ).to_csv(output_file, index=False)
+        save_trade_details_to_log(
+            evaluation_metrics, Path("logs") / "trade_detail"
+        )
         self.stdout.write(
             f"Simulation start date: {start_date_string}\n"
         )
@@ -957,6 +1031,9 @@ class StockShell(cmd.Cmd):
                     detail.concurrent_position_count = current_open + 1
                     open_state[detail.symbol] = True
 
+        save_trade_details_to_log(
+            evaluation_metrics, Path("logs") / "trade_detail"
+        )
         self.stdout.write(
             f"Simulation start date: {start_date_string}\n"
         )
@@ -1213,6 +1290,9 @@ class StockShell(cmd.Cmd):
                     detail.concurrent_position_count = current_open + 1
                     open_state[detail.symbol] = True
 
+        save_trade_details_to_log(
+            evaluation_metrics, Path("logs") / "trade_detail"
+        )
         self.stdout.write(
             f"Simulation start date: {start_date_string}\n"
         )
