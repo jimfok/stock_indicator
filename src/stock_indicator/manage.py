@@ -8,6 +8,7 @@ import cmd
 import datetime
 import logging
 import re
+import sys  # TODO: review
 from pathlib import Path
 from statistics import mean, stdev
 from typing import Dict, List
@@ -1416,4 +1417,8 @@ class StockShell(cmd.Cmd):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )  # TODO: review
     StockShell().cmdloop()
