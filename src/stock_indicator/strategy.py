@@ -1566,7 +1566,6 @@ def evaluate_combined_strategy(
         # Build a mapping from symbol to FF12 group for filtering.
         symbol_to_group_map_for_filtering = load_ff12_groups_by_symbol()
     for csv_file_path in data_directory.glob("*.csv"):
-        LOGGER.info("loading %s", csv_file_path.stem)  # TODO: review
         if csv_file_path.stem == SP500_SYMBOL:
             continue
         if allowed_symbols is not None and csv_file_path.stem not in allowed_symbols:
@@ -1702,7 +1701,6 @@ def evaluate_combined_strategy(
         )
 
     for csv_file_path, price_data_frame, symbol_mask in selected_symbol_data:
-        LOGGER.info("building signals for %s", csv_file_path.stem)  # TODO: review
         # TODO: review
         # Build signals for all buy-side choices
         buy_signal_columns: list[str] = []
