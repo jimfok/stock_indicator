@@ -137,6 +137,7 @@ def calculate_chip_concentration_metrics(
     lookback_window_size: int = 60,
     bin_count: int = 50,
     near_price_band_ratio: float = 0.03,
+    include_volume_profile: bool = False,
 ) -> dict[str, float | int | None]:
     """Calculate chip concentration metrics for a price series.
 
@@ -150,6 +151,9 @@ def calculate_chip_concentration_metrics(
         Number of price bins used for the histogram.
     near_price_band_ratio : float, default 0.03
         Fractional width around the current price for the near-price band.
+    include_volume_profile : bool, default False
+        When ``True``, calculate volume profile metrics. When ``False``,
+        volume profile metrics will be ``None``.
 
     Returns
     -------
@@ -217,14 +221,24 @@ def calculate_chip_concentration_metrics(
         numpy.concatenate(([False], peak_mask, [False]))
     ) == 1
     histogram_node_count = int(numpy.sum(peak_boundaries))
-    try:
-        volume_profile = calculate_volume_profile(
-            window_frame, lookback_window_size=lookback_window_size
-        )
-        volume_profile_metrics = calculate_volume_profile_features(
-            volume_profile, current_price
-        )
-    except ValueError:
+    if include_volume_profile:
+        try:
+            volume_profile = calculate_volume_profile(
+                window_frame, lookback_window_size=lookback_window_size
+            )
+            volume_profile_metrics = calculate_volume_profile_features(
+                volume_profile, current_price
+            )
+        except ValueError:
+            volume_profile_metrics = {
+                "hhi": None,
+                "distance_to_poc": None,
+                "above_volume_ratio_vp": None,
+                "below_volume_ratio_vp": None,
+                "hvn_count": None,
+                "lvn_depth": None,
+            }
+    else:
         volume_profile_metrics = {
             "hhi": None,
             "distance_to_poc": None,

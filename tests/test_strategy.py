@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 import stock_indicator.strategy as strategy
 from stock_indicator.simulator import SimulationResult, Trade, calc_commission
+from stock_indicator.chip_filter import calculate_chip_concentration_metrics
 
 from stock_indicator.strategy import (
     evaluate_ema_sma_cross_strategy,
@@ -1792,6 +1793,7 @@ def test_attach_ema_sma_cross_testing_filters_by_angle_and_chip(
         lookback_window_size: int = 60,
         bin_count: int = 50,
         near_price_band_ratio: float = 0.03,
+        include_volume_profile: bool = False,
     ) -> dict[str, float | int | None]:
         return metrics_queue.pop(0)
 
@@ -2287,3 +2289,32 @@ def test_evaluate_combined_strategy_passes_near_and_above_thresholds(
     assert captured_arguments["near_pct"] == pytest.approx(0.11)
     assert captured_arguments["above_pct"] == pytest.approx(0.09)
     assert result.total_trades == 1
+
+
+def test_calculate_chip_concentration_metrics_defaults_volume_profile_to_none() -> None:
+    """Volume profile metrics should be ``None`` when not requested."""
+
+    date_index = pandas.date_range("2020-01-01", periods=60, freq="D")
+    close_values = [float(value) for value in range(60, 120)]
+    high_values = close_values
+    low_values = [value - 1.0 for value in close_values]
+    volume_values = [100 for _ in range(60)]
+    ohlcv = pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": close_values,
+            "high": high_values,
+            "low": low_values,
+            "close": close_values,
+            "volume": volume_values,
+        }
+    )
+
+    metrics = calculate_chip_concentration_metrics(ohlcv, lookback_window_size=60)
+
+    assert metrics["hhi"] is None
+    assert metrics["distance_to_poc"] is None
+    assert metrics["above_volume_ratio_vp"] is None
+    assert metrics["below_volume_ratio_vp"] is None
+    assert metrics["hvn_count"] is None
+    assert metrics["lvn_depth"] is None
