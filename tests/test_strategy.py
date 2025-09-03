@@ -2120,6 +2120,25 @@ def test_parse_strategy_name_with_all_segments() -> None:
     assert above_percentage == 1.0
 
 
+def test_parse_strategy_name_with_near_and_above_thresholds() -> None:
+    """The parser should extract near and above percentage thresholds."""
+
+    (
+        base_name,
+        window_size,
+        angle_range,
+        near_percentage,
+        above_percentage,
+    ) = parse_strategy_name(
+        "ema_sma_cross_testing_40_-26.6_26.6_0.12_0.1"
+    )
+    assert base_name == "ema_sma_cross_testing"
+    assert window_size == 40
+    assert angle_range == (-26.6, 26.6)
+    assert near_percentage == pytest.approx(0.12)
+    assert above_percentage == pytest.approx(0.1)
+
+
 def test_parse_strategy_name_without_suffix() -> None:
     """``parse_strategy_name`` should return ``None`` when no suffix is given."""
 
@@ -2191,4 +2210,80 @@ def test_evaluate_combined_strategy_uses_window_suffix(
     )
 
     assert captured_arguments["window_size"] == 40
+    assert result.total_trades == 1
+
+
+def test_evaluate_combined_strategy_passes_near_and_above_thresholds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Evaluate combined strategy should forward chip thresholds to attach function."""
+
+    date_index = pandas.date_range("2020-01-01", periods=2, freq="D")
+    price_data_frame = pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": [10.0, 10.0],
+            "close": [10.0, 10.0],
+            "volume": [1.0, 1.0],
+        }
+    )
+    csv_path = tmp_path / "thresholds.csv"
+    price_data_frame.to_csv(csv_path, index=False)
+
+    captured_arguments: dict[str, float | None] = {
+        "near_pct": None,
+        "above_pct": None,
+    }
+
+    def fake_attach_signals(
+        frame: pandas.DataFrame,
+        window_size: int = 40,
+        angle_range: tuple[float, float] = (-26.6, 26.6),
+        near_pct: float = 0.12,
+        above_pct: float = 0.1,
+    ) -> None:
+        captured_arguments["near_pct"] = near_pct
+        captured_arguments["above_pct"] = above_pct
+        frame["ema_sma_cross_testing_entry_signal"] = [True, False]
+        frame["ema_sma_cross_testing_exit_signal"] = [False, True]
+
+    def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
+        passed_frame: pandas.DataFrame = kwargs["data"]
+        assert (
+            "ema_sma_cross_testing_40_-26.6_26.6_0.11_0.09_entry_signal"
+            in passed_frame.columns
+        )
+        assert (
+            "ema_sma_cross_testing_40_-26.6_26.6_0.11_0.09_exit_signal"
+            in passed_frame.columns
+        )
+        trade = Trade(
+            entry_date=date_index[0],
+            exit_date=date_index[1],
+            entry_price=10.0,
+            exit_price=11.0,
+            profit=1.0,
+            holding_period=1,
+        )
+        return SimulationResult(trades=[trade], total_profit=1.0)
+
+    monkeypatch.setattr(
+        strategy, "attach_ema_sma_cross_testing_signals", fake_attach_signals
+    )
+    monkeypatch.setitem(
+        strategy.BUY_STRATEGIES, "ema_sma_cross_testing", fake_attach_signals
+    )
+    monkeypatch.setitem(
+        strategy.SELL_STRATEGIES, "ema_sma_cross_testing", fake_attach_signals
+    )
+    monkeypatch.setattr(strategy, "simulate_trades", fake_simulate_trades)
+
+    result = evaluate_combined_strategy(
+        tmp_path,
+        "ema_sma_cross_testing_40_-26.6_26.6_0.11_0.09",
+        "ema_sma_cross_testing_40_-26.6_26.6_0.11_0.09",
+    )
+
+    assert captured_arguments["near_pct"] == pytest.approx(0.11)
+    assert captured_arguments["above_pct"] == pytest.approx(0.09)
     assert result.total_trades == 1
