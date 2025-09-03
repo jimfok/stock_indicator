@@ -497,7 +497,7 @@ def compute_signals_for_date(
     def _has_supported(tokens: list[str], table: dict) -> bool:
         for token in tokens:
             try:
-                base_name, _, _ = parse_strategy_name(token)
+                base_name, _, _, _, _ = parse_strategy_name(token)
             except Exception:  # noqa: BLE001
                 continue
             if base_name in table:
@@ -626,7 +626,7 @@ def compute_signals_for_date(
         buy_signal_columns: list[str] = []
         for buy_name in buy_choice_names:
             try:
-                base_name, window_size, angle_range = parse_strategy_name(buy_name)
+                base_name, window_size, angle_range, _, _ = parse_strategy_name(buy_name)
             except Exception:  # noqa: BLE001
                 continue
             if base_name not in BUY_STRATEGIES:
@@ -641,7 +641,7 @@ def compute_signals_for_date(
         sell_signal_columns: list[str] = []
         for sell_name in sell_choice_names:
             try:
-                base_name, window_size, angle_range = parse_strategy_name(sell_name)
+                base_name, window_size, angle_range, _, _ = parse_strategy_name(sell_name)
             except Exception:  # noqa: BLE001
                 continue
             if base_name not in SELL_STRATEGIES:
@@ -1162,15 +1162,29 @@ SUPPORTED_STRATEGIES: Dict[str, Callable[[pandas.DataFrame], None]] = {
 
 def parse_strategy_name(
     strategy_name: str,
-) -> tuple[str, int | None, tuple[float, float] | None]:
-    """Split ``strategy_name`` into base name, window size, and angle range.
+) -> tuple[
+    str,
+    int | None,
+    tuple[float, float] | None,
+    float | None,
+    float | None,
+]:
+    """Split ``strategy_name`` into base name and numeric suffix values.
 
-    Strategy identifiers may include a numeric window size suffix or a pair of
-    floating-point numbers representing an angle range. These components are
-    separated from the base name by underscores. For example,
-    ``"ema_sma_cross_with_slope_40_-0.5_0.5"`` is interpreted as the base
-    strategy ``"ema_sma_cross_with_slope"`` with a window size of ``40`` and an
-    angle range from ``-0.5`` to ``0.5``.
+    Strategy identifiers may include a numeric window size suffix, an angle
+    range, and optional percentage thresholds. These numeric components appear
+    after the base name separated by underscores. Supported patterns are:
+
+    ``base``
+        No numeric segments.
+    ``base_40``
+        Window size only.
+    ``base_-1.0_2.0``
+        Angle range only.
+    ``base_40_-1.0_2.0``
+        Window size and angle range.
+    ``base_40_-1.0_2.0_0.5_1.5``
+        Window size, angle range, percentage ``near`` and ``above`` thresholds.
 
     Any optional trailing ``_sma{factor}`` suffix (e.g., ``_sma1.2``) is ignored
     for base-name/window/angle parsing and should be obtained via
@@ -1180,14 +1194,15 @@ def parse_strategy_name(
     ----------
     strategy_name:
         The full strategy name possibly containing a numeric suffix and an
-        optional angle range.
+        optional angle range with thresholds.
 
     Returns
     -------
-    tuple[str, int | None, tuple[float, float] | None]
-        The base strategy name, the integer window size, and the angle range as
-        a ``(lower, upper)`` tuple. When a component is not present, its value
-        is ``None``.
+    tuple[str, int | None, tuple[float, float] | None, float | None, float | None]
+        ``(base_name, window_size, angle_range, near_percentage, above_percentage)``.
+        Angle range is a ``(lower, upper)`` tuple. Percentage fields are floats
+        representing near and above thresholds. When a component is not
+        present, its value is ``None``.
 
     Raises
     ------
@@ -1219,7 +1234,7 @@ def parse_strategy_name(
     base_name = "_".join(name_parts)
     segment_count = len(numeric_segments)
     if segment_count == 0:
-        return base_name, None, None
+        return base_name, None, None, None, None
 
     if segment_count == 1:
         numeric_value = numeric_segments[0]
@@ -1230,7 +1245,7 @@ def parse_strategy_name(
                     "Window size must be a positive integer in strategy name: "
                     f"{strategy_name}"
                 )
-            return base_name, window_size, None
+            return base_name, window_size, None, None, None
         raise ValueError(
             "Malformed strategy name: expected two numeric segments for angle range "
             f"but found {segment_count} in '{strategy_name}'"
@@ -1241,7 +1256,7 @@ def parse_strategy_name(
             float(numeric_segments[0]),
             float(numeric_segments[1]),
         )
-        return base_name, None, (lower_bound, upper_bound)
+        return base_name, None, (lower_bound, upper_bound), None, None
 
     if segment_count == 3:
         window_value = numeric_segments[0]
@@ -1260,12 +1275,40 @@ def parse_strategy_name(
             float(numeric_segments[1]),
             float(numeric_segments[2]),
         )
-        return base_name, window_size, (lower_bound, upper_bound)
+        return base_name, window_size, (lower_bound, upper_bound), None, None
+
+    if segment_count == 5:
+        window_value = numeric_segments[0]
+        if not window_value.isdigit():
+            raise ValueError(
+                "Malformed strategy name: expected window size as first numeric segment "
+                f"in '{strategy_name}'"
+            )
+        window_size = int(window_value)
+        if window_size <= 0:
+            raise ValueError(
+                "Window size must be a positive integer in strategy name: "
+                f"{strategy_name}"
+            )
+        lower_bound, upper_bound = (
+            float(numeric_segments[1]),
+            float(numeric_segments[2]),
+        )
+        near_percentage = float(numeric_segments[3])
+        above_percentage = float(numeric_segments[4])
+        return (
+            base_name,
+            window_size,
+            (lower_bound, upper_bound),
+            near_percentage,
+            above_percentage,
+        )
 
     raise ValueError(
-        "Malformed strategy name: expected up to three numeric segments but "
+        "Malformed strategy name: expected up to five numeric segments but "
         f"found {segment_count} in '{strategy_name}'"
     )
+
 
 
 def calculate_metrics(
@@ -1438,7 +1481,7 @@ def evaluate_combined_strategy(
     def _has_supported(tokens: list[str], table: dict) -> bool:
         for token in tokens:
             try:
-                base, _, _ = parse_strategy_name(token)
+                base, _, _, _, _ = parse_strategy_name(token)
             except Exception:  # noqa: BLE001
                 continue
             if base in table:
@@ -1620,7 +1663,7 @@ def evaluate_combined_strategy(
         buy_bases_for_cooldown: set[str] = set()
         for buy_name in _split_strategy_choices(buy_strategy_name):
             try:
-                base_name, window_size, angle_range = parse_strategy_name(buy_name)
+                base_name, window_size, angle_range, _, _ = parse_strategy_name(buy_name)
             except Exception:
                 continue
             if base_name not in BUY_STRATEGIES:
@@ -1664,7 +1707,7 @@ def evaluate_combined_strategy(
         sell_signal_columns: list[str] = []
         for sell_name in _split_strategy_choices(sell_strategy_name):
             try:
-                base_name, window_size, angle_range = parse_strategy_name(sell_name)
+                base_name, window_size, angle_range, _, _ = parse_strategy_name(sell_name)
             except Exception:
                 continue
             if base_name not in SELL_STRATEGIES:
