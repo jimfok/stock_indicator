@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy
 import pandas
 
+from .volume_profile import VolumeProfile, calculate_volume_profile
+
 
 # TODO: review
 NEAR_VOLUME_RATIO_MAX: float = 0.12
@@ -39,6 +41,95 @@ def passes_chip_concentration_filter(
         near_volume_ratio <= NEAR_VOLUME_RATIO_MAX
         and above_volume_ratio <= ABOVE_VOLUME_RATIO_MAX
     )
+
+
+# TODO: review
+def calculate_volume_profile_features(
+    volume_profile: VolumeProfile, current_price: float
+) -> dict[str, float]:
+    """Derive metrics from a volume profile for chip concentration analysis.
+
+    Parameters
+    ----------
+    volume_profile:
+        ``VolumeProfile`` instance containing the histogram distribution.
+    current_price:
+        Latest traded price.
+
+    Returns
+    -------
+    dict[str, float]
+        Dictionary of ``hhi``, ``distance_to_poc``, ``above_volume_ratio_vp``,
+        ``below_volume_ratio_vp``, ``hvn_count`` and ``lvn_depth`` values.
+    """
+    probabilities = volume_profile.probability_distribution
+    bin_edges = volume_profile.bin_edges
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
+
+    herfindahl_hirschman_index = float(numpy.sum(probabilities ** 2))
+
+    bin_widths = numpy.diff(bin_edges)
+    average_true_range = float(bin_widths[0]) if bin_widths.size > 0 else 1.0
+    if average_true_range <= 0:
+        normalized_distance = 0.0
+    else:
+        normalized_distance = float(
+            (current_price - volume_profile.point_of_control) / average_true_range
+        )
+
+    above_volume_ratio_vp = float(probabilities[bin_centers > current_price].sum())
+    below_volume_ratio_vp = float(probabilities[bin_centers < current_price].sum())
+
+    smoothing_kernel = numpy.array([0.25, 0.5, 0.25])
+    smoothed_probabilities = numpy.convolve(probabilities, smoothing_kernel, mode="same")
+
+    peak_indices: list[int] = []
+    valley_indices: list[int] = [0]
+    for index in range(1, smoothed_probabilities.size - 1):
+        left_value = smoothed_probabilities[index - 1]
+        middle_value = smoothed_probabilities[index]
+        right_value = smoothed_probabilities[index + 1]
+        if middle_value > left_value and middle_value > right_value:
+            peak_indices.append(index)
+        if middle_value < left_value and middle_value < right_value:
+            valley_indices.append(index)
+    valley_indices.append(smoothed_probabilities.size - 1)
+
+    prominence_threshold = 0.01 * float(smoothed_probabilities.max())
+    high_volume_node_count = 0
+    for peak_index in peak_indices:
+        left_valley = max([v for v in valley_indices if v < peak_index], default=None)
+        right_valley = min([v for v in valley_indices if v > peak_index], default=None)
+        if left_valley is None or right_valley is None:
+            continue
+        prominence = min(
+            smoothed_probabilities[peak_index] - smoothed_probabilities[left_valley],
+            smoothed_probabilities[peak_index] - smoothed_probabilities[right_valley],
+        )
+        if prominence >= prominence_threshold:
+            high_volume_node_count += 1
+
+    valley_depths: list[float] = []
+    for valley_index in valley_indices[1:-1]:
+        left_peak = max([p for p in peak_indices if p < valley_index], default=None)
+        right_peak = min([p for p in peak_indices if p > valley_index], default=None)
+        if left_peak is None or right_peak is None:
+            continue
+        depth = min(
+            smoothed_probabilities[left_peak],
+            smoothed_probabilities[right_peak],
+        ) - smoothed_probabilities[valley_index]
+        valley_depths.append(float(depth))
+    lowest_volume_node_depth = max(valley_depths) if valley_depths else 0.0
+
+    return {
+        "hhi": herfindahl_hirschman_index,
+        "distance_to_poc": normalized_distance,
+        "above_volume_ratio_vp": above_volume_ratio_vp,
+        "below_volume_ratio_vp": below_volume_ratio_vp,
+        "hvn_count": float(high_volume_node_count),
+        "lvn_depth": float(lowest_volume_node_depth),
+    }
 
 
 def calculate_chip_concentration_metrics(
@@ -126,9 +217,27 @@ def calculate_chip_concentration_metrics(
         numpy.concatenate(([False], peak_mask, [False]))
     ) == 1
     histogram_node_count = int(numpy.sum(peak_boundaries))
+    try:
+        volume_profile = calculate_volume_profile(
+            window_frame, lookback_window_size=lookback_window_size
+        )
+        volume_profile_metrics = calculate_volume_profile_features(
+            volume_profile, current_price
+        )
+    except ValueError:
+        volume_profile_metrics = {
+            "hhi": None,
+            "distance_to_poc": None,
+            "above_volume_ratio_vp": None,
+            "below_volume_ratio_vp": None,
+            "hvn_count": None,
+            "lvn_depth": None,
+        }
+
     return {
         "price_score": price_score,
         "near_price_volume_ratio": near_volume_ratio,
         "above_price_volume_ratio": above_volume_ratio,
         "histogram_node_count": histogram_node_count,
+        **volume_profile_metrics,
     }
