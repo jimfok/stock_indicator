@@ -260,7 +260,8 @@ def test_find_signal_returns_cron_output(monkeypatch: pytest.MonkeyPatch) -> Non
         1.0,
     )
 
-    assert signal_dictionary == expected_result
+    assert signal_dictionary["entry_signals"] == expected_result["entry_signals"]
+    assert signal_dictionary["exit_signals"] == expected_result["exit_signals"]
 
 
 def test_find_signal_detects_previous_day_crossover(

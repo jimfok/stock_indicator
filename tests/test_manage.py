@@ -99,13 +99,43 @@ def test_update_all_data_from_yf(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 
 
 # TODO: review
-def test_find_signal_prints_recalculated_signals(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The command should display recalculated entry and exit signals for a date."""
+def test_find_signal_prints_recalculated_signals(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The command should display recalculated signals and budget suggestions."""
     import stock_indicator.manage as manage_module
 
     recorded_arguments: dict[str, object] = {}
 
-    def fake_find_signal(
+    def fake_run_daily_tasks_from_argument(
+        argument_line: str,
+        start_date: str,
+        end_date: str,
+        symbol_list=None,
+        data_directory: Path | None = None,
+    ) -> dict[str, list[str]]:
+        return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
+
+    monkeypatch.setattr(
+        manage_module.daily_job.cron,
+        "run_daily_tasks_from_argument",
+        fake_run_daily_tasks_from_argument,
+    )
+    monkeypatch.setattr(
+        manage_module.daily_job,
+        "_load_portfolio_status",
+        lambda path: {},
+    )
+    monkeypatch.setattr(
+        manage_module.daily_job,
+        "_compute_sizing_inputs",
+        lambda status, directory, valuation_date: (1000.0, 2.0, 4, 0.5),
+    )
+    monkeypatch.setattr(manage_module.daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
+
+    original_find_signal = manage_module.daily_job.find_signal
+
+    def wrapped_find_signal(
         date_string: str,
         dollar_volume_filter: str,
         buy_strategy: str,
@@ -118,14 +148,21 @@ def test_find_signal_prints_recalculated_signals(monkeypatch: pytest.MonkeyPatch
         recorded_arguments["buy"] = buy_strategy
         recorded_arguments["sell"] = sell_strategy
         recorded_arguments["stop"] = stop_loss
-        return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
+        return original_find_signal(
+            date_string,
+            dollar_volume_filter,
+            buy_strategy,
+            sell_strategy,
+            stop_loss,
+            allowed_group_identifiers,
+        )
 
-    monkeypatch.setattr(manage_module.daily_job, "find_signal", fake_find_signal)
+    monkeypatch.setattr(manage_module.daily_job, "find_signal", wrapped_find_signal)
 
     output_buffer = io.StringIO()
     shell = manage_module.StockShell(stdout=output_buffer)
     shell.onecmd(
-        "find_signal 2024-01-10 dollar_volume>1 ema_sma_cross ema_sma_cross 1.0"
+        "find_signal 2024-01-10 dollar_volume>1 ema_sma_cross ema_sma_cross 1.0",
     )
 
     assert recorded_arguments == {
@@ -138,6 +175,7 @@ def test_find_signal_prints_recalculated_signals(monkeypatch: pytest.MonkeyPatch
     assert output_buffer.getvalue().splitlines() == [
         "entry signals: ['AAA']",
         "exit signals: ['BBB']",
+        "budget suggestions: {'AAA': 500.0}",
     ]
 
 

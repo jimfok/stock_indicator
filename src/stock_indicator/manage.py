@@ -11,7 +11,7 @@ import re
 import sys  # TODO: review
 from pathlib import Path
 from statistics import mean, stdev
-from typing import Dict, List
+from typing import Dict, List, Any
 
 import pandas
 from pandas import DataFrame
@@ -1461,7 +1461,7 @@ class StockShell(cmd.Cmd):
         except ValueError:
             self.stdout.write("invalid stop loss\n")
             return
-        signal_data: Dict[str, List[str]] = daily_job.find_signal(
+        signal_data: Dict[str, Any] = daily_job.find_signal(
             date_string,
             dollar_volume_filter,
             buy_strategy_name,
@@ -1473,6 +1473,9 @@ class StockShell(cmd.Cmd):
         exit_signal_list: List[str] = signal_data.get("exit_signals", [])
         self.stdout.write(f"entry signals: {entry_signal_list}\n")
         self.stdout.write(f"exit signals: {exit_signal_list}\n")
+        entry_budgets: Dict[str, float] | None = signal_data.get("entry_budgets")
+        if entry_budgets:
+            self.stdout.write(f"budget suggestions: {entry_budgets}\n")
 
     # TODO: review
     def help_find_signal(self) -> None:
