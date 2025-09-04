@@ -1,7 +1,7 @@
 {
-    "cash": 1541.75,
-    "margin": 1.5,
-    "maximum_position_count": 3,
+    "cash": 6470.71,
+    "margin": 2.0,
+    "maximum_position_count": 10,
     "positions": [
         {
             "symbol": "TLT",

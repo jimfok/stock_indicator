@@ -2,4 +2,4 @@ strategy_id,buy,sell
 s1,ema_sma_cross_with_slope_40_-16.7_65,ema_sma_cross_with_slope_50
 s2,ema_shift_cross_with_slope_20,ema_shift_cross_with_slope_20
 s3,20_50_sma_cross,20_50_sma_cross
-s4,ema_sma_cross_testing_4_-16.7_65_0.06_0.03,ema_sma_cross_testing_5_-16.7_65_0.06_0.03
+s4,ema_sma_cross_testing_4_-16.7_65_0.08_0.1,ema_sma_cross_testing_5_-16.7_65_0.08_0.1
