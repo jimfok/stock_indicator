@@ -202,3 +202,62 @@ def test_download_history_uses_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     )
     saved_frame = pandas.read_csv(cache_file_path, index_col=0, parse_dates=True)
     pandas.testing.assert_frame_equal(combined_frame, saved_frame)
+
+
+def test_download_history_extends_cache_backwards_and_forwards(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The function should prepend and append data around an existing cache."""
+    symbol_name = "TEST"
+    cache_file_path = tmp_path / "TEST.csv"
+    cached_frame = pandas.DataFrame(
+        {"close": [2.0, 3.0]},
+        index=pandas.to_datetime(["2023-01-02", "2023-01-03"]),
+    )
+    cached_frame.to_csv(cache_file_path)
+
+    call_arguments: list[dict[str, str]] = []
+    early_raw_frame = pandas.DataFrame(
+        {"Close": [1.0]},
+        index=pandas.to_datetime(["2023-01-01"]),
+    )
+    forward_raw_frame = pandas.DataFrame(
+        {"Close": [4.0]},
+        index=pandas.to_datetime(["2023-01-04"]),
+    )
+
+    def stubbed_download(
+        symbol: str,
+        start: str,
+        end: str,
+        progress: bool = False,
+        auto_adjust: bool = True,
+    ) -> pandas.DataFrame:
+        call_arguments.append({"start": start, "end": end})
+        if start == "2023-01-01":
+            return early_raw_frame
+        return forward_raw_frame
+
+    monkeypatch.setattr(
+        "stock_indicator.data_loader.yfinance.download", stubbed_download
+    )
+    monkeypatch.setattr("stock_indicator.symbols.load_symbols", lambda: [symbol_name])
+
+    combined_frame = download_history(
+        symbol_name,
+        "2023-01-01",
+        "2023-01-05",
+        cache_path=cache_file_path,
+    )
+
+    assert call_arguments[0]["start"] == "2023-01-01"
+    assert call_arguments[0]["end"] == "2023-01-02"
+    assert call_arguments[1]["start"] == "2023-01-04"
+    assert call_arguments[1]["end"] == "2023-01-05"
+    assert list(combined_frame.index) == list(
+        pandas.to_datetime(
+            ["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04"]
+        )
+    )
+    saved_frame = pandas.read_csv(cache_file_path, index_col=0, parse_dates=True)
+    pandas.testing.assert_frame_equal(combined_frame, saved_frame)
