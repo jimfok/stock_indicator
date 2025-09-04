@@ -423,8 +423,8 @@ def find_signal(
     sell_strategy: str,
     stop_loss: float,
     allowed_fama_french_groups: set[int] | None = None,
-) -> Dict[str, List[str]]:
-    """Run daily tasks for a single date and return the signals.
+) -> Dict[str, Any]:
+    """Run daily tasks for a single date and return signals and budget data.
 
     Parameters
     ----------
@@ -448,10 +448,11 @@ def find_signal(
 
     Returns
     -------
-    Dict[str, List[str]]
-        Dictionary containing two keys: ``"entry_signals"`` and
-        ``"exit_signals"``. Each maps to the list of symbols produced by
-        the strategies.
+    Dict[str, Any]
+        Dictionary containing the entry and exit signal lists as well as
+        optional budget information derived from ``current_status.json``.
+        Budget fields are ``equity``, ``margin``, ``slot_count``,
+        ``slot_weight``, ``budget_per_entry``, and ``entry_budgets``.
     """
     # TODO: review
     group_token = (
@@ -515,7 +516,48 @@ def find_signal(
         symbol_list=local_symbols,
         data_directory=STOCK_DATA_DIRECTORY,
     )
-    return signal_result
+
+    entry_signals: List[str] = signal_result.get("entry_signals", [])
+    exit_signals: List[str] = signal_result.get("exit_signals", [])
+    equity_value: float | None = None
+    margin_multiplier: float | None = None
+    slot_count: int | None = None
+    slot_weight: float | None = None
+    budget_per_entry: float | None = None
+    entry_budgets: Dict[str, float] | None = None
+    if entry_signals:
+        try:
+            portfolio_status = _load_portfolio_status(CURRENT_STATUS_FILE)
+            valuation_date = datetime.date.fromisoformat(date_string)
+            (
+                equity_value,
+                margin_multiplier,
+                slot_count,
+                slot_weight,
+            ) = _compute_sizing_inputs(
+                portfolio_status, STOCK_DATA_DIRECTORY, valuation_date
+            )
+            if equity_value is not None and slot_weight is not None:
+                budget_per_entry = equity_value * slot_weight
+                entry_budgets = {
+                    symbol_name: budget_per_entry for symbol_name in entry_signals
+                }
+        except Exception as status_error:  # noqa: BLE001
+            LOGGER.warning(
+                "Could not compute budgets from current_status.json: %s",
+                status_error,
+            )
+
+    return {
+        "entry_signals": entry_signals,
+        "exit_signals": exit_signals,
+        "equity": equity_value,
+        "margin": margin_multiplier,
+        "slot_count": slot_count,
+        "slot_weight": slot_weight,
+        "budget_per_entry": budget_per_entry,
+        "entry_budgets": entry_budgets,
+    }
 
 
 def main() -> None:
