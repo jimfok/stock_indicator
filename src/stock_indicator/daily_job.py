@@ -13,7 +13,7 @@ from typing import Dict, List, Tuple, Any
 import pandas
 
 from . import cron, strategy_sets
-from .data_loader import load_local_history
+from .data_loader import download_history
 
 LOGGER = logging.getLogger(__name__)
 
@@ -461,9 +461,8 @@ def find_signal(
     )
     argument_line = f"{group_token}{dollar_volume_filter} {buy_strategy} {sell_strategy} {stop_loss}"
     start_date_string = determine_start_date(STOCK_DATA_DIRECTORY)
-    # load_local_history slices using a half-open interval [start, end), so to
-    # evaluate signals for the exact date provided by callers, advance the end
-    # date by one day to make the target date inclusive.
+    # The downloader uses a half-open interval [start, end), therefore advance
+    # the end date by one day to make the provided date inclusive.
     try:
         end_timestamp_inclusive = pandas.Timestamp(date_string)
         end_timestamp_exclusive = end_timestamp_inclusive + pandas.Timedelta(days=1)
@@ -481,13 +480,40 @@ def find_signal(
     except Exception:  # noqa: BLE001
         local_symbols = None
 
+    # Refresh local history files so cron can rely on up-to-date data without
+    # needing to perform network requests for each symbol.
+    if local_symbols is not None:
+        for symbol_name in local_symbols:
+            csv_file_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
+            try:
+                history_frame = pandas.read_csv(
+                    csv_file_path, index_col=0, parse_dates=True
+                )
+                if history_frame.empty:
+                    download_start = DEFAULT_START_DATE
+                else:
+                    last_timestamp = history_frame.index.max() + pandas.Timedelta(days=1)
+                    download_start = last_timestamp.date().isoformat()
+            except Exception as read_error:  # noqa: BLE001
+                LOGGER.warning("Could not read %s: %s", csv_file_path, read_error)
+                download_start = DEFAULT_START_DATE
+            try:
+                refreshed_frame = download_history(
+                    symbol_name,
+                    start=download_start,
+                    end=end_date_string,
+                    cache_path=csv_file_path,
+                )
+                refreshed_frame.to_csv(csv_file_path)
+            except Exception as download_error:  # noqa: BLE001
+                LOGGER.warning("Failed to refresh data for %s: %s", symbol_name, download_error)
+
     signal_result: Dict[str, List[str]] = cron.run_daily_tasks_from_argument(
         argument_line,
         start_date=start_date_string,
         end_date=end_date_string,
         symbol_list=local_symbols,
         data_directory=STOCK_DATA_DIRECTORY,
-        data_download_function=load_local_history,
     )
     return signal_result
 
