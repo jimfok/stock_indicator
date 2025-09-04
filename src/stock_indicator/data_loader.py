@@ -21,6 +21,18 @@ import yfinance
 LOGGER = logging.getLogger(__name__)
 
 
+def _normalize_columns(frame: pandas.DataFrame) -> pandas.DataFrame:
+    """Return ``frame`` with flattened, snake_case column names."""
+    # TODO: review
+    if isinstance(frame.columns, pandas.MultiIndex):
+        frame.columns = frame.columns.get_level_values(0)
+    frame.columns = [
+        str(column_name).lower().replace(" ", "_")
+        for column_name in frame.columns
+    ]
+    return frame
+
+
 def download_history(
     symbol: str,
     start: str,
@@ -71,16 +83,38 @@ def download_history(
     cached_frame = pandas.DataFrame()
     if cache_path is not None and cache_path.exists():
         cached_frame = pandas.read_csv(cache_path, index_col=0, parse_dates=True)
-        if not cached_frame.empty:
-            next_download_date = cached_frame.index.max() + pandas.Timedelta(days=1)
-            if next_download_date > pandas.Timestamp(end):
-                cache_path.parent.mkdir(parents=True, exist_ok=True)
-                cached_frame.to_csv(cache_path)
-                return cached_frame
-            start = next_download_date.strftime("%Y-%m-%d")
 
     if "auto_adjust" not in download_options:
         download_options["auto_adjust"] = True
+
+    if not cached_frame.empty:
+        earliest_cached_date = cached_frame.index.min()
+        requested_start_timestamp = pandas.Timestamp(start)
+        # TODO: review
+        if requested_start_timestamp < earliest_cached_date:
+            try:
+                earlier_frame = yfinance.download(
+                    symbol,
+                    start=start,
+                    end=earliest_cached_date.strftime("%Y-%m-%d"),
+                    progress=False,
+                    **download_options,
+                )
+                earlier_frame = _normalize_columns(earlier_frame)
+                cached_frame = pandas.concat([earlier_frame, cached_frame]).sort_index()
+            except Exception as download_error:  # noqa: BLE001
+                LOGGER.warning(
+                    "Failed to download missing history for %s: %s",
+                    symbol,
+                    download_error,
+                )
+        next_download_date = cached_frame.index.max() + pandas.Timedelta(days=1)
+        if next_download_date > pandas.Timestamp(end):
+            if cache_path is not None:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cached_frame.to_csv(cache_path)
+            return cached_frame
+        start = next_download_date.strftime("%Y-%m-%d")
 
     maximum_attempts = 3
     for attempt_number in range(1, maximum_attempts + 1):
@@ -92,14 +126,11 @@ def download_history(
                 progress=False,
                 **download_options,
             )
-            if isinstance(downloaded_frame.columns, pandas.MultiIndex):
-                downloaded_frame.columns = downloaded_frame.columns.get_level_values(0)
-            downloaded_frame.columns = [
-                str(column_name).lower().replace(" ", "_")
-                for column_name in downloaded_frame.columns
-            ]
+            downloaded_frame = _normalize_columns(downloaded_frame)
             if not cached_frame.empty:
-                downloaded_frame = pandas.concat([cached_frame, downloaded_frame])
+                downloaded_frame = (
+                    pandas.concat([cached_frame, downloaded_frame]).sort_index()
+                )
             if cache_path is not None:
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
                 downloaded_frame.to_csv(cache_path)
