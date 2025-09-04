@@ -1,4 +1,5 @@
 import datetime
+import json
 from pathlib import Path
 
 import pytest
@@ -319,3 +320,76 @@ def test_find_signal_detects_previous_day_crossover(
     )
 
     assert signal_dictionary["entry_signals"] == ["AAA"]
+
+
+def test_run_daily_job_budget_matches_simulator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_daily_job should compute budgets using the simulator sizing algorithm."""
+
+    data_directory = tmp_path / "data"
+    data_directory.mkdir()
+    log_directory = tmp_path / "logs"
+    log_directory.mkdir()
+    local_data_directory = tmp_path / "local_data"
+    local_data_directory.mkdir()
+    current_status_path = local_data_directory / "current_status.json"
+
+    current_status = {
+        "cash": 500.0,
+        "margin": 1.5,
+        "positions": [{"symbol": "AAA", "Qty": 10}],
+        "maximum_position_count": 5,
+    }
+    current_status_path.write_text(json.dumps(current_status), encoding="utf-8")
+
+    csv_content = "Date,close\n2024-01-09,10\n2024-01-10,12\n"
+    (data_directory / "AAA.csv").write_text(csv_content, encoding="utf-8")
+
+    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
+    monkeypatch.setattr(daily_job, "LOG_DIRECTORY", log_directory)
+    monkeypatch.setattr(daily_job, "CURRENT_STATUS_FILE", current_status_path)
+
+    def fake_find_signal(
+        date_string: str,
+        dollar_volume_filter: str,
+        buy_strategy: str,
+        sell_strategy: str,
+        stop_loss: float,
+        allowed_groups: set[int] | None,
+    ) -> dict[str, list[str]]:
+        return {"entry_signals": ["BBB", "CCC"], "exit_signals": []}
+
+    monkeypatch.setattr(daily_job, "find_signal", fake_find_signal)
+
+    current_date = datetime.date(2024, 1, 10)
+    log_file_path = daily_job.run_daily_job(
+        "dollar_volume>1 ema_sma_cross ema_sma_cross",
+        current_date=current_date,
+    )
+
+    log_lines = {
+        key.strip(): value.strip()
+        for key, value in (
+            line.split(":", 1) for line in log_file_path.read_text(encoding="utf-8").splitlines()
+        )
+    }
+
+    equity_value = float(log_lines["equity_usd"])
+    slot_weight = float(log_lines["slot_weight"])
+    budget_per_entry = float(log_lines["budget_per_entry_usd"])
+    per_symbol_budget_lines = log_lines["entry_budgets"].split(",")
+    budget_by_symbol = {}
+    for budget_entry_text in per_symbol_budget_lines:
+        symbol_name, amount_text = budget_entry_text.split(":")
+        budget_by_symbol[symbol_name.strip()] = float(amount_text)
+
+    expected_equity = 500.0 + 10 * 12.0
+    expected_slot_weight = min(1.5 / 5, 1.0)
+    expected_budget = expected_equity * expected_slot_weight
+
+    assert equity_value == pytest.approx(expected_equity)
+    assert slot_weight == pytest.approx(expected_slot_weight)
+    assert budget_per_entry == pytest.approx(expected_budget)
+    assert budget_by_symbol["BBB"] == pytest.approx(expected_budget)
+    assert budget_by_symbol["CCC"] == pytest.approx(expected_budget)
