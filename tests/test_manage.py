@@ -98,6 +98,32 @@ def test_update_all_data_from_yf(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     assert download_calls == expected_symbols
 
 
+def test_reset_symbols_daily_job_command_recreates_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The command should copy the Yahoo Finance list to the daily job file."""
+    import stock_indicator.manage as manage_module
+
+    daily_job_path = tmp_path / "symbols_daily_job.txt"
+    yahoo_finance_path = tmp_path / "symbols_yf.txt"
+    yahoo_finance_path.write_text("AAA\nBBB\n", encoding="utf-8")
+    daily_job_path.write_text("ZZZ\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        manage_module.symbols, "DAILY_JOB_SYMBOLS_PATH", daily_job_path
+    )
+    monkeypatch.setattr(
+        manage_module.symbols, "YF_SYMBOL_CACHE_PATH", yahoo_finance_path
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd("reset_symbols_daily_job")
+
+    assert daily_job_path.read_text(encoding="utf-8") == "AAA\nBBB\n"
+    assert output_buffer.getvalue() == "Daily job symbol list reset (count=2)\n"
+
+
 # TODO: review
 def test_find_history_signal_prints_recalculated_signals(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
