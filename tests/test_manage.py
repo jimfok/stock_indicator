@@ -184,6 +184,57 @@ def test_find_history_signal_prints_recalculated_signals(
 
 
 # TODO: review
+def test_find_latest_signal_prints_recalculated_signals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command should display latest signals and budget suggestions."""
+    import stock_indicator.manage as manage_module
+
+    recorded_arguments: dict[str, object] = {}
+
+    def fake_find_latest_signal(
+        dollar_volume_filter: str,
+        buy_strategy: str,
+        sell_strategy: str,
+        stop_loss: float,
+        allowed_group_identifiers: set[int] | None = None,
+    ) -> dict[str, list[str] | dict[str, float]]:
+        recorded_arguments["filter"] = dollar_volume_filter
+        recorded_arguments["buy"] = buy_strategy
+        recorded_arguments["sell"] = sell_strategy
+        recorded_arguments["stop"] = stop_loss
+        return {
+            "entry_signals": ["AAA"],
+            "exit_signals": ["BBB"],
+            "entry_budgets": {"AAA": 500.0},
+        }
+
+    monkeypatch.setattr(
+        manage_module.daily_job,
+        "find_latest_signal",
+        fake_find_latest_signal,
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd(
+        "find_latest_signal dollar_volume>1 ema_sma_cross ema_sma_cross 1.0",
+    )
+
+    assert recorded_arguments == {
+        "filter": "dollar_volume>1",
+        "buy": "ema_sma_cross",
+        "sell": "ema_sma_cross",
+        "stop": 1.0,
+    }
+    assert output_buffer.getvalue().splitlines() == [
+        "entry signals: ['AAA']",
+        "exit signals: ['BBB']",
+        "budget suggestions: {'AAA': 500.0}",
+    ]
+
+
+# TODO: review
 def test_find_history_signal_invalid_argument(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

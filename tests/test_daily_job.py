@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 import pandas
+import yfinance.exceptions as yfinance_exceptions
 
 from stock_indicator import daily_job
 
@@ -530,3 +531,101 @@ def test_find_history_signal_preserves_existing_rows(
         "2024-01-04",
     ]
     assert not result_frame.index.duplicated().any()
+
+
+# TODO: review
+def test_find_latest_signal_refreshes_and_computes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """find_latest_signal should refresh symbol data and compute signals."""
+    symbol_calls: list[str] = []
+
+    def fake_load_daily_job_symbols() -> list[str]:
+        return ["AAA"]
+
+    def fake_download_history(
+        symbol_name: str, start: str, end: str, cache_path: Path
+    ) -> pandas.DataFrame:
+        symbol_calls.append(symbol_name)
+        frame = pandas.DataFrame(
+            {"close": [1.0]}, index=pandas.to_datetime([start])
+        )
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_csv(cache_path)
+        return frame
+
+    def fake_find_history_signal(
+        date_string: str,
+        dollar_volume_filter: str,
+        buy_strategy: str,
+        sell_strategy: str,
+        stop_loss: float,
+        allowed_group_identifiers: set[int] | None = None,
+    ) -> dict[str, list[str]]:
+        return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
+
+    monkeypatch.setattr(daily_job, "load_daily_job_symbols", fake_load_daily_job_symbols)
+    monkeypatch.setattr(daily_job, "download_history", fake_download_history)
+    monkeypatch.setattr(daily_job, "find_history_signal", fake_find_history_signal)
+    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
+
+    class FixedDate(datetime.date):
+        @classmethod
+        def today(cls) -> "FixedDate":
+            return cls(2024, 1, 10)
+
+    monkeypatch.setattr(daily_job.datetime, "date", FixedDate)
+
+    result = daily_job.find_latest_signal(
+        "dollar_volume>1", "buy", "sell", 1.0
+    )
+
+    assert symbol_calls == ["AAA"]
+    assert result == {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
+
+
+# TODO: review
+def test_find_latest_signal_removes_symbol_on_yfinance_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """find_latest_signal should drop symbols that trigger YF errors."""
+
+    def fake_load_daily_job_symbols() -> list[str]:
+        return ["AAA", "BBB"]
+
+    removal_calls: list[str] = []
+
+    def fake_remove_daily_job_symbol(symbol_name: str) -> bool:
+        removal_calls.append(symbol_name)
+        return True
+
+    def fake_download_history(
+        symbol_name: str, start: str, end: str, cache_path: Path
+    ) -> pandas.DataFrame:
+        if symbol_name == "BBB":
+            raise yfinance_exceptions.YFException("bad symbol")
+        frame = pandas.DataFrame(
+            {"close": [1.0]}, index=pandas.to_datetime([start])
+        )
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_csv(cache_path)
+        return frame
+
+    monkeypatch.setattr(daily_job, "load_daily_job_symbols", fake_load_daily_job_symbols)
+    monkeypatch.setattr(daily_job, "remove_daily_job_symbol", fake_remove_daily_job_symbol)
+    monkeypatch.setattr(daily_job, "download_history", fake_download_history)
+    monkeypatch.setattr(daily_job, "find_history_signal", lambda *a, **k: {"entry_signals": [], "exit_signals": []})
+    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
+
+    class FixedDate(datetime.date):
+        @classmethod
+        def today(cls) -> "FixedDate":
+            return cls(2024, 1, 10)
+
+    monkeypatch.setattr(daily_job.datetime, "date", FixedDate)
+
+    daily_job.find_latest_signal(
+        "dollar_volume>1", "buy", "sell", 1.0
+    )
+
+    assert removal_calls == ["BBB"]
