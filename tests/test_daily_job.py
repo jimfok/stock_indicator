@@ -11,7 +11,7 @@ from stock_indicator import daily_job
 def test_run_daily_job_writes_log_file(tmp_path, monkeypatch):
     """run_daily_job should create a dated log file with signals."""
 
-    def fake_find_signal(
+    def fake_find_history_signal(
         date_string: str,
         dollar_volume_filter: str,
         buy_strategy: str,
@@ -21,7 +21,7 @@ def test_run_daily_job_writes_log_file(tmp_path, monkeypatch):
     ):
         return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
 
-    monkeypatch.setattr(daily_job, "find_signal", fake_find_signal)
+    monkeypatch.setattr(daily_job, "find_history_signal", fake_find_history_signal)
 
     log_directory = tmp_path / "logs"
     data_directory = tmp_path / "data"
@@ -173,7 +173,7 @@ def test_run_daily_job_expands_strategy_id(tmp_path: Path, monkeypatch: pytest.M
 
     captured_parameters: dict[str, object] = {}
 
-    def fake_find_signal(
+    def fake_find_history_signal(
         date_string: str,
         dollar_volume_filter: str,
         buy_strategy: str,
@@ -188,7 +188,7 @@ def test_run_daily_job_expands_strategy_id(tmp_path: Path, monkeypatch: pytest.M
         captured_parameters["allowed_groups"] = allowed_groups
         return {"entry_signals": [], "exit_signals": []}
 
-    monkeypatch.setattr(daily_job, "find_signal", fake_find_signal)
+    monkeypatch.setattr(daily_job, "find_history_signal", fake_find_history_signal)
     monkeypatch.setattr(
         daily_job.strategy_sets,
         "load_strategy_set_mapping",
@@ -233,8 +233,10 @@ def test_run_daily_job_unknown_strategy_id(tmp_path: Path, monkeypatch: pytest.M
         )
 
 
-def test_find_signal_returns_cron_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    """find_signal should return the values from cron."""
+def test_find_history_signal_returns_cron_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """find_history_signal should return the values from cron."""
 
     expected_result = {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
 
@@ -252,7 +254,7 @@ def test_find_signal_returns_cron_output(monkeypatch: pytest.MonkeyPatch) -> Non
         daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument
     )
 
-    signal_dictionary = daily_job.find_signal(
+    signal_dictionary = daily_job.find_history_signal(
         "2024-01-10",
         "dollar_volume>1",
         "ema_sma_cross",
@@ -264,10 +266,10 @@ def test_find_signal_returns_cron_output(monkeypatch: pytest.MonkeyPatch) -> Non
     assert signal_dictionary["exit_signals"] == expected_result["exit_signals"]
 
 
-def test_find_signal_detects_previous_day_crossover(
+def test_find_history_signal_detects_previous_day_crossover(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """find_signal should detect signals when the crossover is one day earlier."""
+    """find_history_signal should detect signals when the crossover is one day earlier."""
 
     data_directory = tmp_path
     csv_lines = ["Date,open,close,volume\n"]
@@ -312,7 +314,7 @@ def test_find_signal_detects_previous_day_crossover(
         daily_job.cron, "run_daily_tasks_from_argument", patched_run_daily_tasks_from_argument
     )
 
-    signal_dictionary = daily_job.find_signal(
+    signal_dictionary = daily_job.find_history_signal(
         "2024-02-21",
         "dollar_volume>1",
         "20_50_sma_cross",
@@ -351,7 +353,7 @@ def test_run_daily_job_budget_matches_simulator(
     monkeypatch.setattr(daily_job, "LOG_DIRECTORY", log_directory)
     monkeypatch.setattr(daily_job, "CURRENT_STATUS_FILE", current_status_path)
 
-    def fake_find_signal(
+    def fake_find_history_signal(
         date_string: str,
         dollar_volume_filter: str,
         buy_strategy: str,
@@ -361,7 +363,7 @@ def test_run_daily_job_budget_matches_simulator(
     ) -> dict[str, list[str]]:
         return {"entry_signals": ["BBB", "CCC"], "exit_signals": []}
 
-    monkeypatch.setattr(daily_job, "find_signal", fake_find_signal)
+    monkeypatch.setattr(daily_job, "find_history_signal", fake_find_history_signal)
 
     current_date = datetime.date(2024, 1, 10)
     log_file_path = daily_job.run_daily_job(
@@ -396,10 +398,10 @@ def test_run_daily_job_budget_matches_simulator(
     assert budget_by_symbol["CCC"] == pytest.approx(expected_budget)
 
 
-def test_find_signal_deduplicates_cached_history(
+def test_find_history_signal_deduplicates_cached_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """find_signal should remove duplicate rows and preserve existing data."""
+    """find_history_signal should remove duplicate rows and preserve existing data."""
 
     data_directory = tmp_path
     csv_path = data_directory / "AAA.csv"
@@ -440,7 +442,7 @@ def test_find_signal_deduplicates_cached_history(
         fake_run_daily_tasks_from_argument,
     )
 
-    daily_job.find_signal(
+    daily_job.find_history_signal(
         "2024-01-10", "dollar_volume>1", "buy", "sell", 1.0
     )
     frame_after_first_run = pandas.read_csv(
@@ -452,7 +454,7 @@ def test_find_signal_deduplicates_cached_history(
         "2024-01-03",
     ]
 
-    daily_job.find_signal(
+    daily_job.find_history_signal(
         "2024-01-10", "dollar_volume>1", "buy", "sell", 1.0
     )
     frame_after_second_run = pandas.read_csv(
@@ -466,8 +468,10 @@ def test_find_signal_deduplicates_cached_history(
     assert not frame_after_second_run.index.duplicated().any()
 
 
-def test_find_signal_preserves_existing_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """find_signal should keep original history rows without introducing duplicates."""
+def test_find_history_signal_preserves_existing_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """find_history_signal should keep original history rows without introducing duplicates."""
 
     data_directory = tmp_path
     csv_file_path = data_directory / "AAA.csv"
@@ -514,7 +518,9 @@ def test_find_signal_preserves_existing_rows(tmp_path: Path, monkeypatch: pytest
         fake_run_daily_tasks_from_argument,
     )
 
-    daily_job.find_signal("2024-01-10", "dollar_volume>1", "buy", "sell", 1.0)
+    daily_job.find_history_signal(
+        "2024-01-10", "dollar_volume>1", "buy", "sell", 1.0
+    )
 
     result_frame = pandas.read_csv(csv_file_path, index_col=0, parse_dates=True)
     assert list(result_frame.index.strftime("%Y-%m-%d")) == [

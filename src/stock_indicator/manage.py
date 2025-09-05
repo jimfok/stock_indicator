@@ -1386,14 +1386,14 @@ class StockShell(cmd.Cmd):
 
 
     # TODO: review
-    def do_find_signal(self, argument_line: str) -> None:  # noqa: D401
-        """find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS
-        [group=...] or find_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID
+    def do_find_history_signal(self, argument_line: str) -> None:  # noqa: D401
+        """find_history_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS
+        [group=...] or find_history_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID
         [group=...]
 
         Display the entry and exit signals generated for DATE."""
         usage_message = (
-            "usage: find_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID) [group=1,2,...]\n"
+            "usage: find_history_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID) [group=1,2,...]\n"
         )
         argument_parts: List[str] = argument_line.split()
         if len(argument_parts) < 4:
@@ -1461,7 +1461,7 @@ class StockShell(cmd.Cmd):
         except ValueError:
             self.stdout.write("invalid stop loss\n")
             return
-        signal_data: Dict[str, Any] = daily_job.find_signal(
+        signal_data: Dict[str, Any] = daily_job.find_history_signal(
             date_string,
             dollar_volume_filter,
             buy_strategy_name,
@@ -1478,10 +1478,10 @@ class StockShell(cmd.Cmd):
             self.stdout.write(f"budget suggestions: {entry_budgets}\n")
 
     # TODO: review
-    def help_find_signal(self) -> None:
-        """Display help for the find_signal command."""
+    def help_find_history_signal(self) -> None:
+        """Display help for the find_history_signal command."""
         self.stdout.write(
-            "find_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID) [group=1,2,...]\n"
+            "find_history_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID) [group=1,2,...]\n"
             "Display entry and exit signals for DATE using the provided strategies or a strategy id from data/strategy_sets.csv.\n"
             "Signal calculation uses the same group dynamic ratio and Top-N rule as start_simulate.\n"
         )

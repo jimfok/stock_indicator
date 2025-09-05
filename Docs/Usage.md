@@ -55,13 +55,13 @@ selling strategies instead.
 
 Each execution of the daily job records entry and exit signals in a log file in
 the project's `logs` directory using the `<YYYY-MM-DD>.log` naming convention.
-The `find_signal` command recalculates the signals for a specific date rather than reading the log files.
+The `find_history_signal` command recalculates the signals for a specific date rather than reading the log files.
 Signal calculation uses the same group dynamic ratio and Top-N rule as `start_simulate`.
 The management shell can compute signals for a specific day with either form:
 
 ```
-find_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS
-find_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID
+find_history_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS
+find_history_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID
 ```
 
 Accepted forms are `BUY SELL STOP_LOSS` or `STOP_LOSS strategy=ID`. The command
@@ -70,14 +70,14 @@ second line, and when portfolio status is available, a mapping of suggested
 entry budgets on the third line. For example:
 
 ```
-find_signal 2024-01-10 dollar_volume>1 1.0 strategy=default
+find_history_signal 2024-01-10 dollar_volume>1 1.0 strategy=default
 entry signals: ['AAA', 'BBB']
 exit signals: ['CCC', 'DDD']
 budget suggestions: {'AAA': 500.0, 'BBB': 500.0}
 ```
 
 Developers may call
-`daily_job.find_signal("2024-01-10", "dollar_volume>1", "ema_sma_cross", "ema_sma_cross", 1.0)`
+`daily_job.find_history_signal("2024-01-10", "dollar_volume>1", "ema_sma_cross", "ema_sma_cross", 1.0)`
 to compute the same values from Python code. The function returns the entry and
 exit signal lists along with the budget information when available, rather than
 reading log files.
