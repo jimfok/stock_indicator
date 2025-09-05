@@ -1609,4 +1609,8 @@ if __name__ == "__main__":
         level=logging.INFO,
         handlers=[logging.StreamHandler(sys.stdout)],
     )  # TODO: review
-    StockShell().cmdloop()
+    if sys.argv[1:]:  # TODO: review
+        command_text = " ".join(sys.argv[1:])  # TODO: review
+        StockShell().onecmd(command_text)  # TODO: review
+    else:  # TODO: review
+        StockShell().cmdloop()
