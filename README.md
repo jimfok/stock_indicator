@@ -67,7 +67,11 @@ python -m stock_indicator.cli --symbol AAPL --start 2023-01-01 --end 2023-06-01 
 ### Management Shell
 
 The package provides an interactive shell for updating the symbol cache and
-downloading historical price data.
+downloading historical price data. Daily tasks read the list of tracked ticker
+symbols from `data/symbols_daily_job.txt`. This file is populated with
+Yahoo Finance symbols and determines which tickers the daily job and the
+`find_latest_signal` command process. Regenerate it from `data/symbols_yf.txt`
+whenever the list is missing or outdated.
 
 ```bash
 python -m stock_indicator.manage
@@ -82,23 +86,43 @@ python -m stock_indicator.manage
 
 * `update_symbols` downloads the latest list of available ticker symbols from the SEC `company_tickers.json` dataset (via the sector pipeline integration) and writes `data/symbols.txt`.
 * `update_yf_symbols` probes Yahoo Finance for a small recent window and writes the subset of tickers that return data to `data/symbols_yf.txt`. Daily jobs require this list (no SEC fallback).
-* `reset_symbols_daily_job` copies the Yahoo Finance-ready list from `data/symbols_yf.txt` to `data/symbols_daily_job.txt`. Run this when the daily job symbol file is missing or outdated.
+* `reset_symbols_daily_job` copies the Yahoo Finance-ready list from
+  `data/symbols_yf.txt` to `data/symbols_daily_job.txt`. The resulting file
+  defines which symbols the daily job and `find_latest_signal` process. Run this
+  when the daily job symbol file is missing or outdated.
 * `update_data_from_yf SYMBOL START END` saves historical data for the given symbol to
   `data/<SYMBOL>.csv`.
 * `update_all_data_from_yf START END` performs the download for every cached symbol.
-* `find_history_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID`
-  recalculates the entry and exit signals for `DATE`. Accepted forms are
-  `BUY SELL STOP_LOSS` or `STOP_LOSS strategy=ID`. The first form supplies
-  explicit buy and sell strategy names, while the second references a strategy
-  set identifier (see Strategy Sets below). Signal calculation uses the same
-  group dynamic ratio and Top-N rule as `start_simulate`.
+* `find_history_signal DATE DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY
+  STOP_LOSS` or `find_history_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS
+  strategy=ID` recalculates the entry and exit signals for `DATE`. The first
+  form supplies explicit buy and sell strategy names, while the second
+  references a strategy set identifier (see Strategy Sets below). Signal
+  calculation uses the same group dynamic ratio and Top-N rule as
+  `start_simulate`.
+* `find_latest_signal DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY
+  STOP_LOSS` or `find_latest_signal DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID`
+  refreshes data for the symbols listed in `data/symbols_daily_job.txt` and
+  computes today's entry and exit signals. Symbols that trigger
+  `yfinance` errors are removed from the daily job list.
 
 For example:
 
 ```bash
 (stock-indicator) find_history_signal 2024-01-10 dollar_volume>1 1.0 strategy=default
-['AAA', 'BBB']
-['CCC', 'DDD']
+entry signals: ['AAA', 'BBB']
+exit signals: ['CCC', 'DDD']
+budget suggestions: {'AAA': 500.0, 'BBB': 500.0}
+```
+
+To refresh data for the daily job symbols and compute today's signals, use
+`find_latest_signal`:
+
+```bash
+(stock-indicator) find_latest_signal dollar_volume>1 ema_sma_cross ema_sma_cross 1.0
+entry signals: ['AAA']
+exit signals: ['BBB']
+budget suggestions: {'AAA': 500.0}
 ```
 
 Developers can also call `daily_job.find_history_signal("2024-01-10", "dollar_volume>1", "ema_sma_cross", "ema_sma_cross", 1.0)` to compute

@@ -1,8 +1,13 @@
 # Usage
 
-Use the `reset_symbols_daily_job` command to copy `data/symbols_yf.txt` into
-`data/symbols_daily_job.txt` when the daily job list needs to be recreated.
-The command prints a confirmation or an error message.
+The daily job reads its ticker list from `data/symbols_daily_job.txt`. Run the
+`reset_symbols_daily_job` command to recreate this file by copying
+`data/symbols_yf.txt` whenever the list is missing or outdated. The command
+prints a confirmation or an error message.
+
+```
+reset_symbols_daily_job
+```
 
 To evaluate the FTD EMA and SMA cross strategy in the management shell, call:
 
@@ -85,6 +90,29 @@ Developers may call
 to compute the same values from Python code. The function returns the entry and
 exit signal lists along with the budget information when available, rather than
 reading log files.
+
+To refresh data for the symbols listed in `symbols_daily_job.txt` and compute
+today's signals, use `find_latest_signal`. It accepts the same argument forms as
+`find_history_signal`:
+
+```
+find_latest_signal DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS
+find_latest_signal DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID
+```
+
+Example:
+
+```
+find_latest_signal dollar_volume>1 ema_sma_cross ema_sma_cross 1.0
+entry signals: ['AAA']
+exit signals: ['BBB']
+budget suggestions: {'AAA': 500.0}
+```
+
+`find_latest_signal` updates each symbol's CSV cache before delegating to
+`find_history_signal` for the current date. Symbols that trigger
+`yfinance` errors are removed from `symbols_daily_job.txt` to prevent repeated
+failures.
 
 ## Available strategies
 
