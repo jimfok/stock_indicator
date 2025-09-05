@@ -47,7 +47,10 @@ PY
 cd "$SOURCE_DIRECTORY"
 
 # Refresh local data cache before running the daily job
-"$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -m stock_indicator.manage update_all_data_from_yf "$LAST_CACHED_DATE" "$TODAY" >> "$LOG_DIRECTORY/cron_stdout.log" 2>&1
+"$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" <<PY >> "$LOG_DIRECTORY/cron_stdout.log" 2>&1
+from stock_indicator.manage import StockShell
+StockShell().onecmd("update_all_data_from_yf $LAST_CACHED_DATE $TODAY")
+PY
 
 # Run as a module so `from . import cron` works
 # Stdout/stderr go to a rolling cron log for debugging
