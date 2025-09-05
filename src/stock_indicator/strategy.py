@@ -733,9 +733,13 @@ def load_price_data(csv_file_path: Path) -> pandas.DataFrame:
     """Load price data from ``csv_file_path`` and normalize column names.
 
     Duplicate dates are removed and the index is sorted to ensure that the
-    resulting frame has unique, chronologically ordered entries. When the CSV
-    file is empty, an empty data frame is returned so the caller can skip the
-    symbol gracefully.
+    resulting frame has unique, chronologically ordered entries. Column labels
+    are converted to lowercase ``snake_case`` and common suffixes such as
+    ``_price`` are stripped so that names like ``Adj Close`` or ``Close Price``
+    become ``adj_close`` and ``close``. When several columns normalize to the
+    same label, the first occurrence is retained and later duplicates are
+    discarded. When the CSV file is empty, an empty data frame is returned so
+    the caller can skip the symbol gracefully.
     """
     # TODO: review
 

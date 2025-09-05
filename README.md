@@ -31,7 +31,25 @@ Downloaded data frames use lower-case ``snake_case`` column names. With
 ``yfinance`` version ``0.2.51`` and later, the ``close`` column already reflects
 dividends and stock splits, so no separate adjusted closing price column is
 provided. Downstream code should refer to columns using this standardized
-style.
+style. The ``load_price_data`` helper applies the same normalization to CSV
+files by converting headers to lowercase ``snake_case`` and stripping common
+suffixes such as ``_price``. If multiple headers normalize to the same label,
+only the first is preserved.
+
+For example, a file with the header ``Date,Open,Close,Adj Close,Close Price``
+loads as:
+
+```python
+from pathlib import Path
+from stock_indicator.strategy import load_price_data
+
+frame = load_price_data(Path("prices.csv"))
+print(frame.columns)
+# Index(['open', 'close', 'adj_close'], dtype='object')
+```
+
+Both ``Close`` and ``Close Price`` map to ``close``, so ``Close Price`` is
+discarded.
 
 ### Command Line Example
 Stock Indicator also includes a command line interface for generating trade signals from historical price data.
