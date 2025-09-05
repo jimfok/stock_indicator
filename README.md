@@ -84,7 +84,7 @@ python -m stock_indicator.manage
 * `update_data_from_yf SYMBOL START END` saves historical data for the given symbol to
   `data/<SYMBOL>.csv`.
 * `update_all_data_from_yf START END` performs the download for every cached symbol.
-* `find_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID`
+* `find_history_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID`
   recalculates the entry and exit signals for `DATE`. Accepted forms are
   `BUY SELL STOP_LOSS` or `STOP_LOSS strategy=ID`. The first form supplies
   explicit buy and sell strategy names, while the second references a strategy
@@ -94,12 +94,12 @@ python -m stock_indicator.manage
 For example:
 
 ```bash
-(stock-indicator) find_signal 2024-01-10 dollar_volume>1 1.0 strategy=default
+(stock-indicator) find_history_signal 2024-01-10 dollar_volume>1 1.0 strategy=default
 ['AAA', 'BBB']
 ['CCC', 'DDD']
 ```
 
-Developers can also call `daily_job.find_signal("2024-01-10", "dollar_volume>1", "ema_sma_cross", "ema_sma_cross", 1.0)` to compute
+Developers can also call `daily_job.find_history_signal("2024-01-10", "dollar_volume>1", "ema_sma_cross", "ema_sma_cross", 1.0)` to compute
 the same data from Python code. This function recalculates signals rather than
 reading them from log files. Signal calculation uses the same group dynamic ratio and Top-N rule as `start_simulate`.
 
@@ -183,7 +183,7 @@ Shorthand forms using a strategy id (omit explicit buy/sell tokens):
 - N symbols
   - `start_simulate_n_symbol symbols=QQQ,SPY [starting_cash=...] [withdraw=...] [start=YYYY-MM-DD] [STOP_LOSS] [SHOW_DETAILS] strategy=ID`
 - Find signal
-  - `find_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID [group=1,2,...]` — signal calculation uses the same group dynamic ratio and Top-N rule as `start_simulate`.
+- `find_history_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID [group=1,2,...]` — signal calculation uses the same group dynamic ratio and Top-N rule as `start_simulate`.
 
 Notes:
 - When `strategy=ID` is present, do not include explicit `BUY`/`SELL` tokens.

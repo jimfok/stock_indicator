@@ -99,7 +99,7 @@ def test_update_all_data_from_yf(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 
 
 # TODO: review
-def test_find_signal_prints_recalculated_signals(
+def test_find_history_signal_prints_recalculated_signals(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The command should display recalculated signals and budget suggestions."""
@@ -133,9 +133,9 @@ def test_find_signal_prints_recalculated_signals(
     )
     monkeypatch.setattr(manage_module.daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
 
-    original_find_signal = manage_module.daily_job.find_signal
+    original_find_history_signal = manage_module.daily_job.find_history_signal
 
-    def wrapped_find_signal(
+    def wrapped_find_history_signal(
         date_string: str,
         dollar_volume_filter: str,
         buy_strategy: str,
@@ -148,7 +148,7 @@ def test_find_signal_prints_recalculated_signals(
         recorded_arguments["buy"] = buy_strategy
         recorded_arguments["sell"] = sell_strategy
         recorded_arguments["stop"] = stop_loss
-        return original_find_signal(
+        return original_find_history_signal(
             date_string,
             dollar_volume_filter,
             buy_strategy,
@@ -157,12 +157,16 @@ def test_find_signal_prints_recalculated_signals(
             allowed_group_identifiers,
         )
 
-    monkeypatch.setattr(manage_module.daily_job, "find_signal", wrapped_find_signal)
+    monkeypatch.setattr(
+        manage_module.daily_job,
+        "find_history_signal",
+        wrapped_find_history_signal,
+    )
 
     output_buffer = io.StringIO()
     shell = manage_module.StockShell(stdout=output_buffer)
     shell.onecmd(
-        "find_signal 2024-01-10 dollar_volume>1 ema_sma_cross ema_sma_cross 1.0",
+        "find_history_signal 2024-01-10 dollar_volume>1 ema_sma_cross ema_sma_cross 1.0",
     )
 
     assert recorded_arguments == {
@@ -180,13 +184,15 @@ def test_find_signal_prints_recalculated_signals(
 
 
 # TODO: review
-def test_find_signal_invalid_argument(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_find_history_signal_invalid_argument(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The command should reject incomplete arguments."""
     import stock_indicator.manage as manage_module
 
     call_record = {"called": False}
 
-    def fake_find_signal(
+    def fake_find_history_signal(
         date_string: str,
         dollar_volume_filter: str,
         buy_strategy: str,
@@ -197,28 +203,34 @@ def test_find_signal_invalid_argument(monkeypatch: pytest.MonkeyPatch) -> None:
         call_record["called"] = True
         return {"entry_signals": [], "exit_signals": []}
 
-    monkeypatch.setattr(manage_module.daily_job, "find_signal", fake_find_signal)
+    monkeypatch.setattr(
+        manage_module.daily_job,
+        "find_history_signal",
+        fake_find_history_signal,
+    )
 
     output_buffer = io.StringIO()
     shell = manage_module.StockShell(stdout=output_buffer)
-    shell.onecmd("find_signal invalid-date")
+    shell.onecmd("find_history_signal invalid-date")
 
     assert call_record["called"] is False
     assert (
         output_buffer.getvalue()
         ==
-        "usage: find_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID) [group=1,2,...]\n"
+        "usage: find_history_signal DATE DOLLAR_VOLUME_FILTER (BUY SELL STOP_LOSS | STOP_LOSS strategy=ID) [group=1,2,...]\n"
     )
 
 
 # TODO: review
-def test_find_signal_with_strategy_id(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_find_history_signal_with_strategy_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The command should map a strategy id to buy and sell strategies."""
     import stock_indicator.manage as manage_module
 
     recorded_arguments: dict[str, object] = {}
 
-    def fake_find_signal(
+    def fake_find_history_signal(
         date_string: str,
         dollar_volume_filter: str,
         buy_strategy: str,
@@ -234,7 +246,11 @@ def test_find_signal_with_strategy_id(monkeypatch: pytest.MonkeyPatch) -> None:
         recorded_arguments["group"] = allowed_group_identifiers
         return {"entry_signals": [], "exit_signals": []}
 
-    monkeypatch.setattr(manage_module.daily_job, "find_signal", fake_find_signal)
+    monkeypatch.setattr(
+        manage_module.daily_job,
+        "find_history_signal",
+        fake_find_history_signal,
+    )
 
     def fake_load_mapping() -> dict[str, tuple[str, str]]:
         return {"ID": ("ema_sma_cross", "ema_sma_cross")}
@@ -242,7 +258,7 @@ def test_find_signal_with_strategy_id(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(manage_module, "load_strategy_set_mapping", fake_load_mapping)
 
     shell = manage_module.StockShell(stdout=io.StringIO())
-    shell.onecmd("find_signal 2024-01-10 dollar_volume>1 1.0 strategy=ID")
+    shell.onecmd("find_history_signal 2024-01-10 dollar_volume>1 1.0 strategy=ID")
 
     assert recorded_arguments == {
         "date": "2024-01-10",

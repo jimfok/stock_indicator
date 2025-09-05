@@ -189,7 +189,7 @@ def run_daily_job(
     original_stock_directory = STOCK_DATA_DIRECTORY
     try:
         STOCK_DATA_DIRECTORY = data_directory
-        signal_result: Dict[str, list[str]] = find_signal(
+        signal_result: Dict[str, list[str]] = find_history_signal(
             current_date_string,
             dollar_volume_filter,
             buy_strategy_name,
@@ -416,7 +416,7 @@ def _read_latest_close(
         return None
 
 
-def find_signal(
+def find_history_signal(
     date_string: str,
     dollar_volume_filter: str,
     buy_strategy: str,
