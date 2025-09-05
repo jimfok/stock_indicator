@@ -56,3 +56,67 @@ def test_load_symbols_fetches_and_caches_json(
     assert symbol_list_second == expected_list
     assert request_call_count["count"] == 1
 
+
+def test_reset_daily_job_symbols_copies_from_yahoo_finance_list(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reset should copy symbols from the Yahoo Finance cache."""
+
+    import stock_indicator.symbols as symbols_module
+
+    daily_job_file_path = tmp_path / "symbols_daily_job.txt"
+    yahoo_finance_file_path = tmp_path / "symbols_yf.txt"
+    yahoo_finance_file_path.write_text("AAA\nBBB\n", encoding="utf-8")
+
+    monkeypatch.setattr(symbols_module, "DAILY_JOB_SYMBOLS_PATH", daily_job_file_path)
+    monkeypatch.setattr(symbols_module, "YF_SYMBOL_CACHE_PATH", yahoo_finance_file_path)
+
+    written_symbols = symbols_module.reset_daily_job_symbols()
+    assert written_symbols == ["AAA", "BBB"]
+    assert daily_job_file_path.read_text(encoding="utf-8") == "AAA\nBBB\n"
+
+
+def test_load_daily_job_symbols_creates_file_if_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Loading should initialize the daily job file when it is absent."""
+
+    import stock_indicator.symbols as symbols_module
+
+    daily_job_file_path = tmp_path / "symbols_daily_job.txt"
+    yahoo_finance_file_path = tmp_path / "symbols_yf.txt"
+    yahoo_finance_file_path.write_text("AAA\nBBB\n", encoding="utf-8")
+
+    monkeypatch.setattr(symbols_module, "DAILY_JOB_SYMBOLS_PATH", daily_job_file_path)
+    monkeypatch.setattr(symbols_module, "YF_SYMBOL_CACHE_PATH", yahoo_finance_file_path)
+
+    loaded_symbols = symbols_module.load_daily_job_symbols()
+    assert loaded_symbols == ["AAA", "BBB"]
+    assert daily_job_file_path.read_text(encoding="utf-8") == "AAA\nBBB\n"
+
+
+def test_remove_daily_job_symbol_updates_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Removing a symbol should update the daily job list."""
+
+    import stock_indicator.symbols as symbols_module
+
+    daily_job_file_path = tmp_path / "symbols_daily_job.txt"
+    yahoo_finance_file_path = tmp_path / "symbols_yf.txt"
+    yahoo_finance_file_path.write_text("AAA\nBBB\nCCC\n", encoding="utf-8")
+    daily_job_file_path.write_text("AAA\nBBB\nCCC\n", encoding="utf-8")
+
+    monkeypatch.setattr(symbols_module, "DAILY_JOB_SYMBOLS_PATH", daily_job_file_path)
+    monkeypatch.setattr(symbols_module, "YF_SYMBOL_CACHE_PATH", yahoo_finance_file_path)
+
+    was_removed = symbols_module.remove_daily_job_symbol("bbb")
+    assert was_removed is True
+    assert daily_job_file_path.read_text(encoding="utf-8") == "AAA\nCCC\n"
+
+    remaining_symbols = symbols_module.load_daily_job_symbols()
+    assert remaining_symbols == ["AAA", "CCC"]
+
+    was_removed_again = symbols_module.remove_daily_job_symbol("BBB")
+    assert was_removed_again is False
+
