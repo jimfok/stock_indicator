@@ -11,9 +11,11 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Any
 
 import pandas
+import yfinance.exceptions as yfinance_exceptions
 
 from . import cron, strategy_sets
 from .data_loader import download_history
+from .symbols import load_daily_job_symbols, remove_daily_job_symbol
 
 LOGGER = logging.getLogger(__name__)
 
@@ -414,6 +416,93 @@ def _read_latest_close(
         return None
     except Exception:  # noqa: BLE001
         return None
+
+
+# TODO: review
+def find_latest_signal(
+    dollar_volume_filter: str,
+    buy_strategy: str,
+    sell_strategy: str,
+    stop_loss: float,
+    allowed_fama_french_groups: set[int] | None = None,
+) -> Dict[str, Any]:
+    """Refresh data for tracked symbols and compute signals for today.
+
+    Symbols are loaded from ``symbols_daily_job.txt`` via
+    :func:`load_daily_job_symbols`. For each symbol the local CSV cache is
+    updated. If the update fails with a :class:`yfinance.exceptions.YFinanceError`
+    the symbol is removed from the daily job list to prevent repeated
+    failures. After refreshing the caches the function delegates to
+    :func:`find_history_signal` using today's date.
+
+    Parameters
+    ----------
+    dollar_volume_filter:
+        Filter applied to select symbols based on dollar volume.
+    buy_strategy:
+        Name of the strategy used to generate entry signals.
+    sell_strategy:
+        Name of the strategy used to generate exit signals.
+    stop_loss:
+        Fractional loss parameter kept for parity with other entry points.
+    allowed_fama_french_groups:
+        Optional set of FF12 group identifiers restricting the tradable
+        universe.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Dictionary containing entry and exit signals as well as optional
+        budget information.
+    """
+
+    today = datetime.date.today().isoformat()
+    symbol_list = load_daily_job_symbols()
+    for symbol_name in symbol_list:
+        csv_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
+        try:
+            history_frame = pandas.read_csv(csv_path, index_col=0, parse_dates=True)
+            if history_frame.empty:
+                download_start = DEFAULT_START_DATE
+            else:
+                next_day = history_frame.index.max() + pandas.Timedelta(days=1)
+                download_start = next_day.date().isoformat()
+        except Exception as read_error:  # noqa: BLE001
+            LOGGER.warning("Could not read %s: %s", csv_path, read_error)
+            download_start = DEFAULT_START_DATE
+        try:
+            download_history(
+                symbol_name,
+                start=download_start,
+                end=today,
+                cache_path=csv_path,
+            )
+            try:
+                cached_frame = pandas.read_csv(csv_path, index_col=0, parse_dates=True)
+                deduplicated_frame = cached_frame.loc[
+                    ~cached_frame.index.duplicated(keep="last")
+                ]
+                deduplicated_frame.to_csv(csv_path)
+            except Exception as cache_error:  # noqa: BLE001
+                LOGGER.warning("Failed to deduplicate %s: %s", csv_path, cache_error)
+        except yfinance_exceptions.YFException as download_error:
+            LOGGER.warning(
+                "Removing %s from daily job symbols due to download error: %s",
+                symbol_name,
+                download_error,
+            )
+            remove_daily_job_symbol(symbol_name)
+        except Exception as download_error:  # noqa: BLE001
+            LOGGER.warning("Failed to refresh data for %s: %s", symbol_name, download_error)
+
+    return find_history_signal(
+        today,
+        dollar_volume_filter,
+        buy_strategy,
+        sell_strategy,
+        stop_loss,
+        allowed_fama_french_groups,
+    )
 
 
 def find_history_signal(
