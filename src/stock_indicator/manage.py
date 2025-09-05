@@ -1603,6 +1603,12 @@ class StockShell(cmd.Cmd):
         """Display help for the exit command."""
         self.stdout.write("exit\nExit the shell.\n")
 
+    # TODO: review
+    def do_EOF(self, arg: str) -> bool:
+        """Exit the shell when an end-of-file (EOF) condition is reached."""
+        self.stdout.write("Bye\n")
+        return True
+
 
 if __name__ == "__main__":
     logging.basicConfig(
