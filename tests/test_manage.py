@@ -124,6 +124,28 @@ def test_reset_symbols_daily_job_command_recreates_file(
     assert output_buffer.getvalue() == "Daily job symbol list reset (count=2)\n"
 
 
+def test_reset_symbols_daily_job_command_handles_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command should report an error when the reset fails."""
+    import stock_indicator.manage as manage_module
+
+    def fake_reset_daily_job_symbols() -> list[str]:
+        raise OSError("cannot write")
+
+    monkeypatch.setattr(
+        manage_module.symbols,
+        "reset_daily_job_symbols",
+        fake_reset_daily_job_symbols,
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd("reset_symbols_daily_job")
+
+    assert output_buffer.getvalue() == "Error: cannot write\n"
+
+
 # TODO: review
 def test_find_history_signal_prints_recalculated_signals(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

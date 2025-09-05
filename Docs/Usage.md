@@ -2,6 +2,7 @@
 
 Use the `reset_symbols_daily_job` command to copy `data/symbols_yf.txt` into
 `data/symbols_daily_job.txt` when the daily job list needs to be recreated.
+The command prints a confirmation or an error message.
 
 To evaluate the FTD EMA and SMA cross strategy in the management shell, call:
 

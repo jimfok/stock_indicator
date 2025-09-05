@@ -184,7 +184,7 @@ class StockShell(cmd.Cmd):
         Copy the Yahoo Finance-ready symbol list to symbols_daily_job.txt."""
         try:
             symbol_list = symbols.reset_daily_job_symbols()
-        except Exception as error:  # noqa: BLE001
+        except OSError as error:
             self.stdout.write(f"Error: {error}\n")
             return
         self.stdout.write(

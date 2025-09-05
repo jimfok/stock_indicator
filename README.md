@@ -82,7 +82,7 @@ python -m stock_indicator.manage
 
 * `update_symbols` downloads the latest list of available ticker symbols from the SEC `company_tickers.json` dataset (via the sector pipeline integration) and writes `data/symbols.txt`.
 * `update_yf_symbols` probes Yahoo Finance for a small recent window and writes the subset of tickers that return data to `data/symbols_yf.txt`. Daily jobs require this list (no SEC fallback).
-* `reset_symbols_daily_job` copies the Yahoo Finance-ready list from `data/symbols_yf.txt` to `data/symbols_daily_job.txt`.
+* `reset_symbols_daily_job` copies the Yahoo Finance-ready list from `data/symbols_yf.txt` to `data/symbols_daily_job.txt`. Run this when the daily job symbol file is missing or outdated.
 * `update_data_from_yf SYMBOL START END` saves historical data for the given symbol to
   `data/<SYMBOL>.csv`.
 * `update_all_data_from_yf START END` performs the download for every cached symbol.
