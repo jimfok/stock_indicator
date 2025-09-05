@@ -464,3 +464,63 @@ def test_find_signal_deduplicates_cached_history(
         "2024-01-03",
     ]
     assert not frame_after_second_run.index.duplicated().any()
+
+
+def test_find_signal_preserves_existing_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """find_signal should keep original history rows without introducing duplicates."""
+
+    data_directory = tmp_path
+    csv_file_path = data_directory / "AAA.csv"
+    csv_file_path.write_text(
+        (
+            "Date,open,close\n"
+            "2024-01-01,1,1\n"
+            "2024-01-02,1,1\n"
+            "2024-01-03,1,1\n"
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_download_history(
+        symbol_name: str,
+        start: str,
+        end: str,
+        cache_path: Path | None = None,
+    ) -> pandas.DataFrame:
+        existing_frame = pandas.read_csv(cache_path, index_col=0, parse_dates=True)
+        new_frame = pandas.DataFrame(
+            {"open": [1, 1], "close": [1, 1]},
+            index=pandas.to_datetime(["2024-01-03", "2024-01-04"]),
+        )
+        combined_frame = pandas.concat([existing_frame, new_frame])
+        combined_frame.to_csv(cache_path)
+        return combined_frame
+
+    def fake_run_daily_tasks_from_argument(
+        argument_line: str,
+        start_date: str,
+        end_date: str,
+        symbol_list=None,
+        data_download_function=None,
+        data_directory: Path | None = None,
+    ) -> dict[str, list[str]]:
+        return {"entry_signals": [], "exit_signals": []}
+
+    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
+    monkeypatch.setattr(daily_job, "download_history", fake_download_history)
+    monkeypatch.setattr(
+        daily_job.cron,
+        "run_daily_tasks_from_argument",
+        fake_run_daily_tasks_from_argument,
+    )
+
+    daily_job.find_signal("2024-01-10", "dollar_volume>1", "buy", "sell", 1.0)
+
+    result_frame = pandas.read_csv(csv_file_path, index_col=0, parse_dates=True)
+    assert list(result_frame.index.strftime("%Y-%m-%d")) == [
+        "2024-01-01",
+        "2024-01-02",
+        "2024-01-03",
+        "2024-01-04",
+    ]
+    assert not result_frame.index.duplicated().any()
