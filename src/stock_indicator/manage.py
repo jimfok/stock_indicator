@@ -179,6 +179,27 @@ class StockShell(cmd.Cmd):
             "Use this to treat locally available CSVs as 'ready for daily jobs'.\n"
         )
 
+    def do_reset_symbols_daily_job(self, argument_line: str) -> None:  # noqa: D401
+        """reset_symbols_daily_job
+        Copy the Yahoo Finance-ready symbol list to symbols_daily_job.txt."""
+        try:
+            symbol_list = symbols.reset_daily_job_symbols()
+        except Exception as error:  # noqa: BLE001
+            self.stdout.write(f"Error: {error}\n")
+            return
+        self.stdout.write(
+            f"Daily job symbol list reset (count={len(symbol_list)})\n"
+        )
+
+    def help_reset_symbols_daily_job(self) -> None:
+        """Display help for the reset_symbols_daily_job command."""
+        self.stdout.write(
+            "reset_symbols_daily_job\n"
+            "Copy data/symbols_yf.txt to data/symbols_daily_job.txt.\n"
+            "Use this to reset the daily job symbol list from the "
+            "Yahoo Finance cache.\n"
+        )
+
     def do_update_data_from_yf(self, argument_line: str) -> None:  # noqa: D401
         """update_data_from_yf SYMBOL START END
         Download data from Yahoo Finance for SYMBOL between START and END and store as CSV."""
