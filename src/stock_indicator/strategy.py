@@ -796,6 +796,17 @@ def load_price_data(csv_file_path: Path) -> pandas.DataFrame:
         )
         for column_name in price_data_frame.columns
     ]
+    duplicate_column_mask = price_data_frame.columns.duplicated()
+    if duplicate_column_mask.any():
+        duplicate_column_names = price_data_frame.columns[
+            duplicate_column_mask
+        ].tolist()
+        LOGGER.warning(
+            "Duplicate column names %s found in %s; keeping first occurrence",
+            duplicate_column_names,
+            csv_file_path.name,
+        )
+        price_data_frame = price_data_frame.loc[:, ~duplicate_column_mask]
     required_columns = {"open", "close"}
     missing_column_names = [
         required_column
