@@ -22,6 +22,9 @@ SYMBOL_CACHE_PATH = (
 YF_SYMBOL_CACHE_PATH = (
     Path(__file__).resolve().parent.parent.parent / "data" / "symbols_yf.txt"
 )
+DAILY_JOB_SYMBOLS_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "data" / "symbols_daily_job.txt"
+)
 
 # Symbol representing the S&P 500 index.
 SP500_SYMBOL = "^GSPC"
@@ -138,4 +141,79 @@ def add_symbol_to_yf_cache(symbol: str) -> bool:
     YF_SYMBOL_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     YF_SYMBOL_CACHE_PATH.write_text("\n".join(updated_symbols) + "\n", encoding="utf-8")
     LOGGER.info("Added %s to YF symbol cache (%s)", normalized_symbol, YF_SYMBOL_CACHE_PATH)
+    return True
+
+
+def reset_daily_job_symbols() -> list[str]:
+    """Reset the daily job symbol list from the Yahoo Finance cache.
+
+    Copies the contents of ``symbols_yf.txt`` to ``symbols_daily_job.txt``. The
+    destination file will be created if necessary. Returns the list of symbols
+    written, which may be empty when the Yahoo Finance cache is missing.
+    """
+
+    symbol_list = load_yf_symbols()
+    DAILY_JOB_SYMBOLS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    text_to_write = "\n".join(symbol_list)
+    if text_to_write:
+        text_to_write += "\n"
+    DAILY_JOB_SYMBOLS_PATH.write_text(text_to_write, encoding="utf-8")
+    LOGGER.info(
+        "Daily job symbol list reset from %s (count=%d)",
+        YF_SYMBOL_CACHE_PATH,
+        len(symbol_list),
+    )
+    return symbol_list
+
+
+def load_daily_job_symbols() -> list[str]:
+    """Return the list of symbols pending for the daily job run.
+
+    If ``symbols_daily_job.txt`` does not exist, it is initialized by
+    :func:`reset_daily_job_symbols` using the Yahoo Finance cache. An empty list
+    is returned when both files are missing.
+    """
+
+    if not DAILY_JOB_SYMBOLS_PATH.exists():
+        reset_daily_job_symbols()
+    if not DAILY_JOB_SYMBOLS_PATH.exists():
+        return []
+    file_content = DAILY_JOB_SYMBOLS_PATH.read_text(encoding="utf-8")
+    return [line.strip() for line in file_content.splitlines() if line.strip()]
+
+
+def remove_daily_job_symbol(symbol: str) -> bool:
+    """Remove ``symbol`` from the daily job symbol list.
+
+    Parameters
+    ----------
+    symbol: str
+        Ticker symbol to remove from ``symbols_daily_job.txt``.
+
+    Returns
+    -------
+    bool
+        ``True`` when the symbol was removed, ``False`` otherwise.
+    """
+
+    normalized_symbol = (symbol or "").strip().upper()
+    if not normalized_symbol:
+        return False
+    current_symbols = load_daily_job_symbols()
+    if normalized_symbol not in current_symbols:
+        return False
+    updated_symbols = [
+        existing_symbol
+        for existing_symbol in current_symbols
+        if existing_symbol != normalized_symbol
+    ]
+    text_to_write = "\n".join(updated_symbols)
+    if text_to_write:
+        text_to_write += "\n"
+    DAILY_JOB_SYMBOLS_PATH.write_text(text_to_write, encoding="utf-8")
+    LOGGER.info(
+        "Removed %s from daily job symbol list (%s)",
+        normalized_symbol,
+        DAILY_JOB_SYMBOLS_PATH,
+    )
     return True
