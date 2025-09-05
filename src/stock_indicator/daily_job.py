@@ -499,15 +499,28 @@ def find_signal(
                 LOGGER.warning("Could not read %s: %s", csv_file_path, read_error)
                 download_start = DEFAULT_START_DATE
             try:
-                refreshed_frame = download_history(
+                download_history(
                     symbol_name,
                     start=download_start,
                     end=end_date_string,
                     cache_path=csv_file_path,
                 )
-                refreshed_frame.to_csv(csv_file_path)
+                try:
+                    cached_frame = pandas.read_csv(
+                        csv_file_path, index_col=0, parse_dates=True
+                    )
+                    deduplicated_frame = cached_frame.loc[
+                        ~cached_frame.index.duplicated(keep="last")
+                    ]
+                    deduplicated_frame.to_csv(csv_file_path)
+                except Exception as cache_error:  # noqa: BLE001
+                    LOGGER.warning(
+                        "Failed to deduplicate %s: %s", csv_file_path, cache_error
+                    )
             except Exception as download_error:  # noqa: BLE001
-                LOGGER.warning("Failed to refresh data for %s: %s", symbol_name, download_error)
+                LOGGER.warning(
+                    "Failed to refresh data for %s: %s", symbol_name, download_error
+                )
 
     signal_result: Dict[str, List[str]] = cron.run_daily_tasks_from_argument(
         argument_line,

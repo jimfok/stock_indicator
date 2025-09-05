@@ -394,3 +394,73 @@ def test_run_daily_job_budget_matches_simulator(
     assert budget_per_entry == pytest.approx(expected_budget)
     assert budget_by_symbol["BBB"] == pytest.approx(expected_budget)
     assert budget_by_symbol["CCC"] == pytest.approx(expected_budget)
+
+
+def test_find_signal_deduplicates_cached_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """find_signal should remove duplicate rows and preserve existing data."""
+
+    data_directory = tmp_path
+    csv_path = data_directory / "AAA.csv"
+    csv_path.write_text(
+        "Date,open,close\n2024-01-01,1,1\n2024-01-02,1,1\n", encoding="utf-8"
+    )
+
+    def fake_download_history(
+        symbol_name: str,
+        start: str,
+        end: str,
+        cache_path: Path | None = None,
+    ) -> pandas.DataFrame:
+        existing_frame = pandas.read_csv(cache_path, index_col=0, parse_dates=True)
+        new_frame = pandas.DataFrame(
+            {"open": [1, 1], "close": [1, 1]},
+            index=pandas.to_datetime(["2024-01-02", "2024-01-03"]),
+        )
+        combined_frame = pandas.concat([existing_frame, new_frame])
+        combined_frame.to_csv(cache_path)
+        return combined_frame
+
+    def fake_run_daily_tasks_from_argument(
+        argument_line: str,
+        start_date: str,
+        end_date: str,
+        symbol_list=None,
+        data_download_function=None,
+        data_directory: Path | None = None,
+    ) -> dict[str, list[str]]:
+        return {"entry_signals": [], "exit_signals": []}
+
+    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
+    monkeypatch.setattr(daily_job, "download_history", fake_download_history)
+    monkeypatch.setattr(
+        daily_job.cron,
+        "run_daily_tasks_from_argument",
+        fake_run_daily_tasks_from_argument,
+    )
+
+    daily_job.find_signal(
+        "2024-01-10", "dollar_volume>1", "buy", "sell", 1.0
+    )
+    frame_after_first_run = pandas.read_csv(
+        csv_path, index_col=0, parse_dates=True
+    )
+    assert list(frame_after_first_run.index.strftime("%Y-%m-%d")) == [
+        "2024-01-01",
+        "2024-01-02",
+        "2024-01-03",
+    ]
+
+    daily_job.find_signal(
+        "2024-01-10", "dollar_volume>1", "buy", "sell", 1.0
+    )
+    frame_after_second_run = pandas.read_csv(
+        csv_path, index_col=0, parse_dates=True
+    )
+    assert list(frame_after_second_run.index.strftime("%Y-%m-%d")) == [
+        "2024-01-01",
+        "2024-01-02",
+        "2024-01-03",
+    ]
+    assert not frame_after_second_run.index.duplicated().any()
