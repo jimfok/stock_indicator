@@ -20,6 +20,10 @@ from .symbols import load_daily_job_symbols, remove_daily_job_symbol
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_START_DATE = "2019-01-01"
+# Earliest date used when refreshing historical data; this guards against
+# missing rows in local caches. Modify only when extending the supported
+# history range.
+MINIMUM_HISTORY_DATE = "2014-01-01"
 DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "data"
 STOCK_DATA_DIRECTORY = DATA_DIRECTORY / "stock_data"
 LOG_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "logs"
@@ -28,7 +32,7 @@ CURRENT_STATUS_FILE = LOCAL_DATA_DIRECTORY / "current_status.json"
 
 
 def determine_start_date(data_directory: Path) -> str:
-    """Return the oldest date found in ``data_directory``.
+    """Return the earliest date across all CSV files in ``data_directory``.
 
     When no CSV files are available, ``DEFAULT_START_DATE`` is returned.
     """
@@ -38,19 +42,19 @@ def determine_start_date(data_directory: Path) -> str:
     for csv_file_path in data_directory.glob("*.csv"):
         try:
             date_frame = pandas.read_csv(
-                csv_file_path, usecols=[0], nrows=1, parse_dates=[0]
+                csv_file_path, usecols=[0], parse_dates=[0]
             )
         except Exception as read_error:  # noqa: BLE001
             LOGGER.warning("Could not read %s: %s", csv_file_path, read_error)
             continue
         if date_frame.empty:
             continue
-        first_value = date_frame.iloc[0, 0]
-        if not hasattr(first_value, "date"):
+        column_minimum = date_frame.iloc[:, 0].min()
+        if not hasattr(column_minimum, "date"):
             continue
-        first_date = first_value.date()
-        if earliest_date is None or first_date < earliest_date:
-            earliest_date = first_date
+        earliest_candidate = column_minimum.date()
+        if earliest_date is None or earliest_candidate < earliest_date:
+            earliest_date = earliest_candidate
     if earliest_date is None:
         return DEFAULT_START_DATE
     return earliest_date.isoformat()
@@ -532,8 +536,9 @@ def find_history_signal(
         Optional set of FF12 group identifiers (1–11) used to restrict the
         tradable universe. Group 12 (Other) is always excluded when sector data
         is available.
-    Historical data from the earliest available date in ``data/stock_data`` is
-    used to ensure sufficient look-back.
+    Historical data starting from either the earliest cached date in
+    ``data/stock_data`` or ``2014-01-01``—whichever is earlier—is used to
+    ensure sufficient look-back.
 
     Returns
     -------
@@ -551,14 +556,17 @@ def find_history_signal(
     )
     argument_line = f"{group_token}{dollar_volume_filter} {buy_strategy} {sell_strategy} {stop_loss}"
     start_date_string = determine_start_date(STOCK_DATA_DIRECTORY)
+    minimum_timestamp = pandas.Timestamp(MINIMUM_HISTORY_DATE)
+    if pandas.Timestamp(start_date_string) > minimum_timestamp:
+        start_date_string = MINIMUM_HISTORY_DATE
     # The downloader uses a half-open interval [start, end), therefore advance
     # the end date by one day to make the provided date inclusive.
     try:
         end_timestamp_inclusive = pandas.Timestamp(date_string)
         end_timestamp_exclusive = end_timestamp_inclusive + pandas.Timedelta(days=1)
-        end_date_string = end_timestamp_exclusive.date().isoformat()
+        evaluation_end_date_string = end_timestamp_exclusive.date().isoformat()
     except Exception:  # noqa: BLE001
-        end_date_string = date_string
+        evaluation_end_date_string = date_string
 
     # Align symbol universe with simulator: evaluate all locally cached CSVs.
     try:
@@ -573,25 +581,14 @@ def find_history_signal(
     # Refresh local history files so cron can rely on up-to-date data without
     # needing to perform network requests for each symbol.
     if local_symbols is not None:
+        current_date_string = datetime.date.today().isoformat()
         for symbol_name in local_symbols:
             csv_file_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
             try:
-                history_frame = pandas.read_csv(
-                    csv_file_path, index_col=0, parse_dates=True
-                )
-                if history_frame.empty:
-                    download_start = DEFAULT_START_DATE
-                else:
-                    last_timestamp = history_frame.index.max() + pandas.Timedelta(days=1)
-                    download_start = last_timestamp.date().isoformat()
-            except Exception as read_error:  # noqa: BLE001
-                LOGGER.warning("Could not read %s: %s", csv_file_path, read_error)
-                download_start = DEFAULT_START_DATE
-            try:
                 download_history(
                     symbol_name,
-                    start=download_start,
-                    end=end_date_string,
+                    start=start_date_string,
+                    end=current_date_string,
                     cache_path=csv_file_path,
                 )
                 try:
@@ -614,7 +611,7 @@ def find_history_signal(
     signal_result: Dict[str, List[str]] = cron.run_daily_tasks_from_argument(
         argument_line,
         start_date=start_date_string,
-        end_date=end_date_string,
+        end_date=evaluation_end_date_string,
         symbol_list=local_symbols,
         data_directory=STOCK_DATA_DIRECTORY,
     )
