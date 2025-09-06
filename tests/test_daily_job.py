@@ -399,6 +399,41 @@ def test_run_daily_job_budget_matches_simulator(
     assert budget_by_symbol["CCC"] == pytest.approx(expected_budget)
 
 
+# TODO: review
+def test_find_history_signal_skips_download_when_cache_covers_range(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """find_history_signal should skip downloading when the cache spans the required range."""
+
+    data_directory = tmp_path
+    csv_file_path = data_directory / "AAA.csv"
+    csv_file_path.write_text(
+        "Date,open,close\n2023-08-01,1,1\n2024-01-10,1,1\n", encoding="utf-8"
+    )
+
+    download_calls: list[str] = []
+
+    def fake_download_history(
+        symbol_name: str, start: str, end: str, cache_path: Path | None = None
+    ) -> pandas.DataFrame:
+        download_calls.append(symbol_name)
+        return pandas.DataFrame()
+
+    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
+    monkeypatch.setattr(daily_job, "download_history", fake_download_history)
+    monkeypatch.setattr(
+        daily_job.cron,
+        "run_daily_tasks_from_argument",
+        lambda *a, **k: {"entry_signals": [], "exit_signals": []},
+    )
+
+    daily_job.find_history_signal(
+        "2024-01-10", "dollar_volume>1", "buy", "sell", 1.0
+    )
+
+    assert download_calls == []
+
+
 def test_find_history_signal_deduplicates_cached_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -562,11 +562,13 @@ def find_history_signal(
     # The downloader uses a half-open interval [start, end), therefore advance
     # the end date by one day to make the provided date inclusive.
     try:
-        end_timestamp_inclusive = pandas.Timestamp(date_string)
-        end_timestamp_exclusive = end_timestamp_inclusive + pandas.Timedelta(days=1)
+        evaluation_timestamp = pandas.Timestamp(date_string)
+        end_timestamp_exclusive = evaluation_timestamp + pandas.Timedelta(days=1)
         evaluation_end_date_string = end_timestamp_exclusive.date().isoformat()
     except Exception:  # noqa: BLE001
+        evaluation_timestamp = pandas.Timestamp.today()
         evaluation_end_date_string = date_string
+    required_start = evaluation_timestamp - pandas.Timedelta(days=150)
 
     # Align symbol universe with simulator: evaluate all locally cached CSVs.
     try:
@@ -584,29 +586,46 @@ def find_history_signal(
         current_date_string = datetime.date.today().isoformat()
         for symbol_name in local_symbols:
             csv_file_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
+            needs_refresh = True
             try:
-                download_history(
-                    symbol_name,
-                    start=start_date_string,
-                    end=current_date_string,
-                    cache_path=csv_file_path,
+                cached_index_frame = pandas.read_csv(
+                    csv_file_path, usecols=[0], index_col=0, parse_dates=True
                 )
+                if not cached_index_frame.index.empty:
+                    earliest_cached_timestamp = cached_index_frame.index.min()
+                    latest_cached_timestamp = cached_index_frame.index.max()
+                    if (
+                        earliest_cached_timestamp <= required_start
+                        and latest_cached_timestamp >= evaluation_timestamp
+                    ):
+                        needs_refresh = False
+            except Exception as read_error:  # noqa: BLE001
+                LOGGER.warning("Could not read %s: %s", csv_file_path, read_error)
+
+            if needs_refresh:
                 try:
-                    cached_frame = pandas.read_csv(
-                        csv_file_path, index_col=0, parse_dates=True
+                    download_history(
+                        symbol_name,
+                        start=start_date_string,
+                        end=current_date_string,
+                        cache_path=csv_file_path,
                     )
-                    deduplicated_frame = cached_frame.loc[
-                        ~cached_frame.index.duplicated(keep="last")
-                    ]
-                    deduplicated_frame.to_csv(csv_file_path)
-                except Exception as cache_error:  # noqa: BLE001
+                    try:
+                        cached_frame = pandas.read_csv(
+                            csv_file_path, index_col=0, parse_dates=True
+                        )
+                        deduplicated_frame = cached_frame.loc[
+                            ~cached_frame.index.duplicated(keep="last")
+                        ]
+                        deduplicated_frame.to_csv(csv_file_path)
+                    except Exception as cache_error:  # noqa: BLE001
+                        LOGGER.warning(
+                            "Failed to deduplicate %s: %s", csv_file_path, cache_error
+                        )
+                except Exception as download_error:  # noqa: BLE001
                     LOGGER.warning(
-                        "Failed to deduplicate %s: %s", csv_file_path, cache_error
+                        "Failed to refresh data for %s: %s", symbol_name, download_error
                     )
-            except Exception as download_error:  # noqa: BLE001
-                LOGGER.warning(
-                    "Failed to refresh data for %s: %s", symbol_name, download_error
-                )
 
     signal_result: Dict[str, List[str]] = cron.run_daily_tasks_from_argument(
         argument_line,
