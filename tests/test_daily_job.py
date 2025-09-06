@@ -166,7 +166,7 @@ def test_run_daily_job_uses_oldest_data_date(tmp_path, monkeypatch):
         current_date=current_date,
     )
 
-    assert captured_start_date["value"] == "2018-06-01"
+    assert captured_start_date["value"] == "2014-01-01"
 
 
 def test_run_daily_job_expands_strategy_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

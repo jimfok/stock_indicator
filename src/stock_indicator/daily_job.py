@@ -32,7 +32,7 @@ CURRENT_STATUS_FILE = LOCAL_DATA_DIRECTORY / "current_status.json"
 
 
 def determine_start_date(data_directory: Path) -> str:
-    """Return the oldest date found in ``data_directory``.
+    """Return the earliest date across all CSV files in ``data_directory``.
 
     When no CSV files are available, ``DEFAULT_START_DATE`` is returned.
     """
@@ -42,19 +42,19 @@ def determine_start_date(data_directory: Path) -> str:
     for csv_file_path in data_directory.glob("*.csv"):
         try:
             date_frame = pandas.read_csv(
-                csv_file_path, usecols=[0], nrows=1, parse_dates=[0]
+                csv_file_path, usecols=[0], parse_dates=[0]
             )
         except Exception as read_error:  # noqa: BLE001
             LOGGER.warning("Could not read %s: %s", csv_file_path, read_error)
             continue
         if date_frame.empty:
             continue
-        first_value = date_frame.iloc[0, 0]
-        if not hasattr(first_value, "date"):
+        column_minimum = date_frame.iloc[:, 0].min()
+        if not hasattr(column_minimum, "date"):
             continue
-        first_date = first_value.date()
-        if earliest_date is None or first_date < earliest_date:
-            earliest_date = first_date
+        earliest_candidate = column_minimum.date()
+        if earliest_date is None or earliest_candidate < earliest_date:
+            earliest_date = earliest_candidate
     if earliest_date is None:
         return DEFAULT_START_DATE
     return earliest_date.isoformat()
