@@ -10,6 +10,7 @@ import gc  # TODO: review
 import logging
 import re
 import sys  # TODO: review
+import time  # TODO: review
 from pathlib import Path
 from statistics import mean, stdev
 from typing import Any, Dict, List
@@ -296,8 +297,24 @@ class StockShell(cmd.Cmd):
             )
             STOCK_DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
             output_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
-            with output_path.open("w", encoding="utf-8") as file_handle:  # TODO: review
-                data_frame_with_date.to_csv(file_handle, index=False)  # TODO: review
+            try:
+                with output_path.open("w", encoding="utf-8") as file_handle:  # TODO: review
+                    data_frame_with_date.to_csv(file_handle, index=False)  # TODO: review
+            except OSError as first_error:  # TODO: review
+                LOGGER.error(
+                    "Error writing CSV for %s: %s", symbol_name, first_error
+                )  # TODO: review
+                time.sleep(1)  # TODO: review
+                try:
+                    with output_path.open("w", encoding="utf-8") as file_handle:  # TODO: review
+                        data_frame_with_date.to_csv(file_handle, index=False)  # TODO: review
+                except OSError as second_error:  # TODO: review
+                    LOGGER.error(
+                        "Skipping %s due to repeated write failure: %s",
+                        symbol_name,
+                        second_error,
+                    )  # TODO: review
+                    continue
             self.stdout.write(f"Data written to {output_path}\n")
             # Keep YF symbol list in sync when a symbol successfully wrote
             try:
