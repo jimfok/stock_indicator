@@ -6,14 +6,16 @@ from __future__ import annotations
 
 import cmd
 import datetime
+import gc  # TODO: review
 import logging
 import re
 import sys  # TODO: review
 from pathlib import Path
 from statistics import mean, stdev
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 import pandas
+import yfinance  # TODO: review
 from pandas import DataFrame
 
 from . import data_loader, symbols, strategy, daily_job
@@ -144,6 +146,19 @@ def save_trade_details_to_log(
                 file_handle.write(line + "\n")
 
 
+def _cleanup_yfinance_session() -> None:
+    """Close shared yfinance session and run garbage collection."""
+    session = getattr(yfinance.shared, "_SESSION", None)  # TODO: review
+    if session is not None:
+        try:
+            session.close()  # TODO: review
+        except Exception as close_error:  # noqa: BLE001
+            LOGGER.debug(
+                "Failed to close yfinance session: %s", close_error
+            )  # TODO: review
+    gc.collect()  # TODO: review
+
+
 class StockShell(cmd.Cmd):
     """Interactive command shell for stock data maintenance."""
 
@@ -211,6 +226,7 @@ class StockShell(cmd.Cmd):
         data_frame: DataFrame = data_loader.download_history(
             symbol_name, start_date, end_date
         )
+        _cleanup_yfinance_session()  # TODO: review
         data_frame_with_date: DataFrame = (
             data_frame.reset_index().rename(columns={"index": "Date"})
         )
@@ -237,6 +253,7 @@ class StockShell(cmd.Cmd):
             sp_frame: DataFrame = data_loader.download_history(
                 SP500_SYMBOL, start_date, end_date
             )
+            _cleanup_yfinance_session()  # TODO: review
             sp_with_date: DataFrame = (
                 sp_frame.reset_index().rename(columns={"index": "Date"})
             )
@@ -273,12 +290,14 @@ class StockShell(cmd.Cmd):
             data_frame: DataFrame = data_loader.download_history(
                 symbol_name, start_date, end_date
             )
+            _cleanup_yfinance_session()  # TODO: review
             data_frame_with_date: DataFrame = (
                 data_frame.reset_index().rename(columns={"index": "Date"})
             )
             STOCK_DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
             output_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
-            data_frame_with_date.to_csv(output_path, index=False)
+            with output_path.open("w", encoding="utf-8") as file_handle:  # TODO: review
+                data_frame_with_date.to_csv(file_handle, index=False)  # TODO: review
             self.stdout.write(f"Data written to {output_path}\n")
             # Keep YF symbol list in sync when a symbol successfully wrote
             try:
