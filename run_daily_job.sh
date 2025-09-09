@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# Allow the cron job to open more file descriptors
+ulimit -n 4096
+
 # Determine repository path from script location or override with environment variables
 SCRIPT_DIRECTORY="$(cd "$(dirname "$0")" && pwd)"
 REPOSITORY_ROOT="${REPO:-$SCRIPT_DIRECTORY}"
