@@ -267,10 +267,10 @@ def test_find_history_signal_returns_cron_output(
     assert signal_dictionary["exit_signals"] == expected_result["exit_signals"]
 
 
-def test_find_history_signal_detects_previous_day_crossover(
+def test_find_history_signal_detects_same_day_crossover(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """find_history_signal should detect signals when the crossover is one day earlier."""
+    """find_history_signal should detect signals on the crossover day."""
 
     data_directory = tmp_path
     csv_lines = ["Date,open,close,volume\n"]
@@ -316,7 +316,7 @@ def test_find_history_signal_detects_previous_day_crossover(
     )
 
     signal_dictionary = daily_job.find_history_signal(
-        "2024-02-21",
+        "2024-02-20",
         "dollar_volume>1",
         "20_50_sma_cross",
         "20_50_sma_cross",
@@ -408,7 +408,7 @@ def test_find_history_signal_skips_download_when_cache_covers_range(
     data_directory = tmp_path
     csv_file_path = data_directory / "AAA.csv"
     csv_file_path.write_text(
-        "Date,open,close\n2023-08-01,1,1\n2024-01-10,1,1\n", encoding="utf-8"
+        "Date,open,close\n2023-08-01,1,1\n2024-01-11,1,1\n", encoding="utf-8"
     )
 
     download_calls: list[str] = []

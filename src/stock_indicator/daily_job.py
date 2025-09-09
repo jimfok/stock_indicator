@@ -519,10 +519,14 @@ def find_history_signal(
 ) -> Dict[str, Any]:
     """Run daily tasks for a single date and return signals and budget data.
 
+    The ``date_string`` represents the day on which indicator signals are
+    generated. Entries based on those signals occur on the next trading day's
+    open.
+
     Parameters
     ----------
     date_string:
-        ISO formatted date string representing the day to evaluate.
+        ISO formatted date string representing the signal date.
     dollar_volume_filter:
         Filter applied to select symbols based on dollar volume.
     buy_strategy:
@@ -562,12 +566,13 @@ def find_history_signal(
     # The downloader uses a half-open interval [start, end), therefore advance
     # the end date by one day to make the provided date inclusive.
     try:
-        evaluation_timestamp = pandas.Timestamp(date_string)
+        evaluation_timestamp = pandas.Timestamp(date_string) + pandas.Timedelta(days=1)
         end_timestamp_exclusive = evaluation_timestamp + pandas.Timedelta(days=1)
         evaluation_end_date_string = end_timestamp_exclusive.date().isoformat()
     except Exception:  # noqa: BLE001
-        evaluation_timestamp = pandas.Timestamp.today()
-        evaluation_end_date_string = date_string
+        evaluation_timestamp = pandas.Timestamp.today() + pandas.Timedelta(days=1)
+        end_timestamp_exclusive = evaluation_timestamp + pandas.Timedelta(days=1)
+        evaluation_end_date_string = end_timestamp_exclusive.date().isoformat()
     required_start = evaluation_timestamp - pandas.Timedelta(days=150)
 
     # Align symbol universe with simulator: evaluate all locally cached CSVs.
