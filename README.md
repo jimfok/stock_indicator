@@ -97,9 +97,10 @@ python -m stock_indicator.manage
   STOP_LOSS` or `find_history_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS
   strategy=ID` recalculates the entry and exit signals for `DATE`. The first
   form supplies explicit buy and sell strategy names, while the second
-  references a strategy set identifier (see Strategy Sets below). Signal
-  calculation uses the same group dynamic ratio and Top-N rule as
-  `start_simulate`.
+  references a strategy set identifier (see Strategy Sets below). The `DATE`
+  refers to when the indicators generate signals; simulated trades occur at the
+  next trading day's open. Signal calculation uses the same group dynamic ratio
+  and Top-N rule as `start_simulate`.
 * `find_latest_signal DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY
   STOP_LOSS` or `find_latest_signal DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID`
   refreshes data for the symbols listed in `data/symbols_daily_job.txt` and
