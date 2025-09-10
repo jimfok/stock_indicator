@@ -604,14 +604,14 @@ def find_history_signal(
     minimum_timestamp = pandas.Timestamp(MINIMUM_HISTORY_DATE)
     if pandas.Timestamp(start_date_string) > minimum_timestamp:
         start_date_string = MINIMUM_HISTORY_DATE
-    # The downloader uses a half-open interval [start, end), therefore advance
-    # the end date by one day to make the provided date inclusive.
+    # The downloader uses a half-open interval [start, end), therefore set the
+    # end date to the day after the provided ``date_string`` to make it inclusive.
     try:
-        evaluation_timestamp = pandas.Timestamp(date_string) + pandas.Timedelta(days=1)
+        evaluation_timestamp = pandas.Timestamp(date_string)
         end_timestamp_exclusive = evaluation_timestamp + pandas.Timedelta(days=1)
         evaluation_end_date_string = end_timestamp_exclusive.date().isoformat()
     except Exception:  # noqa: BLE001
-        evaluation_timestamp = pandas.Timestamp.today() + pandas.Timedelta(days=1)
+        evaluation_timestamp = pandas.Timestamp.today()
         end_timestamp_exclusive = evaluation_timestamp + pandas.Timedelta(days=1)
         evaluation_end_date_string = end_timestamp_exclusive.date().isoformat()
     required_start = evaluation_timestamp - pandas.Timedelta(days=150)

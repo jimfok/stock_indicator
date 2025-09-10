@@ -60,6 +60,7 @@ def test_run_daily_job_accepts_percentage(tmp_path: Path, monkeypatch: pytest.Mo
         top_dollar_volume_rank: int | None = None,
         allowed_fama_french_groups: set[int] | None = None,
         maximum_symbols_per_group: int = 1,
+        use_unshifted_signals: bool = False,
     ):
         captured_arguments["minimum_average_dollar_volume"] = minimum_average_dollar_volume
         captured_arguments["top_dollar_volume_rank"] = top_dollar_volume_rank
@@ -104,6 +105,7 @@ def test_run_daily_job_accepts_percentage_and_rank(
         top_dollar_volume_rank: int | None = None,
         allowed_fama_french_groups: set[int] | None = None,
         maximum_symbols_per_group: int = 1,
+        use_unshifted_signals: bool = False,
     ):
         captured_arguments["minimum_average_dollar_volume"] = minimum_average_dollar_volume
         captured_arguments["top_dollar_volume_rank"] = top_dollar_volume_rank
@@ -276,7 +278,7 @@ def test_find_history_signal_detects_same_day_crossover(
     data_directory = tmp_path
     csv_lines = ["Date,open,close,volume\n"]
     start_day = datetime.date(2024, 1, 1)
-    for day_index in range(52):
+    for day_index in range(51):
         current_day = start_day + datetime.timedelta(days=day_index)
         price_value = 1.0 if day_index < 50 else 2.0
         csv_lines.append(

@@ -185,6 +185,7 @@ def run_daily_tasks(
     top_dollar_volume_rank: int | None = None,  # TODO: review
     allowed_fama_french_groups: set[int] | None = None,
     maximum_symbols_per_group: int = 1,
+    use_unshifted_signals: bool = False,
 ) -> Dict[str, List[str]]:
     """Execute the daily workflow using simulation-grade selection logic.
 
@@ -198,7 +199,9 @@ def run_daily_tasks(
     -----
     The parameters ``symbol_list`` and ``data_download_function`` remain in the
     signature for backward compatibility but are not used in this computation.
-    Local CSV data under ``data_directory`` is required.
+    Local CSV data under ``data_directory`` is required. When
+    ``use_unshifted_signals`` is ``True``, the strategy functions must provide
+    columns with the ``_unshifted`` suffix representing same-day signals.
     """
     # Determine the evaluation day as the last bar within [start_date, end_date)
     try:
@@ -222,6 +225,18 @@ def run_daily_tasks(
 
     allowed_symbol_set: set[str] | None = set(symbol_list) if symbol_list is not None else None
 
+    if symbol_list is not None and data_directory is not None:
+        for symbol_name in symbol_list:
+            csv_file_path = data_directory / f"{symbol_name}.csv"
+            try:
+                data_download_function(
+                    symbol_name, start_date, end_date, cache_path=csv_file_path
+                )
+            except Exception as download_error:  # noqa: BLE001
+                LOGGER.warning(
+                    "Failed to refresh data for %s: %s", symbol_name, download_error
+                )
+
     return compute_signals_for_date(
         data_directory=data_directory,
         evaluation_date=evaluation_date,
@@ -234,6 +249,7 @@ def run_daily_tasks(
         allowed_symbols=allowed_symbol_set,
         exclude_other_ff12=True,
         maximum_symbols_per_group=maximum_symbols_per_group,
+        use_unshifted_signals=use_unshifted_signals,
     )
 
 
@@ -294,5 +310,6 @@ def run_daily_tasks_from_argument(
         minimum_average_dollar_volume=minimum_average_dollar_volume,
         top_dollar_volume_rank=top_dollar_volume_rank,
         allowed_fama_french_groups=allowed_groups,
+        use_unshifted_signals=True,
         **extra_kwargs,
     )
