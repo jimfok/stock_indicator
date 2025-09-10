@@ -64,10 +64,11 @@ selling strategies instead.
 
 Each execution of the daily job records entry and exit signals in a log file in
 the project's `logs` directory using the `<YYYY-MM-DD>.log` naming convention.
-The `find_history_signal` command recalculates the signals for a specific date rather than reading the log files.
-The supplied date represents when indicator signals are produced; trades based on
-those signals execute at the next trading day's open. Signal calculation uses the
-same group dynamic ratio and Top-N rule as `start_simulate`.
+The `find_history_signal` command recalculates the signals for a specific date
+rather than reading the log files. It reports the signals generated on the
+supplied date without shifting them to the following trading day. Trading based
+on those signals still occurs at the next trading day's open. Signal calculation
+uses the same group dynamic ratio and Top-N rule as `start_simulate`.
 The management shell can compute signals for a specific day with either form:
 
 ```
@@ -86,6 +87,12 @@ entry signals: ['AAA', 'BBB']
 exit signals: ['CCC', 'DDD']
 budget suggestions: {'AAA': 500.0, 'BBB': 500.0}
 ```
+
+In contrast, simulation commands operate on trade days. A signal produced on
+`2024-01-10` triggers a simulated trade on `2024-01-11`, while
+`find_history_signal 2024-01-10 ...` reports the signals for `2024-01-10`
+itself. This distinction helps separate signal-day lookups from trade-day
+executions.
 
 Developers may call
 `daily_job.find_history_signal("2024-01-10", "dollar_volume>1", "ema_sma_cross", "ema_sma_cross", 1.0)`
