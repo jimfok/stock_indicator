@@ -154,10 +154,12 @@ def test_run_daily_job_uses_oldest_data_date(tmp_path, monkeypatch):
     data_directory = tmp_path / "data"
     data_directory.mkdir()
     (data_directory / "AAA.csv").write_text(
-        "Date,open,close\n2018-06-01,1,1\n2018-06-02,1,1\n", encoding="utf-8"
+        "Date,open,close\n2018-06-01,1,1\n2018-06-02,1,1\n2024-01-10,1,1\n",
+        encoding="utf-8",
     )
     (data_directory / "BBB.csv").write_text(
-        "Date,open,close\n2019-01-01,1,1\n2019-01-02,1,1\n", encoding="utf-8"
+        "Date,open,close\n2019-01-01,1,1\n2019-01-02,1,1\n2024-01-10,1,1\n",
+        encoding="utf-8",
     )
     log_directory = tmp_path / "logs"
     current_date = datetime.date(2024, 1, 10)
@@ -238,7 +240,7 @@ def test_run_daily_job_unknown_strategy_id(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_find_history_signal_returns_cron_output(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """find_history_signal should return the values from cron."""
 
@@ -257,6 +259,12 @@ def test_find_history_signal_returns_cron_output(
     monkeypatch.setattr(
         daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument
     )
+    csv_file_path = tmp_path / "AAA.csv"
+    csv_file_path.write_text(
+        "Date,open,close\n2023-08-01,1,1\n2024-01-10,1,1\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
 
     signal_dictionary = daily_job.find_history_signal(
         "2024-01-10",
@@ -411,7 +419,8 @@ def test_find_history_signal_skips_download_when_cache_covers_range(
     data_directory = tmp_path
     csv_file_path = data_directory / "AAA.csv"
     csv_file_path.write_text(
-        "Date,open,close\n2023-08-01,1,1\n2024-01-11,1,1\n", encoding="utf-8"
+        "Date,open,close\n2023-08-01,1,1\n2024-01-10,1,1\n2024-01-11,1,1\n",
+        encoding="utf-8",
     )
 
     download_calls: list[str] = []
@@ -435,6 +444,31 @@ def test_find_history_signal_skips_download_when_cache_covers_range(
     )
 
     assert download_calls == []
+
+
+def test_find_history_signal_raises_when_data_missing_for_date(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """find_history_signal should raise when evaluation-day data is missing."""
+
+    data_directory = tmp_path
+    csv_file_path = data_directory / "AAA.csv"
+    csv_file_path.write_text(
+        "Date,open,close\n2023-08-01,1,1\n2024-01-11,1,1\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
+    monkeypatch.setattr(
+        daily_job.cron,
+        "run_daily_tasks_from_argument",
+        lambda *a, **k: {"entry_signals": [], "exit_signals": []},
+    )
+
+    with pytest.raises(ValueError, match="signals cannot be computed"):
+        daily_job.find_history_signal(
+            "2024-01-10", "dollar_volume>1", "buy", "sell", 1.0
+        )
 
 
 def test_find_history_signal_deduplicates_cached_history(
@@ -482,7 +516,7 @@ def test_find_history_signal_deduplicates_cached_history(
     )
 
     daily_job.find_history_signal(
-        "2024-01-10", "dollar_volume>1", "buy", "sell", 1.0
+        "2024-01-03", "dollar_volume>1", "buy", "sell", 1.0
     )
     frame_after_first_run = pandas.read_csv(
         csv_path, index_col=0, parse_dates=True
@@ -494,7 +528,7 @@ def test_find_history_signal_deduplicates_cached_history(
     ]
 
     daily_job.find_history_signal(
-        "2024-01-10", "dollar_volume>1", "buy", "sell", 1.0
+        "2024-01-03", "dollar_volume>1", "buy", "sell", 1.0
     )
     frame_after_second_run = pandas.read_csv(
         csv_path, index_col=0, parse_dates=True
@@ -558,7 +592,7 @@ def test_find_history_signal_preserves_existing_rows(
     )
 
     daily_job.find_history_signal(
-        "2024-01-10", "dollar_volume>1", "buy", "sell", 1.0
+        "2024-01-04", "dollar_volume>1", "buy", "sell", 1.0
     )
 
     result_frame = pandas.read_csv(csv_file_path, index_col=0, parse_dates=True)

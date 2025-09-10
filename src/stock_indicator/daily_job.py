@@ -673,6 +673,26 @@ def find_history_signal(
                         "Failed to refresh data for %s: %s", symbol_name, download_error
                     )
 
+    if local_symbols is not None:
+        # Ensure every symbol has data for the requested evaluation date.
+        missing_symbols: List[str] = []
+        for symbol_name in local_symbols:
+            csv_file_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
+            try:
+                history_frame = pandas.read_csv(
+                    csv_file_path, index_col=0, parse_dates=True
+                )
+            except Exception:  # noqa: BLE001
+                missing_symbols.append(symbol_name)
+                continue
+            if evaluation_timestamp not in history_frame.index:
+                missing_symbols.append(symbol_name)
+        if missing_symbols:
+            missing_list = ", ".join(sorted(missing_symbols))
+            raise ValueError(
+                f"signals cannot be computed for {date_string}: missing data for {missing_list}"
+            )
+
     signal_result: Dict[str, List[str]] = cron.run_daily_tasks_from_argument(
         argument_line,
         start_date=start_date_string,
