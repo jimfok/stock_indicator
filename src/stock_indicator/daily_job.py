@@ -202,8 +202,14 @@ def run_daily_job(
     if log_directory is None:
         log_directory = LOG_DIRECTORY
 
-    current_date_string = current_date.isoformat()
-    LOGGER.info("Starting daily tasks for %s", current_date_string)
+    signal_date_string = current_date.isoformat()
+    trade_date = (pandas.Timestamp(current_date) + BDay(1)).date()
+    trade_date_string = trade_date.isoformat()
+    LOGGER.info(
+        "Starting daily tasks for trade date %s using signals from %s",
+        trade_date_string,
+        signal_date_string,
+    )
     normalized_argument_line = _expand_strategy_argument_line(argument_line)
 
     token_list = normalized_argument_line.split()
@@ -234,7 +240,7 @@ def run_daily_job(
     try:
         STOCK_DATA_DIRECTORY = data_directory
         signal_result: Dict[str, list[str]] = find_history_signal(
-            current_date_string,
+            signal_date_string,
             dollar_volume_filter,
             buy_strategy_name,
             sell_strategy_name,
@@ -244,7 +250,7 @@ def run_daily_job(
     finally:
         STOCK_DATA_DIRECTORY = original_stock_directory
     log_directory.mkdir(parents=True, exist_ok=True)
-    log_file_path = log_directory / f"{current_date_string}.log"
+    log_file_path = log_directory / f"{signal_date_string}.log"
     entry_signals: List[str] = signal_result.get("entry_signals", [])
     exit_signals: List[str] = signal_result.get("exit_signals", [])
 
