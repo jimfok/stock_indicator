@@ -3,6 +3,7 @@
 
 import os
 import sys
+import datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -2289,6 +2290,44 @@ def test_evaluate_combined_strategy_passes_near_and_above_thresholds(
     assert captured_arguments["near_pct"] == pytest.approx(0.11)
     assert captured_arguments["above_pct"] == pytest.approx(0.09)
     assert result.total_trades == 1
+
+
+def test_compute_signals_for_date_returns_same_day_signal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """compute_signals_for_date should return raw signals on the same day."""
+
+    price_lines = ["Date,open,close,volume\n"]
+    start_day = datetime.date(2024, 1, 1)
+    for day_index in range(51):
+        current_day = start_day + datetime.timedelta(days=day_index)
+        price_value = 1.0 if day_index < 50 else 2.0
+        price_lines.append(
+            f"{current_day.isoformat()},{price_value},{price_value},1000000\n"
+        )
+    (tmp_path / "AAA.csv").write_text("".join(price_lines), encoding="utf-8")
+
+    monkeypatch.setattr(strategy, "load_symbols_excluded_by_industry", lambda: set())
+    monkeypatch.setattr(strategy, "load_ff12_groups_by_symbol", lambda: {})
+
+    same_day_result = strategy.compute_signals_for_date(
+        data_directory=tmp_path,
+        evaluation_date=pandas.Timestamp("2024-02-20"),
+        buy_strategy_name="20_50_sma_cross",
+        sell_strategy_name="20_50_sma_cross",
+        use_unshifted_signals=True,
+    )
+
+    assert same_day_result["entry_signals"] == ["AAA"]
+    assert same_day_result["exit_signals"] == []
+
+    shifted_result = strategy.compute_signals_for_date(
+        data_directory=tmp_path,
+        evaluation_date=pandas.Timestamp("2024-02-20"),
+        buy_strategy_name="20_50_sma_cross",
+        sell_strategy_name="20_50_sma_cross",
+        use_unshifted_signals=False,
+    )
+
+    assert shifted_result["entry_signals"] == []
 
 
 def test_calculate_chip_concentration_metrics_defaults_volume_profile_to_none() -> None:

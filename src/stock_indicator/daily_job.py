@@ -605,15 +605,13 @@ def find_history_signal(
     if pandas.Timestamp(start_date_string) > minimum_timestamp:
         start_date_string = MINIMUM_HISTORY_DATE
     # The downloader uses a half-open interval [start, end), therefore set the
-    # end date to the day after the provided ``date_string`` to make it inclusive.
+    # end date to the evaluation day so that it is included in the range.
     try:
         evaluation_timestamp = pandas.Timestamp(date_string)
-        end_timestamp_exclusive = evaluation_timestamp + pandas.Timedelta(days=1)
-        evaluation_end_date_string = end_timestamp_exclusive.date().isoformat()
+        evaluation_end_date_string = evaluation_timestamp.date().isoformat()
     except Exception:  # noqa: BLE001
         evaluation_timestamp = pandas.Timestamp.today()
-        end_timestamp_exclusive = evaluation_timestamp + pandas.Timedelta(days=1)
-        evaluation_end_date_string = end_timestamp_exclusive.date().isoformat()
+        evaluation_end_date_string = evaluation_timestamp.date().isoformat()
     required_start = evaluation_timestamp - pandas.Timedelta(days=150)
 
     # Align symbol universe with simulator: evaluate all locally cached CSVs.
@@ -699,6 +697,7 @@ def find_history_signal(
         end_date=evaluation_end_date_string,
         symbol_list=local_symbols,
         data_directory=STOCK_DATA_DIRECTORY,
+        use_unshifted_signals=True,
     )
 
     entry_signals: List[str] = signal_result.get("entry_signals", [])

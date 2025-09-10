@@ -200,12 +200,16 @@ def run_daily_tasks(
     The parameters ``symbol_list`` and ``data_download_function`` remain in the
     signature for backward compatibility but are not used in this computation.
     Local CSV data under ``data_directory`` is required. When
-    ``use_unshifted_signals`` is ``True``, the strategy functions must provide
-    columns with the ``_unshifted`` suffix representing same-day signals.
+    ``use_unshifted_signals`` is ``True``, strategy helpers may provide
+    ``*_raw_entry_signal`` and ``*_raw_exit_signal`` columns representing
+    same-day signals.
     """
     # Determine the evaluation day as the last bar within [start_date, end_date)
     try:
-        evaluation_date = pandas.Timestamp(end_date) - pandas.Timedelta(days=1)
+        if use_unshifted_signals:
+            evaluation_date = pandas.Timestamp(end_date)
+        else:
+            evaluation_date = pandas.Timestamp(end_date) - pandas.Timedelta(days=1)
     except Exception:  # noqa: BLE001
         evaluation_date = pandas.Timestamp(end_date)
 
@@ -260,6 +264,7 @@ def run_daily_tasks_from_argument(
     symbol_list: Iterable[str] | None = None,
     data_download_function: Callable[[str, str, str], pandas.DataFrame] = download_history,
     data_directory: Path | None = None,
+    use_unshifted_signals: bool = False,
 ) -> Dict[str, List[str]]:
     """Run daily tasks using a single argument string.
 
@@ -280,6 +285,9 @@ def run_daily_tasks_from_argument(
         :func:`download_history`.
     data_directory: Path | None
         Optional directory path where downloaded data is stored as CSV files.
+    use_unshifted_signals: bool, optional
+        When ``True``, evaluate unshifted columns with the
+        ``*_raw_entry_signal`` and ``*_raw_exit_signal`` suffixes.
 
     Returns
     -------
@@ -310,6 +318,6 @@ def run_daily_tasks_from_argument(
         minimum_average_dollar_volume=minimum_average_dollar_volume,
         top_dollar_volume_rank=top_dollar_volume_rank,
         allowed_fama_french_groups=allowed_groups,
-        use_unshifted_signals=True,
+        use_unshifted_signals=use_unshifted_signals,
         **extra_kwargs,
     )
