@@ -1,5 +1,6 @@
 import datetime
 import json
+import logging
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -450,10 +451,12 @@ def test_find_history_signal_skips_download_when_cache_covers_range(
     assert download_calls == []
 
 
-def test_find_history_signal_raises_when_data_missing_for_date(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_find_history_signal_skips_missing_symbol_for_date(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """find_history_signal should raise when evaluation-day data is missing."""
+    """find_history_signal should skip symbols missing evaluation-day data."""
 
     data_directory = tmp_path
     csv_file_path = data_directory / "AAA.csv"
@@ -466,13 +469,76 @@ def test_find_history_signal_raises_when_data_missing_for_date(
     monkeypatch.setattr(
         daily_job.cron,
         "run_daily_tasks_from_argument",
-        lambda *a, **k: {"entry_signals": [], "exit_signals": []},
+        lambda *args, **kwargs: {"entry_signals": [], "exit_signals": []},
     )
 
-    with pytest.raises(ValueError, match="signals cannot be computed"):
-        daily_job.find_history_signal(
-            "2024-01-10", "dollar_volume>1", "buy", "sell", 1.0
+    with caplog.at_level(logging.WARNING):
+        signal_result = daily_job.find_history_signal(
+            "2024-01-10",
+            "dollar_volume>1",
+            "buy",
+            "sell",
+            1.0,
         )
+    assert signal_result["entry_signals"] == []
+    assert signal_result["exit_signals"] == []
+    assert "Skipping symbols missing 2024-01-10: AAA" in caplog.text
+
+
+def test_find_history_signal_excludes_missing_symbols_and_warns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Symbols without evaluation-day data should be excluded and logged."""
+
+    data_directory = tmp_path
+    missing_csv_file_path = data_directory / "AAA.csv"
+    missing_csv_file_path.write_text(
+        "Date,open,close\n2023-08-01,1,1\n2024-01-11,1,1\n",
+        encoding="utf-8",
+    )
+    present_csv_file_path = data_directory / "BBB.csv"
+    present_csv_file_path.write_text(
+        "Date,open,close\n2024-01-10,1,1\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
+
+    captured_symbol_list: list[str] | None = None
+
+    def fake_run_daily_tasks_from_argument(
+        argument_line: str,
+        *,
+        start_date: str,
+        end_date: str,
+        symbol_list: list[str] | None,
+        data_directory: Path,
+        use_unshifted_signals: bool,
+    ) -> dict[str, list[str]]:
+        nonlocal captured_symbol_list
+        captured_symbol_list = [] if symbol_list is None else list(symbol_list)
+        return {"entry_signals": captured_symbol_list, "exit_signals": []}
+
+    monkeypatch.setattr(
+        daily_job.cron,
+        "run_daily_tasks_from_argument",
+        fake_run_daily_tasks_from_argument,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        signal_result = daily_job.find_history_signal(
+            "2024-01-10",
+            "dollar_volume>1",
+            "buy",
+            "sell",
+            1.0,
+        )
+
+    assert captured_symbol_list == ["BBB"]
+    assert signal_result["entry_signals"] == ["BBB"]
+    assert "Skipping symbols missing 2024-01-10: AAA" in caplog.text
 
 
 def test_find_history_signal_deduplicates_cached_history(
