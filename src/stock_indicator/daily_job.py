@@ -692,10 +692,17 @@ def find_history_signal(
             if evaluation_timestamp not in history_frame.index:
                 missing_symbols.append(symbol_name)
         if missing_symbols:
-            missing_list = ", ".join(sorted(missing_symbols))
-            raise ValueError(
-                f"signals cannot be computed for {date_string}: missing data for {missing_list}"
+            warning_symbol_list = ", ".join(sorted(missing_symbols))
+            LOGGER.warning(
+                "Skipping symbols missing %s: %s",
+                date_string,
+                warning_symbol_list,
             )
+            local_symbols = [
+                symbol_name
+                for symbol_name in local_symbols
+                if symbol_name not in missing_symbols
+            ]
 
     signal_result: Dict[str, List[str]] = cron.run_daily_tasks_from_argument(
         argument_line,
