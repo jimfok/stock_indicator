@@ -161,6 +161,7 @@ def test_find_history_signal_prints_recalculated_signals(
         end_date: str,
         symbol_list=None,
         data_directory: Path | None = None,
+        use_unshifted_signals: bool = False,
     ) -> dict[str, list[str]]:
         return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
 

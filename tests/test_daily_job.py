@@ -143,6 +143,7 @@ def test_run_daily_job_uses_oldest_data_date(tmp_path, monkeypatch):
         symbol_list=None,
         data_download_function=None,
         data_directory: Path | None = None,
+        use_unshifted_signals: bool = False,
     ):
         captured_start_date["value"] = start_date
         return {"entry_signals": [], "exit_signals": []}
@@ -253,6 +254,7 @@ def test_find_history_signal_returns_cron_output(
         symbol_list=None,
         data_download_function=None,
         data_directory: Path | None = None,
+        use_unshifted_signals: bool = False,
     ):
         return expected_result
 
@@ -312,6 +314,7 @@ def test_find_history_signal_detects_same_day_crossover(
         symbol_list=None,
         data_download_function=None,
         data_directory: Path | None = None,
+        use_unshifted_signals: bool = False,
     ):
         return original_run(
             argument_line,
@@ -320,6 +323,7 @@ def test_find_history_signal_detects_same_day_crossover(
             symbol_list=symbol_list,
             data_download_function=fake_download_history,
             data_directory=data_directory,
+            use_unshifted_signals=use_unshifted_signals,
         )
 
     monkeypatch.setattr(
@@ -504,6 +508,7 @@ def test_find_history_signal_deduplicates_cached_history(
         symbol_list=None,
         data_download_function=None,
         data_directory: Path | None = None,
+        use_unshifted_signals: bool = False,
     ) -> dict[str, list[str]]:
         return {"entry_signals": [], "exit_signals": []}
 
@@ -580,6 +585,7 @@ def test_find_history_signal_preserves_existing_rows(
         symbol_list=None,
         data_download_function=None,
         data_directory: Path | None = None,
+        use_unshifted_signals: bool = False,
     ) -> dict[str, list[str]]:
         return {"entry_signals": [], "exit_signals": []}
 
