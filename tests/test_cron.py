@@ -17,7 +17,7 @@ def test_run_daily_tasks_detects_signals(tmp_path, monkeypatch):
     def fake_download_history(
         symbol: str, start: str, end: str, cache_path: Path | None = None
     ) -> pandas.DataFrame:
-        frame = pandas.DataFrame({"close": [1.0, 2.0, 3.0]})
+        frame = pandas.DataFrame({"open": [1.0, 2.0, 3.0], "close": [1.0, 2.0, 3.0]})
         if cache_path is not None:
             frame.to_csv(cache_path)
         return frame
@@ -28,6 +28,10 @@ def test_run_daily_tasks_detects_signals(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cron, "update_symbol_cache", fake_update_symbol_cache)
     monkeypatch.setitem(strategy.SUPPORTED_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.BUY_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.SELL_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.BUY_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.SELL_STRATEGIES, "fake_strategy", fake_strategy)
     monkeypatch.setitem(strategy.BUY_STRATEGIES, "fake_strategy", fake_strategy)
     monkeypatch.setitem(strategy.SELL_STRATEGIES, "fake_strategy", fake_strategy)
 
@@ -167,16 +171,26 @@ def test_parse_daily_task_arguments_accepts_pick_parameter() -> None:
     assert stop_loss_percentage == 1.0
 
 
-def test_run_daily_tasks_skips_symbol_update_errors(monkeypatch):
+def test_run_daily_tasks_skips_symbol_update_errors(tmp_path, monkeypatch):
     """run_daily_tasks should continue when the symbol cache update fails."""
 
     def failing_update() -> None:
         raise RuntimeError("network down")
 
     def fake_download_history(
-        symbol: str, start: str, end: str
+        symbol: str, start: str, end: str, cache_path: Path | None = None
     ) -> pandas.DataFrame:
-        return pandas.DataFrame({"close": [1.0], "volume": [100.0]})
+        frame = pandas.DataFrame(
+            {
+                "Date": [pandas.Timestamp("2024-01-01")],
+                "open": [1.0],
+                "close": [1.0],
+                "volume": [100.0],
+            }
+        )
+        if cache_path is not None:
+            frame.to_csv(cache_path, index=False)
+        return frame
 
     def fake_strategy(price_history_frame: pandas.DataFrame) -> None:
         price_history_frame["fake_strategy_entry_signal"] = [True]
@@ -194,6 +208,7 @@ def test_run_daily_tasks_skips_symbol_update_errors(monkeypatch):
         "2024-01-02",
         symbol_list=["TEST"],
         data_download_function=fake_download_history,
+        data_directory=tmp_path,
     )
 
     assert result["entry_signals"] == ["TEST"]
@@ -214,7 +229,9 @@ def test_run_daily_tasks_honors_dollar_volume_rank(tmp_path, monkeypatch):
             volume_values = [1000.0] * 59 + [1.0]
         else:
             volume_values = [10.0] * 59 + [200.0]
-        frame = pandas.DataFrame({"close": [1.0] * 60, "volume": volume_values})
+        frame = pandas.DataFrame(
+            {"open": [1.0] * 60, "close": [1.0] * 60, "volume": volume_values}
+        )
         if cache_path is not None:
             frame.to_csv(cache_path)
         return frame
@@ -226,6 +243,14 @@ def test_run_daily_tasks_honors_dollar_volume_rank(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cron, "update_symbol_cache", fake_update_symbol_cache)
     monkeypatch.setitem(strategy.SUPPORTED_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.BUY_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.SELL_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.BUY_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.SELL_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.BUY_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.SELL_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.BUY_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.SELL_STRATEGIES, "fake_strategy", fake_strategy)
     monkeypatch.setitem(strategy.BUY_STRATEGIES, "fake_strategy", fake_strategy)
     monkeypatch.setitem(strategy.SELL_STRATEGIES, "fake_strategy", fake_strategy)
     monkeypatch.setitem(strategy.BUY_STRATEGIES, "fake_strategy", fake_strategy)
@@ -358,7 +383,9 @@ def test_run_daily_tasks_applies_combined_filters(tmp_path, monkeypatch):
             volume_values = [150_000_000.0] * 60
         else:
             volume_values = [50_000_000.0] * 60
-        frame = pandas.DataFrame({"close": [1.0] * 60, "volume": volume_values})
+        frame = pandas.DataFrame(
+            {"open": [1.0] * 60, "close": [1.0] * 60, "volume": volume_values}
+        )
         if cache_path is not None:
             frame.to_csv(cache_path)
         return frame
@@ -370,6 +397,8 @@ def test_run_daily_tasks_applies_combined_filters(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cron, "update_symbol_cache", fake_update_symbol_cache)
     monkeypatch.setitem(strategy.SUPPORTED_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.BUY_STRATEGIES, "fake_strategy", fake_strategy)
+    monkeypatch.setitem(strategy.SELL_STRATEGIES, "fake_strategy", fake_strategy)
 
     result = cron.run_daily_tasks(
         "fake_strategy",
