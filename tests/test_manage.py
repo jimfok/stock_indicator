@@ -241,13 +241,15 @@ def test_find_latest_signal_prints_recalculated_signals(
 
     recorded_arguments: dict[str, object] = {}
 
-    def fake_find_latest_signal(
+    def fake_find_history_signal(
+        date_string: str | None,
         dollar_volume_filter: str,
         buy_strategy: str,
         sell_strategy: str,
         stop_loss: float,
         allowed_group_identifiers: set[int] | None = None,
     ) -> dict[str, list[str] | dict[str, float]]:
+        recorded_arguments["date"] = date_string
         recorded_arguments["filter"] = dollar_volume_filter
         recorded_arguments["buy"] = buy_strategy
         recorded_arguments["sell"] = sell_strategy
@@ -260,8 +262,8 @@ def test_find_latest_signal_prints_recalculated_signals(
 
     monkeypatch.setattr(
         manage_module.daily_job,
-        "find_latest_signal",
-        fake_find_latest_signal,
+        "find_history_signal",
+        fake_find_history_signal,
     )
 
     output_buffer = io.StringIO()
@@ -271,6 +273,7 @@ def test_find_latest_signal_prints_recalculated_signals(
     )
 
     assert recorded_arguments == {
+        "date": None,
         "filter": "dollar_volume>1",
         "buy": "ema_sma_cross",
         "sell": "ema_sma_cross",

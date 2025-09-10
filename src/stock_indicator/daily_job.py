@@ -474,34 +474,14 @@ def find_latest_signal(
     stop_loss: float,
     allowed_fama_french_groups: set[int] | None = None,
 ) -> Dict[str, Any]:
-    """Refresh data for tracked symbols and compute signals for the latest day.
+    """Wrapper for :func:`find_history_signal` using the latest trading date.
 
-    Symbols are loaded from ``symbols_daily_job.txt`` via
-    :func:`load_daily_job_symbols`. For each symbol the local CSV cache is
-    updated. If the update fails with a :class:`yfinance.exceptions.YFException`
-    the symbol is removed from the daily job list to prevent repeated
-    failures. After refreshing the caches the function delegates to
-    :func:`find_history_signal` using the most recent trading date.
-
-    Parameters
-    ----------
-    dollar_volume_filter:
-        Filter applied to select symbols based on dollar volume.
-    buy_strategy:
-        Name of the strategy used to generate entry signals.
-    sell_strategy:
-        Name of the strategy used to generate exit signals.
-    stop_loss:
-        Fractional loss parameter kept for parity with other entry points.
-    allowed_fama_french_groups:
-        Optional set of FF12 group identifiers restricting the tradable
-        universe.
-
-    Returns
-    -------
-    Dict[str, Any]
-        Dictionary containing entry and exit signals as well as optional
-        budget information.
+    This function exists for backward compatibility. It refreshes data for the
+    symbols listed in ``symbols_daily_job.txt`` and then delegates to
+    :func:`find_history_signal` with ``date_string`` set to ``None`` so the
+    latest trading day is used. Symbols that trigger a
+    :class:`yfinance.exceptions.YFException` are removed from the daily job list
+    to avoid repeated failures.
     """
 
     latest_trading_date = determine_latest_trading_date()
@@ -547,7 +527,7 @@ def find_latest_signal(
             )
 
     return find_history_signal(
-        latest_trading_date.isoformat(),
+        None,
         dollar_volume_filter,
         buy_strategy,
         sell_strategy,
@@ -557,7 +537,7 @@ def find_latest_signal(
 
 
 def find_history_signal(
-    date_string: str,
+    date_string: str | None,
     dollar_volume_filter: str,
     buy_strategy: str,
     sell_strategy: str,
@@ -566,14 +546,15 @@ def find_history_signal(
 ) -> Dict[str, Any]:
     """Run daily tasks for a single date and return signals and budget data.
 
-    The ``date_string`` represents the day on which indicator signals are
-    generated. Entries based on those signals occur on the next trading day's
-    open.
+    When ``date_string`` is ``None`` the most recent trading date is determined
+    via :func:`determine_latest_trading_date` and used for evaluation. Entries
+    based on generated signals occur on the next trading day's open.
 
     Parameters
     ----------
     date_string:
-        ISO formatted date string representing the signal date.
+        ISO formatted date string representing the signal date. ``None``
+        triggers evaluation for the latest trading day.
     dollar_volume_filter:
         Filter applied to select symbols based on dollar volume.
     buy_strategy:
@@ -600,6 +581,8 @@ def find_history_signal(
         ``slot_weight``, ``budget_per_entry``, and ``entry_budgets``.
     """
     # TODO: review
+    if date_string is None:
+        date_string = determine_latest_trading_date().isoformat()
     group_token = (
         ""
         if not allowed_fama_french_groups

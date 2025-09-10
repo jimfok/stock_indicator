@@ -103,13 +103,15 @@ dates, helping separate signal-day lookups from trade-day executions.
 
 Developers may call
 `daily_job.find_history_signal("2024-01-10", "dollar_volume>1", "ema_sma_cross", "ema_sma_cross", 1.0)`
-to compute the same values from Python code. The function returns the entry and
-exit signal lists along with the budget information when available, rather than
-reading log files.
+to compute the same values from Python code. Passing ``None`` as the first
+argument evaluates the most recent trading day. The function returns the entry
+and exit signal lists along with the budget information when available, rather
+than reading log files.
 
 To refresh data for the symbols listed in `symbols_daily_job.txt` and compute
-today's signals, use `find_latest_signal`. It accepts the same argument forms as
-`find_history_signal`:
+today's signals, use `find_latest_signal`. The command delegates to
+`daily_job.find_history_signal(None, ...)` and accepts the same argument forms
+as `find_history_signal`:
 
 ```
 find_latest_signal DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY STOP_LOSS
