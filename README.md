@@ -97,10 +97,11 @@ python -m stock_indicator.manage
   STOP_LOSS` or `find_history_signal DATE DOLLAR_VOLUME_FILTER STOP_LOSS
   strategy=ID` recalculates the entry and exit signals for `DATE`. The first
   form supplies explicit buy and sell strategy names, while the second
-  references a strategy set identifier (see Strategy Sets below). The `DATE`
-  refers to when the indicators generate signals; simulated trades occur at the
-  next trading day's open. Signal calculation uses the same group dynamic ratio
-  and Top-N rule as `start_simulate`.
+  references a strategy set identifier (see Strategy Sets below). The command
+  now reports the signals generated on the supplied `DATE` without shifting
+  them to the next trading day. Trades based on those signals still execute at
+  the following day's open. Signal calculation uses the same group dynamic
+  ratio and Top-N rule as `start_simulate`.
 * `find_latest_signal DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY
   STOP_LOSS` or `find_latest_signal DOLLAR_VOLUME_FILTER STOP_LOSS strategy=ID`
   refreshes data for the symbols listed in `data/symbols_daily_job.txt` and
@@ -114,6 +115,19 @@ For example:
 entry signals: ['AAA', 'BBB']
 exit signals: ['CCC', 'DDD']
 budget suggestions: {'AAA': 500.0, 'BBB': 500.0}
+```
+
+Simulation commands interpret dates as trade days. A signal generated on
+`2024-01-10` leads to an order on `2024-01-11` when running `start_simulate`,
+whereas `find_history_signal 2024-01-10 ...` lists the signals produced on
+`2024-01-10` itself. This example contrasts the two modes:
+
+```bash
+(stock-indicator) start_simulate start=2024-01-10 dollar_volume>1 ema_sma_cross ema_sma_cross
+# trades execute on 2024-01-11
+(stock-indicator) find_history_signal 2024-01-10 dollar_volume>1 ema_sma_cross ema_sma_cross 1.0
+entry signals: ['AAA']
+exit signals: ['BBB']
 ```
 
 To refresh data for the daily job symbols and compute today's signals, use
