@@ -8,9 +8,11 @@ import json
 import datetime
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
+from typing import Any, Dict, List, Tuple
+from zoneinfo import ZoneInfo
 
 import pandas
+from pandas.tseries.offsets import BDay
 import yfinance.exceptions as yfinance_exceptions
 
 from . import cron, strategy_sets
@@ -29,6 +31,42 @@ STOCK_DATA_DIRECTORY = DATA_DIRECTORY / "stock_data"
 LOG_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "logs"
 LOCAL_DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "local_data"
 CURRENT_STATUS_FILE = LOCAL_DATA_DIRECTORY / "current_status.json"
+
+
+def determine_latest_trading_date(
+    now: datetime.datetime | None = None,
+) -> datetime.date:
+    """Return the most recent trading date based on Eastern Time.
+
+    Parameters
+    ----------
+    now:
+        Current timestamp. When ``None`` the system time in the ``US/Eastern``
+        timezone is used.
+
+    Returns
+    -------
+    datetime.date
+        The prior business day if the time is earlier than 16:00 Eastern,
+        otherwise the current date.
+    """
+
+    eastern_zone = ZoneInfo("US/Eastern")
+    if now is None:
+        current_time = datetime.datetime.now(tz=eastern_zone)
+    else:
+        current_time = (
+            now.astimezone(eastern_zone)
+            if now.tzinfo is not None
+            else now.replace(tzinfo=eastern_zone)
+        )
+
+    if current_time.time() < datetime.time(16, 0):
+        previous_business_day = (
+            pandas.Timestamp(current_time.date()) - BDay(1)
+        ).date()
+        return previous_business_day
+    return current_time.date()
 
 
 def determine_start_date(data_directory: Path) -> str:
@@ -430,14 +468,14 @@ def find_latest_signal(
     stop_loss: float,
     allowed_fama_french_groups: set[int] | None = None,
 ) -> Dict[str, Any]:
-    """Refresh data for tracked symbols and compute signals for today.
+    """Refresh data for tracked symbols and compute signals for the latest day.
 
     Symbols are loaded from ``symbols_daily_job.txt`` via
     :func:`load_daily_job_symbols`. For each symbol the local CSV cache is
-    updated. If the update fails with a :class:`yfinance.exceptions.YFinanceError`
+    updated. If the update fails with a :class:`yfinance.exceptions.YFException`
     the symbol is removed from the daily job list to prevent repeated
     failures. After refreshing the caches the function delegates to
-    :func:`find_history_signal` using today's date.
+    :func:`find_history_signal` using the most recent trading date.
 
     Parameters
     ----------
@@ -460,7 +498,8 @@ def find_latest_signal(
         budget information.
     """
 
-    today = datetime.date.today().isoformat()
+    latest_trading_date = determine_latest_trading_date()
+    download_end_date = (latest_trading_date + datetime.timedelta(days=1)).isoformat()
     symbol_list = load_daily_job_symbols()
     for symbol_name in symbol_list:
         csv_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
@@ -478,7 +517,7 @@ def find_latest_signal(
             download_history(
                 symbol_name,
                 start=download_start,
-                end=today,
+                end=download_end_date,
                 cache_path=csv_path,
             )
             try:
@@ -497,10 +536,12 @@ def find_latest_signal(
             )
             remove_daily_job_symbol(symbol_name)
         except Exception as download_error:  # noqa: BLE001
-            LOGGER.warning("Failed to refresh data for %s: %s", symbol_name, download_error)
+            LOGGER.warning(
+                "Failed to refresh data for %s: %s", symbol_name, download_error
+            )
 
     return find_history_signal(
-        today,
+        latest_trading_date.isoformat(),
         dollar_volume_filter,
         buy_strategy,
         sell_strategy,

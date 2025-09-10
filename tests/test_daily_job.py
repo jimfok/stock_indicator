@@ -1,6 +1,7 @@
 import datetime
 import json
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 import pandas
@@ -604,12 +605,9 @@ def test_find_latest_signal_refreshes_and_computes(
     monkeypatch.setattr(daily_job, "find_history_signal", fake_find_history_signal)
     monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
 
-    class FixedDate(datetime.date):
-        @classmethod
-        def today(cls) -> "FixedDate":
-            return cls(2024, 1, 10)
-
-    monkeypatch.setattr(daily_job.datetime, "date", FixedDate)
+    monkeypatch.setattr(
+        daily_job, "determine_latest_trading_date", lambda: datetime.date(2024, 1, 10)
+    )
 
     result = daily_job.find_latest_signal(
         "dollar_volume>1", "buy", "sell", 1.0
@@ -617,6 +615,59 @@ def test_find_latest_signal_refreshes_and_computes(
 
     assert symbol_calls == ["AAA"]
     assert result == {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
+
+
+def test_find_latest_signal_uses_previous_trading_day_before_market_open(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """find_latest_signal should use the prior day before market open."""
+
+    download_arguments: dict[str, str] = {}
+
+    def fake_load_daily_job_symbols() -> list[str]:
+        return ["AAA"]
+
+    def fake_download_history(
+        symbol_name: str, start: str, end: str, cache_path: Path
+    ) -> pandas.DataFrame:
+        download_arguments["end"] = end
+        frame = pandas.DataFrame({"close": [1.0]}, index=pandas.to_datetime([start]))
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_csv(cache_path)
+        return frame
+
+    find_arguments: dict[str, str] = {}
+
+    def fake_find_history_signal(
+        date_string: str,
+        dollar_volume_filter: str,
+        buy_strategy: str,
+        sell_strategy: str,
+        stop_loss: float,
+        allowed_group_identifiers: set[int] | None = None,
+    ) -> dict[str, list[str]]:
+        find_arguments["date_string"] = date_string
+        return {"entry_signals": [], "exit_signals": []}
+
+    pre_open_timestamp = datetime.datetime(
+        2025, 9, 10, 1, 47, tzinfo=ZoneInfo("US/Eastern")
+    )
+
+    original_helper = daily_job.determine_latest_trading_date
+
+    def fake_determine_latest_trading_date() -> datetime.date:
+        return original_helper(pre_open_timestamp)
+
+    monkeypatch.setattr(daily_job, "load_daily_job_symbols", fake_load_daily_job_symbols)
+    monkeypatch.setattr(daily_job, "download_history", fake_download_history)
+    monkeypatch.setattr(daily_job, "find_history_signal", fake_find_history_signal)
+    monkeypatch.setattr(daily_job, "determine_latest_trading_date", fake_determine_latest_trading_date)
+    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
+
+    daily_job.find_latest_signal("dollar_volume>1", "buy", "sell", 1.0)
+
+    assert download_arguments["end"] == "2025-09-10"
+    assert find_arguments["date_string"] == "2025-09-09"
 
 
 # TODO: review
@@ -652,12 +703,9 @@ def test_find_latest_signal_removes_symbol_on_yfinance_error(
     monkeypatch.setattr(daily_job, "find_history_signal", lambda *a, **k: {"entry_signals": [], "exit_signals": []})
     monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
 
-    class FixedDate(datetime.date):
-        @classmethod
-        def today(cls) -> "FixedDate":
-            return cls(2024, 1, 10)
-
-    monkeypatch.setattr(daily_job.datetime, "date", FixedDate)
+    monkeypatch.setattr(
+        daily_job, "determine_latest_trading_date", lambda: datetime.date(2024, 1, 10)
+    )
 
     daily_job.find_latest_signal(
         "dollar_volume>1", "buy", "sell", 1.0
