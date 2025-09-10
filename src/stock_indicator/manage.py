@@ -1603,7 +1603,8 @@ class StockShell(cmd.Cmd):
         except ValueError:
             self.stdout.write("invalid stop loss\n")
             return
-        signal_data: Dict[str, Any] = daily_job.find_latest_signal(
+        signal_data: Dict[str, Any] = daily_job.find_history_signal(
+            None,
             dollar_volume_filter,
             buy_strategy_name,
             sell_strategy_name,

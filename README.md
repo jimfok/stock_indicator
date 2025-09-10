@@ -142,7 +142,9 @@ budget suggestions: {'AAA': 500.0}
 
 Developers can also call `daily_job.find_history_signal("2024-01-10", "dollar_volume>1", "ema_sma_cross", "ema_sma_cross", 1.0)` to compute
 the same data from Python code. This function recalculates signals rather than
-reading them from log files. Signal calculation uses the same group dynamic ratio and Top-N rule as `start_simulate`.
+reading them from log files. Passing ``None`` as the first argument evaluates
+the most recent trading day. Signal calculation uses the same group dynamic
+ratio and Top-N rule as `start_simulate`.
 
 The shell can also simulate trading strategies. The `dollar_volume` filter
 accepts a minimum threshold in millions, a percentage of total market volume,

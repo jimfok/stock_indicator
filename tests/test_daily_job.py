@@ -678,62 +678,60 @@ def test_find_history_signal_preserves_existing_rows(
 
 
 # TODO: review
-def test_find_latest_signal_refreshes_and_computes(
+def test_find_history_signal_without_date_refreshes_and_computes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """find_latest_signal should refresh symbol data and compute signals."""
+    """A missing date should trigger refresh and signal computation."""
     symbol_calls: list[str] = []
-
-    def fake_load_daily_job_symbols() -> list[str]:
-        return ["AAA"]
+    task_arguments: dict[str, str] = {}
 
     def fake_download_history(
         symbol_name: str, start: str, end: str, cache_path: Path
     ) -> pandas.DataFrame:
         symbol_calls.append(symbol_name)
-        frame = pandas.DataFrame(
-            {"close": [1.0]}, index=pandas.to_datetime([start])
-        )
+        frame = pandas.DataFrame({"close": [1.0]}, index=pandas.to_datetime([start]))
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         frame.to_csv(cache_path)
         return frame
 
-    def fake_find_history_signal(
-        date_string: str,
-        dollar_volume_filter: str,
-        buy_strategy: str,
-        sell_strategy: str,
-        stop_loss: float,
-        allowed_group_identifiers: set[int] | None = None,
+    def fake_run_daily_tasks_from_argument(
+        argument_line: str,
+        start_date: str,
+        end_date: str,
+        symbol_list: list[str] | None,
+        data_directory: Path,
+        use_unshifted_signals: bool,
     ) -> dict[str, list[str]]:
-        return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
+        task_arguments["end_date"] = end_date
+        return {"entry_signals": [], "exit_signals": []}
 
-    monkeypatch.setattr(daily_job, "load_daily_job_symbols", fake_load_daily_job_symbols)
     monkeypatch.setattr(daily_job, "download_history", fake_download_history)
-    monkeypatch.setattr(daily_job, "find_history_signal", fake_find_history_signal)
+    monkeypatch.setattr(daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument)
     monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
-
     monkeypatch.setattr(
         daily_job, "determine_latest_trading_date", lambda: datetime.date(2024, 1, 10)
     )
 
-    result = daily_job.find_latest_signal(
-        "dollar_volume>1", "buy", "sell", 1.0
+    csv_path = tmp_path / "AAA.csv"
+    csv_path.write_text("Date,close\n2024-01-01,1.0\n", encoding="utf-8")
+
+    result = daily_job.find_history_signal(
+        None, "dollar_volume>1", "buy", "sell", 1.0
     )
 
     assert symbol_calls == ["AAA"]
-    assert result == {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
+    assert task_arguments["end_date"] == "2024-01-10"
+    assert result["entry_signals"] == []
+    assert result["exit_signals"] == []
 
 
-def test_find_latest_signal_uses_previous_trading_day_before_market_open(
+def test_find_history_signal_uses_previous_trading_day_before_market_open(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """find_latest_signal should use the prior day before market open."""
+    """A pre-market call should evaluate the prior trading day."""
 
     download_arguments: dict[str, str] = {}
-
-    def fake_load_daily_job_symbols() -> list[str]:
-        return ["AAA"]
+    task_arguments: dict[str, str] = {}
 
     def fake_download_history(
         symbol_name: str, start: str, end: str, cache_path: Path
@@ -744,17 +742,15 @@ def test_find_latest_signal_uses_previous_trading_day_before_market_open(
         frame.to_csv(cache_path)
         return frame
 
-    find_arguments: dict[str, str] = {}
-
-    def fake_find_history_signal(
-        date_string: str,
-        dollar_volume_filter: str,
-        buy_strategy: str,
-        sell_strategy: str,
-        stop_loss: float,
-        allowed_group_identifiers: set[int] | None = None,
+    def fake_run_daily_tasks_from_argument(
+        argument_line: str,
+        start_date: str,
+        end_date: str,
+        symbol_list: list[str] | None,
+        data_directory: Path,
+        use_unshifted_signals: bool,
     ) -> dict[str, list[str]]:
-        find_arguments["date_string"] = date_string
+        task_arguments["end_date"] = end_date
         return {"entry_signals": [], "exit_signals": []}
 
     pre_open_timestamp = datetime.datetime(
@@ -766,57 +762,56 @@ def test_find_latest_signal_uses_previous_trading_day_before_market_open(
     def fake_determine_latest_trading_date() -> datetime.date:
         return original_helper(pre_open_timestamp)
 
-    monkeypatch.setattr(daily_job, "load_daily_job_symbols", fake_load_daily_job_symbols)
+    class FakeDate(datetime.date):
+        @classmethod
+        def today(cls) -> datetime.date:
+            return datetime.date(2025, 9, 10)
+
     monkeypatch.setattr(daily_job, "download_history", fake_download_history)
-    monkeypatch.setattr(daily_job, "find_history_signal", fake_find_history_signal)
+    monkeypatch.setattr(daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument)
     monkeypatch.setattr(daily_job, "determine_latest_trading_date", fake_determine_latest_trading_date)
+    monkeypatch.setattr(daily_job.datetime, "date", FakeDate)
     monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
 
-    daily_job.find_latest_signal("dollar_volume>1", "buy", "sell", 1.0)
+    csv_path = tmp_path / "AAA.csv"
+    csv_path.write_text("Date,close\n2025-09-08,1.0\n", encoding="utf-8")
+
+    daily_job.find_history_signal(None, "dollar_volume>1", "buy", "sell", 1.0)
 
     assert download_arguments["end"] == "2025-09-10"
-    assert find_arguments["date_string"] == "2025-09-09"
+    assert task_arguments["end_date"] == "2025-09-09"
 
 
 # TODO: review
-def test_find_latest_signal_removes_symbol_on_yfinance_error(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_find_history_signal_logs_warning_on_yfinance_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """find_latest_signal should drop symbols that trigger YF errors."""
-
-    def fake_load_daily_job_symbols() -> list[str]:
-        return ["AAA", "BBB"]
-
-    removal_calls: list[str] = []
-
-    def fake_remove_daily_job_symbol(symbol_name: str) -> bool:
-        removal_calls.append(symbol_name)
-        return True
+    """Download errors should be reported but not raise exceptions."""
 
     def fake_download_history(
         symbol_name: str, start: str, end: str, cache_path: Path
     ) -> pandas.DataFrame:
         if symbol_name == "BBB":
             raise yfinance_exceptions.YFException("bad symbol")
-        frame = pandas.DataFrame(
-            {"close": [1.0]}, index=pandas.to_datetime([start])
-        )
+        frame = pandas.DataFrame({"close": [1.0]}, index=pandas.to_datetime([start]))
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         frame.to_csv(cache_path)
         return frame
 
-    monkeypatch.setattr(daily_job, "load_daily_job_symbols", fake_load_daily_job_symbols)
-    monkeypatch.setattr(daily_job, "remove_daily_job_symbol", fake_remove_daily_job_symbol)
     monkeypatch.setattr(daily_job, "download_history", fake_download_history)
-    monkeypatch.setattr(daily_job, "find_history_signal", lambda *a, **k: {"entry_signals": [], "exit_signals": []})
+    monkeypatch.setattr(daily_job.cron, "run_daily_tasks_from_argument", lambda *a, **k: {"entry_signals": [], "exit_signals": []})
     monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
-
     monkeypatch.setattr(
         daily_job, "determine_latest_trading_date", lambda: datetime.date(2024, 1, 10)
     )
+    csv_path_a = tmp_path / "AAA.csv"
+    csv_path_a.write_text("Date,close\n2024-01-09,1.0\n", encoding="utf-8")
+    csv_path_b = tmp_path / "BBB.csv"
+    csv_path_b.write_text("Date,close\n2024-01-09,1.0\n", encoding="utf-8")
 
-    daily_job.find_latest_signal(
-        "dollar_volume>1", "buy", "sell", 1.0
-    )
+    with caplog.at_level(logging.WARNING):
+        daily_job.find_history_signal(
+            None, "dollar_volume>1", "buy", "sell", 1.0
+        )
 
-    assert removal_calls == ["BBB"]
+    assert any("BBB" in record.message for record in caplog.records)
