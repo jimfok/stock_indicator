@@ -1,4 +1,8 @@
-"""Scheduled daily tasks for updating data and evaluating strategies."""
+"""Helpers for parsing daily-job arguments and executing tasks.
+
+This module contains only lightweight utilities used by ``daily_job`` and
+related modules. Scheduling responsibilities are handled elsewhere.
+"""
 # TODO: review
 
 from __future__ import annotations
@@ -257,67 +261,3 @@ def run_daily_tasks(
     )
 
 
-def run_daily_tasks_from_argument(
-    argument_line: str,
-    start_date: str,
-    end_date: str,
-    symbol_list: Iterable[str] | None = None,
-    data_download_function: Callable[[str, str, str], pandas.DataFrame] = download_history,
-    data_directory: Path | None = None,
-    use_unshifted_signals: bool = False,
-) -> Dict[str, List[str]]:
-    """Run daily tasks using a single argument string.
-
-    Parameters
-    ----------
-    argument_line: str
-        Argument string in the format accepted by
-        :func:`parse_daily_task_arguments`.
-    start_date: str
-        Start date for downloading historical data in ``YYYY-MM-DD`` format.
-    end_date: str
-        End date for downloading historical data in ``YYYY-MM-DD`` format.
-    symbol_list: Iterable[str] | None
-        Iterable of ticker symbols to process. When ``None``, the local symbol
-        cache is updated and used.
-    data_download_function: Callable[[str, str, str], pandas.DataFrame]
-        Function responsible for retrieving historical price data. Defaults to
-        :func:`download_history`.
-    data_directory: Path | None
-        Optional directory path where downloaded data is stored as CSV files.
-    use_unshifted_signals: bool, optional
-        When ``True``, evaluate unshifted columns with the
-        ``*_raw_entry_signal`` and ``*_raw_exit_signal`` suffixes.
-
-    Returns
-    -------
-    Dict[str, List[str]]
-        Dictionary with ``entry_signals`` and ``exit_signals`` listing symbols
-        that triggered the respective signals on the latest available data row.
-    """
-    (
-        minimum_average_dollar_volume,
-        top_dollar_volume_rank,
-        maximum_symbols_per_group,
-        buy_strategy_name,
-        sell_strategy_name,
-        _,
-        allowed_groups,
-    ) = parse_daily_task_arguments(argument_line)
-    extra_kwargs: dict[str, object] = {}
-    if maximum_symbols_per_group != 1:
-        extra_kwargs["maximum_symbols_per_group"] = maximum_symbols_per_group
-    return run_daily_tasks(
-        buy_strategy_name=buy_strategy_name,
-        sell_strategy_name=sell_strategy_name,
-        start_date=start_date,
-        end_date=end_date,
-        symbol_list=symbol_list,
-        data_download_function=data_download_function,
-        data_directory=data_directory,
-        minimum_average_dollar_volume=minimum_average_dollar_volume,
-        top_dollar_volume_rank=top_dollar_volume_rank,
-        allowed_fama_french_groups=allowed_groups,
-        use_unshifted_signals=use_unshifted_signals,
-        **extra_kwargs,
-    )

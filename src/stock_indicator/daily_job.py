@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 import pandas
 from pandas.tseries.offsets import BDay
 
-from . import cron
+from .cron import parse_daily_task_arguments, run_daily_tasks
 from .data_loader import download_history, load_local_history
 from .symbols import SP500_SYMBOL, load_symbols
 
@@ -245,13 +245,27 @@ def find_history_signal(
                 for symbol_name in local_symbols
                 if symbol_name not in missing_symbols
             ]
-    signal_result: Dict[str, List[str]] = cron.run_daily_tasks_from_argument(
-        argument_line,
+    (
+        minimum_average_dollar_volume,
+        top_dollar_volume_rank,
+        maximum_symbols_per_group,
+        parsed_buy_strategy,
+        parsed_sell_strategy,
+        _,
+        allowed_groups,
+    ) = parse_daily_task_arguments(argument_line)
+    signal_result: Dict[str, List[str]] = run_daily_tasks(
+        buy_strategy_name=parsed_buy_strategy,
+        sell_strategy_name=parsed_sell_strategy,
         start_date=start_date_string,
         end_date=evaluation_end_date_string,
         symbol_list=local_symbols,
         data_download_function=load_local_history,
         data_directory=STOCK_DATA_DIRECTORY,
+        minimum_average_dollar_volume=minimum_average_dollar_volume,
+        top_dollar_volume_rank=top_dollar_volume_rank,
+        allowed_fama_french_groups=allowed_groups,
+        maximum_symbols_per_group=maximum_symbols_per_group,
         use_unshifted_signals=True,
     )
     entry_signals = signal_result.get("entry_signals", [])
