@@ -15,7 +15,8 @@ import pandas
 from pandas.tseries.offsets import BDay
 
 from . import cron, strategy_sets
-from .data_loader import download_history
+from .data_loader import download_history, load_local_history
+from .symbols import SP500_SYMBOL, load_symbols
 
 LOGGER = logging.getLogger(__name__)
 
@@ -94,6 +95,61 @@ def determine_start_date(data_directory: Path) -> str:
     if earliest_date is None:
         return DEFAULT_START_DATE
     return earliest_date.isoformat()
+
+
+def determine_last_cached_date(data_directory: Path) -> datetime.date:
+    """Return the most recent date found in any CSV under ``data_directory``."""
+    latest_date: datetime.date | None = None
+    if data_directory.exists():
+        for csv_file_path in data_directory.glob("*.csv"):
+            try:
+                date_frame = pandas.read_csv(
+                    csv_file_path, usecols=[0], parse_dates=[0]
+                )
+            except Exception as read_error:  # noqa: BLE001
+                LOGGER.warning("Could not read %s: %s", csv_file_path, read_error)
+                continue
+            if date_frame.empty:
+                continue
+            value = date_frame.iloc[-1, 0]
+            if hasattr(value, "date"):
+                current_date = value.date()
+                if latest_date is None or current_date > latest_date:
+                    latest_date = current_date
+    if latest_date is None:
+        return datetime.date.fromisoformat(DEFAULT_START_DATE)
+    return latest_date
+
+
+def update_all_data_from_yf(
+    start_date: str, end_date: str, data_directory: Path
+) -> None:
+    """Download historical data for all symbols into ``data_directory``."""
+    symbol_list = load_symbols()
+    if SP500_SYMBOL not in symbol_list:
+        symbol_list.append(SP500_SYMBOL)
+    for symbol_name in symbol_list:
+        csv_path = data_directory / f"{symbol_name}.csv"
+        try:
+            download_history(
+                symbol_name, start=start_date, end=end_date, cache_path=csv_path
+            )
+            try:
+                cached_frame = pandas.read_csv(
+                    csv_path, index_col=0, parse_dates=True
+                )
+                deduplicated_frame = cached_frame.loc[
+                    ~cached_frame.index.duplicated(keep="last")
+                ]
+                deduplicated_frame.to_csv(csv_path)
+            except Exception as cache_error:  # noqa: BLE001
+                LOGGER.warning(
+                    "Failed to deduplicate %s: %s", csv_path, cache_error
+                )
+        except Exception as download_error:  # noqa: BLE001
+            LOGGER.warning(
+                "Failed to refresh data for %s: %s", symbol_name, download_error
+            )
 
 
 def _expand_strategy_argument_line(argument_line: str) -> str:
@@ -208,6 +264,14 @@ def run_daily_job(
         trade_date_string,
         signal_date_string,
     )
+
+    latest_cached_date = determine_last_cached_date(data_directory)
+    latest_trading_date = determine_latest_trading_date()
+    refresh_end_date = (latest_trading_date + datetime.timedelta(days=1)).isoformat()
+    update_all_data_from_yf(
+        latest_cached_date.isoformat(), refresh_end_date, data_directory
+    )
+
     normalized_argument_line = _expand_strategy_argument_line(argument_line)
 
     token_list = normalized_argument_line.split()
@@ -528,7 +592,6 @@ def find_history_signal(
     except Exception:  # noqa: BLE001
         evaluation_timestamp = pandas.Timestamp.today()
         evaluation_end_date_string = evaluation_timestamp.date().isoformat()
-    required_start = evaluation_timestamp - pandas.Timedelta(days=150)
 
     # Align symbol universe with simulator: evaluate all locally cached CSVs.
     try:
@@ -539,53 +602,6 @@ def find_history_signal(
         ]
     except Exception:  # noqa: BLE001
         local_symbols = None
-
-    # Refresh local history files so cron can rely on up-to-date data without
-    # needing to perform network requests for each symbol.
-    if local_symbols is not None:
-        current_date_string = datetime.date.today().isoformat()
-        for symbol_name in local_symbols:
-            csv_file_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
-            needs_refresh = True
-            try:
-                cached_index_frame = pandas.read_csv(
-                    csv_file_path, usecols=[0], index_col=0, parse_dates=True
-                )
-                if not cached_index_frame.index.empty:
-                    earliest_cached_timestamp = cached_index_frame.index.min()
-                    latest_cached_timestamp = cached_index_frame.index.max()
-                    if (
-                        earliest_cached_timestamp <= required_start
-                        and latest_cached_timestamp >= evaluation_timestamp
-                    ):
-                        needs_refresh = False
-            except Exception as read_error:  # noqa: BLE001
-                LOGGER.warning("Could not read %s: %s", csv_file_path, read_error)
-
-            if needs_refresh:
-                try:
-                    download_history(
-                        symbol_name,
-                        start=start_date_string,
-                        end=current_date_string,
-                        cache_path=csv_file_path,
-                    )
-                    try:
-                        cached_frame = pandas.read_csv(
-                            csv_file_path, index_col=0, parse_dates=True
-                        )
-                        deduplicated_frame = cached_frame.loc[
-                            ~cached_frame.index.duplicated(keep="last")
-                        ]
-                        deduplicated_frame.to_csv(csv_file_path)
-                    except Exception as cache_error:  # noqa: BLE001
-                        LOGGER.warning(
-                            "Failed to deduplicate %s: %s", csv_file_path, cache_error
-                        )
-                except Exception as download_error:  # noqa: BLE001
-                    LOGGER.warning(
-                        "Failed to refresh data for %s: %s", symbol_name, download_error
-                    )
 
     if local_symbols is not None:
         # Ensure every symbol has data for the requested evaluation date.
@@ -619,6 +635,7 @@ def find_history_signal(
         start_date=start_date_string,
         end_date=evaluation_end_date_string,
         symbol_list=local_symbols,
+        data_download_function=load_local_history,
         data_directory=STOCK_DATA_DIRECTORY,
         use_unshifted_signals=True,
     )
