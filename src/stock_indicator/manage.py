@@ -1585,6 +1585,11 @@ class StockShell(cmd.Cmd):
             stop_loss_value,
             allowed_group_identifiers,
         )
+        filtered_symbol_list: List[tuple[str, int | None]] = signal_data.get(
+            "filtered_symbols", []
+        )
+        if filtered_symbol_list:
+            self.stdout.write(f"filtered symbols: {filtered_symbol_list}\n")
         entry_signal_list: List[str] = signal_data.get("entry_signals", [])
         exit_signal_list: List[str] = signal_data.get("exit_signals", [])
         self.stdout.write(f"entry signals: {entry_signal_list}\n")

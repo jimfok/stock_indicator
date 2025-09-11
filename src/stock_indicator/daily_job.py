@@ -201,8 +201,9 @@ def find_history_signal(
 
     Returns
     -------
-    Dict[str, List[str]]
-        Dictionary with ``entry_signals`` and ``exit_signals`` lists.
+    Dict[str, List[str] | List[tuple[str, int | None]]]
+        Dictionary containing ``filtered_symbols`` (pairs of symbol and
+        Fama–French group identifiers), ``entry_signals`` and ``exit_signals``.
     """
 
     # TODO: review
@@ -266,7 +267,7 @@ def find_history_signal(
         _,
         allowed_groups,
     ) = parse_daily_task_arguments(argument_line)
-    signal_result: Dict[str, List[str]] = run_daily_tasks(
+    signal_result: Dict[str, List[str] | List[tuple[str, int | None]]] = run_daily_tasks(
         buy_strategy_name=parsed_buy_strategy,
         sell_strategy_name=parsed_sell_strategy,
         start_date=start_date_string,
@@ -282,7 +283,12 @@ def find_history_signal(
     )
     entry_signals = signal_result.get("entry_signals", [])
     exit_signals = signal_result.get("exit_signals", [])
-    return {"entry_signals": entry_signals, "exit_signals": exit_signals}
+    filtered_symbols = signal_result.get("filtered_symbols", [])
+    return {
+        "filtered_symbols": filtered_symbols,
+        "entry_signals": entry_signals,
+        "exit_signals": exit_signals,
+    }
 
 
 def filter_debug_values(
