@@ -411,6 +411,43 @@ def test_find_history_signal_prints_filtered_symbols(monkeypatch: pytest.MonkeyP
     ]
 
 
+def test_find_history_signal_prints_empty_filtered_symbols(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command should include the filtered symbols line when no symbols remain."""
+    import stock_indicator.manage as manage_module
+
+    def fake_find_history_signal(
+        date_string: str,
+        dollar_volume_filter: str,
+        buy_strategy: str,
+        sell_strategy: str,
+        stop_loss: float,
+        allowed_group_identifiers: set[int] | None = None,
+    ) -> dict[str, list[object]]:
+        return {
+            "filtered_symbols": [],
+            "entry_signals": [],
+            "exit_signals": [],
+        }
+
+    monkeypatch.setattr(
+        manage_module.daily_job, "find_history_signal", fake_find_history_signal
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd(
+        "find_history_signal 2024-01-10 dollar_volume>1 ema_sma_cross ema_sma_cross 1.0",
+    )
+
+    assert output_buffer.getvalue().splitlines() == [
+        "filtered symbols: []",
+        "entry signals: []",
+        "exit signals: []",
+    ]
+
+
 # TODO: review
 def test_filter_debug_values_prints_table(
     monkeypatch: pytest.MonkeyPatch,
