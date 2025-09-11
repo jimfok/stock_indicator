@@ -218,14 +218,20 @@ class StockShell(cmd.Cmd):
 
     def do_update_data_from_yf(self, argument_line: str) -> None:  # noqa: D401
         """update_data_from_yf SYMBOL START END
-        Download data from Yahoo Finance for SYMBOL between START and END and store as CSV."""
+        Download data from Yahoo Finance for SYMBOL between START and END and store as CSV.
+
+        The END argument is inclusive. One day is added internally to match
+        the exclusive end-date semantics of the data source."""
         argument_parts: List[str] = argument_line.split()
         if len(argument_parts) != 3:
             self.stdout.write("usage: update_data_from_yf SYMBOL START END\n")
             return
         symbol_name, start_date, end_date = argument_parts
+        exclusive_end_date = (
+            datetime.date.fromisoformat(end_date) + datetime.timedelta(days=1)
+        ).isoformat()
         data_frame: DataFrame = data_loader.download_history(
-            symbol_name, start_date, end_date
+            symbol_name, start_date, exclusive_end_date
         )
         _cleanup_yfinance_session()  # TODO: review
         data_frame_with_date: DataFrame = (
@@ -252,7 +258,7 @@ class StockShell(cmd.Cmd):
         # Also ensure S&P 500 index data is maintained separately when updating a single symbol
         if symbol_name != SP500_SYMBOL:
             sp_frame: DataFrame = data_loader.download_history(
-                SP500_SYMBOL, start_date, end_date
+                SP500_SYMBOL, start_date, exclusive_end_date
             )
             _cleanup_yfinance_session()  # TODO: review
             sp_with_date: DataFrame = (
@@ -270,26 +276,32 @@ class StockShell(cmd.Cmd):
             "Parameters:\n"
             "  SYMBOL: Ticker symbol for the asset.\n"
             "  START: Start date in YYYY-MM-DD format.\n"
-            "  END: End date in YYYY-MM-DD format.\n"
+            "  END: End date in YYYY-MM-DD format (inclusive).\n"
         )
 
     
 
     def do_update_all_data_from_yf(self, argument_line: str) -> None:  # noqa: D401
         """update_all_data_from_yf START END
-        Download data from Yahoo Finance for all cached symbols."""
+        Download data from Yahoo Finance for all cached symbols.
+
+        The END argument is inclusive. One day is added internally to match the
+        exclusive end-date semantics of the data source."""
         argument_parts: List[str] = argument_line.split()
         if len(argument_parts) != 2:
             self.stdout.write("usage: update_all_data_from_yf START END\n")
             return
         start_date, end_date = argument_parts
+        exclusive_end_date = (
+            datetime.date.fromisoformat(end_date) + datetime.timedelta(days=1)
+        ).isoformat()
         symbol_list = symbols.load_symbols()
         # Ensure ^GSPC is also downloaded, but not stored in symbols.txt
         if SP500_SYMBOL not in symbol_list:
             symbol_list.append(SP500_SYMBOL)
         for symbol_name in symbol_list:
             data_frame: DataFrame = data_loader.download_history(
-                symbol_name, start_date, end_date
+                symbol_name, start_date, exclusive_end_date
             )
             _cleanup_yfinance_session()  # TODO: review
             data_frame_with_date: DataFrame = (
@@ -332,7 +344,7 @@ class StockShell(cmd.Cmd):
             "Also appends symbols that successfully wrote CSVs to data/symbols_yf.txt for daily jobs.\n"
             "Parameters:\n"
             "  START: Start date in YYYY-MM-DD format.\n"
-            "  END: End date in YYYY-MM-DD format.\n"
+            "  END: End date in YYYY-MM-DD format (inclusive).\n"
         )
 
     def do_update_sector_data(self, argument_line: str) -> None:  # noqa: D401

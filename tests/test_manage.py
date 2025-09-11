@@ -41,9 +41,11 @@ def test_update_data_from_yf(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     import stock_indicator.manage as manage_module
 
     call_symbols: list[str] = []
+    recorded_end_dates: list[str] = []
 
-    def fake_download_history(symbol: str, start: str, end: str) -> pandas.DataFrame:
-        call_symbols.append(symbol)
+    def fake_download_history(symbol_name: str, start: str, end: str) -> pandas.DataFrame:
+        call_symbols.append(symbol_name)
+        recorded_end_dates.append(end)
         return pandas.DataFrame(
             {"close": [1.0]}, index=pandas.to_datetime(["2023-01-01"])
         ).rename_axis("Date")
@@ -54,7 +56,7 @@ def test_update_data_from_yf(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     monkeypatch.setattr(manage_module, "DATA_DIRECTORY", tmp_path)
 
     shell = manage_module.StockShell(stdout=io.StringIO())
-    shell.onecmd("update_data_from_yf TEST 2023-01-01 2023-01-02")
+    shell.onecmd("update_data_from_yf TEST 2023-01-01 2023-01-01")
     output_file = tmp_path / "TEST.csv"
     assert output_file.exists()
     csv_contents = pandas.read_csv(output_file)
@@ -62,6 +64,7 @@ def test_update_data_from_yf(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     # Expect two downloads: requested symbol and ^GSPC
     assert call_symbols[0] == "TEST"
     assert "^GSPC" in call_symbols
+    assert set(recorded_end_dates) == {"2023-01-02"}
 
 
 def test_update_all_data_from_yf(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -74,9 +77,11 @@ def test_update_all_data_from_yf(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
         return symbol_list
 
     download_calls: list[str] = []
+    recorded_end_dates: list[str] = []
 
-    def fake_download_history(symbol: str, start: str, end: str) -> pandas.DataFrame:
-        download_calls.append(symbol)
+    def fake_download_history(symbol_name: str, start: str, end: str) -> pandas.DataFrame:
+        download_calls.append(symbol_name)
+        recorded_end_dates.append(end)
         return pandas.DataFrame(
             {"close": [1.0]}, index=pandas.to_datetime(["2023-01-01"])
         ).rename_axis("Date")
@@ -89,13 +94,14 @@ def test_update_all_data_from_yf(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 
     expected_symbols = symbol_list
     shell = manage_module.StockShell(stdout=io.StringIO())
-    shell.onecmd("update_all_data_from_yf 2023-01-01 2023-01-02")
+    shell.onecmd("update_all_data_from_yf 2023-01-01 2023-01-01")
     for symbol in expected_symbols:
         csv_path = tmp_path / f"{symbol}.csv"
         assert csv_path.exists()
         csv_contents = pandas.read_csv(csv_path)
         assert "Date" in csv_contents.columns
     assert download_calls == expected_symbols
+    assert set(recorded_end_dates) == {"2023-01-02"}
 
 
 def test_reset_symbols_daily_job_command_recreates_file(

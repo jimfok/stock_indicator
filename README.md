@@ -91,8 +91,9 @@ python -m stock_indicator.manage
   defines which symbols the daily job processes. Run this when the daily job
   symbol file is missing or outdated.
 * `update_data_from_yf SYMBOL START END` saves historical data for the given symbol to
-  `data/<SYMBOL>.csv`.
+  `data/<SYMBOL>.csv`. ``END`` is inclusive.
 * `update_all_data_from_yf START END` performs the download for every cached symbol.
+  ``END`` is inclusive.
 * `find_history_signal [DATE] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY
   STOP_LOSS` or `find_history_signal [DATE] DOLLAR_VOLUME_FILTER STOP_LOSS
   strategy=ID` recalculates the entry and exit signals for `DATE`. The first

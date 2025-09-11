@@ -121,8 +121,16 @@ def determine_last_cached_date(data_directory: Path) -> datetime.date:
 def update_all_data_from_yf(
     start_date: str, end_date: str, data_directory: Path
 ) -> None:
-    """Download historical data for all symbols into ``data_directory``."""
+    """Download historical data for all symbols into ``data_directory``.
 
+    The ``end_date`` argument is treated as inclusive. To accommodate the
+    exclusive end-date semantics of the Yahoo Finance API, this function adds
+    one day to ``end_date`` before requesting data.
+    """
+
+    exclusive_end_date = (
+        datetime.date.fromisoformat(end_date) + datetime.timedelta(days=1)
+    ).isoformat()
     symbol_list = load_symbols()
     if SP500_SYMBOL not in symbol_list:
         symbol_list.append(SP500_SYMBOL)
@@ -130,7 +138,10 @@ def update_all_data_from_yf(
         csv_path = data_directory / f"{symbol_name}.csv"
         try:
             download_history(
-                symbol_name, start=start_date, end=end_date, cache_path=csv_path
+                symbol_name,
+                start=start_date,
+                end=exclusive_end_date,
+                cache_path=csv_path,
             )
             try:
                 cached_frame = pandas.read_csv(

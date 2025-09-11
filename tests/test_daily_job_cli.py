@@ -41,7 +41,10 @@ def test_manager_cli_generates_logs_and_signals(
     monkeypatch.setattr(manage_module.symbols, "load_symbols", lambda: ["AAA"])
     monkeypatch.setattr(manage_module.symbols, "add_symbol_to_yf_cache", lambda symbol_name: None)
 
+    recorded_end_dates: list[str] = []
+
     def fake_download_history(symbol_name: str, start: str, end: str) -> pandas.DataFrame:
+        recorded_end_dates.append(end)
         return pandas.DataFrame(
             {"open": [1.0], "close": [1.0]}, index=pandas.to_datetime(["2024-01-10"])
         )
@@ -71,7 +74,7 @@ def test_manager_cli_generates_logs_and_signals(
 
     output_buffer = io.StringIO()
     shell = manage_module.StockShell(stdout=output_buffer)
-    shell.onecmd("update_all_data_from_yf 2024-01-09 2024-01-11")
+    shell.onecmd("update_all_data_from_yf 2024-01-09 2024-01-10")
     shell.onecmd("find_history_signal dollar_volume>1 ema_sma_cross ema_sma_cross 1.0")
 
     log_file_path = cron_log_directory / "cron_stdout.log"
@@ -83,4 +86,5 @@ def test_manager_cli_generates_logs_and_signals(
     assert log_file_path.exists()
     assert date_marker_path.exists()
     assert recorded_arguments["end"] == "2024-01-10"
+    assert set(recorded_end_dates) == {"2024-01-11"}
 
