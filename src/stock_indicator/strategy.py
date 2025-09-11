@@ -491,10 +491,12 @@ def compute_signals_for_date(
 
     Returns
     -------
-    Dict[str, List[str]]
-        Mapping with keys ``"entry_signals"`` and ``"exit_signals"`` containing
-        lists of symbols that triggered the respective signals on the sampled
-        row.
+    Dict[str, List[str] | List[tuple[str, int | None]]]
+        Mapping with keys ``"filtered_symbols"``, ``"entry_signals"`` and
+        ``"exit_signals"``. ``filtered_symbols`` contains pairs of symbol and
+        Fama–French group identifier for symbols that passed the dollar-volume
+        filter on the evaluation day. The other lists contain symbols that
+        triggered the respective signals on the sampled row.
     """
     # TODO: review
 
@@ -522,9 +524,10 @@ def compute_signals_for_date(
     symbols_excluded_by_industry = (
         load_symbols_excluded_by_industry() if exclude_other_ff12 else set()
     )
+    symbol_to_group_map = load_ff12_groups_by_symbol()
     symbol_to_group_map_for_filtering: dict[str, int] | None = None
     if allowed_fama_french_groups is not None:
-        symbol_to_group_map_for_filtering = load_ff12_groups_by_symbol()
+        symbol_to_group_map_for_filtering = symbol_to_group_map
     for csv_file_path in data_directory.glob("*.csv"):
         if csv_file_path.stem == SP500_SYMBOL:
             continue
@@ -581,6 +584,19 @@ def compute_signals_for_date(
         minimum_average_dollar_volume_ratio=minimum_average_dollar_volume_ratio,
         maximum_symbols_per_group=maximum_symbols_per_group,
     )
+
+    filtered_symbols_with_groups: List[tuple[str, int | None]] = []
+    try:
+        eligible_dates = eligibility_mask.index[eligibility_mask.index <= evaluation_date]
+        if len(eligible_dates) > 0:
+            last_date = eligible_dates[-1]
+            eligibility_row = eligibility_mask.loc[last_date]
+            for symbol_name, is_eligible in eligibility_row.items():
+                if bool(is_eligible):
+                    group_identifier = symbol_to_group_map.get(symbol_name.upper())
+                    filtered_symbols_with_groups.append((symbol_name, group_identifier))
+    except Exception:  # noqa: BLE001
+        filtered_symbols_with_groups = []
 
     # Prepare per-symbol masks aligned to each frame
     selected_symbol_data: List[tuple[Path, pandas.DataFrame, pandas.Series]] = []
@@ -753,7 +769,11 @@ def compute_signals_for_date(
         if bool(current_row["_combined_sell_exit"]):
             exit_signal_symbols.append(csv_file_path.stem)
 
-    return {"entry_signals": entry_signal_symbols, "exit_signals": exit_signal_symbols}
+    return {
+        "filtered_symbols": filtered_symbols_with_groups,
+        "entry_signals": entry_signal_symbols,
+        "exit_signals": exit_signal_symbols,
+    }
 
 
 def load_price_data(csv_file_path: Path) -> pandas.DataFrame:

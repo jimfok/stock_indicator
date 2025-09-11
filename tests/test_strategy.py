@@ -2330,6 +2330,41 @@ def test_compute_signals_for_date_returns_same_day_signal(tmp_path: Path, monkey
     assert shifted_result["entry_signals"] == []
 
 
+def test_compute_signals_for_date_returns_filtered_symbols_with_groups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """compute_signals_for_date should include filtered symbols and groups."""
+
+    price_lines = ["Date,open,close,volume\n"]
+    start_day = datetime.date(2024, 1, 1)
+    for day_index in range(60):
+        current_day = start_day + datetime.timedelta(days=day_index)
+        price_lines.append(
+            f"{current_day.isoformat()},1,1,1000000\n"
+        )
+    (tmp_path / "AAA.csv").write_text("".join(price_lines), encoding="utf-8")
+    (tmp_path / "BBB.csv").write_text("".join(price_lines), encoding="utf-8")
+
+    monkeypatch.setattr(strategy, "load_symbols_excluded_by_industry", lambda: set())
+    monkeypatch.setattr(
+        strategy,
+        "load_ff12_groups_by_symbol",
+        lambda: {"AAA": 1, "BBB": 2},
+    )
+
+    result = strategy.compute_signals_for_date(
+        data_directory=tmp_path,
+        evaluation_date=pandas.Timestamp("2024-02-20"),
+        buy_strategy_name="20_50_sma_cross",
+        sell_strategy_name="20_50_sma_cross",
+        top_dollar_volume_rank=2,
+        use_unshifted_signals=True,
+    )
+
+    assert ("AAA", 1) in result["filtered_symbols"]
+    assert ("BBB", 2) in result["filtered_symbols"]
+
+
 def test_calculate_chip_concentration_metrics_defaults_volume_profile_to_none() -> None:
     """Volume profile metrics should be ``None`` when not requested."""
 

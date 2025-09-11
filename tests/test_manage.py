@@ -372,6 +372,45 @@ def test_find_history_signal_with_strategy_id(
     }
 
 
+def test_find_history_signal_prints_filtered_symbols(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command should display filtered symbols with group identifiers."""
+    import stock_indicator.manage as manage_module
+
+    captured: dict[str, str] = {}
+
+    def fake_find_history_signal(
+        date_string: str,
+        dollar_volume_filter: str,
+        buy_strategy: str,
+        sell_strategy: str,
+        stop_loss: float,
+        allowed_group_identifiers: set[int] | None = None,
+    ) -> dict[str, list[object]]:
+        captured["filter"] = dollar_volume_filter
+        return {
+            "filtered_symbols": [("AAA", 1), ("BBB", 2)],
+            "entry_signals": ["AAA"],
+            "exit_signals": ["BBB"],
+        }
+
+    monkeypatch.setattr(
+        manage_module.daily_job, "find_history_signal", fake_find_history_signal
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd(
+        "find_history_signal 2024-01-10 dollar_volume>0.05%,Top30,Pick10 ema_sma_cross ema_sma_cross 1.0"
+    )
+
+    assert captured["filter"] == "dollar_volume>0.05%,Top30,Pick10"
+    assert output_buffer.getvalue().splitlines()[:3] == [
+        "filtered symbols: [('AAA', 1), ('BBB', 2)]",
+        "entry signals: ['AAA']",
+        "exit signals: ['BBB']",
+    ]
+
+
 # TODO: review
 def test_filter_debug_values_prints_table(
     monkeypatch: pytest.MonkeyPatch,
