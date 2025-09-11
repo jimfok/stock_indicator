@@ -13,11 +13,9 @@ from zoneinfo import ZoneInfo
 
 import pandas
 from pandas.tseries.offsets import BDay
-import yfinance.exceptions as yfinance_exceptions
 
 from . import cron, strategy_sets
 from .data_loader import download_history
-from .symbols import load_daily_job_symbols, remove_daily_job_symbol
 
 LOGGER = logging.getLogger(__name__)
 
@@ -465,99 +463,8 @@ def _read_latest_close(
     except Exception:  # noqa: BLE001
         return None
 
-
-# TODO: review
-def find_latest_signal(
-    dollar_volume_filter: str,
-    buy_strategy: str,
-    sell_strategy: str,
-    stop_loss: float,
-    allowed_fama_french_groups: set[int] | None = None,
-) -> Dict[str, Any]:
-    """Refresh data for tracked symbols and compute signals for the latest day.
-
-    Symbols are loaded from ``symbols_daily_job.txt`` via
-    :func:`load_daily_job_symbols`. For each symbol the local CSV cache is
-    updated. If the update fails with a :class:`yfinance.exceptions.YFException`
-    the symbol is removed from the daily job list to prevent repeated
-    failures. After refreshing the caches the function delegates to
-    :func:`find_history_signal` using the most recent trading date.
-
-    Parameters
-    ----------
-    dollar_volume_filter:
-        Filter applied to select symbols based on dollar volume.
-    buy_strategy:
-        Name of the strategy used to generate entry signals.
-    sell_strategy:
-        Name of the strategy used to generate exit signals.
-    stop_loss:
-        Fractional loss parameter kept for parity with other entry points.
-    allowed_fama_french_groups:
-        Optional set of FF12 group identifiers restricting the tradable
-        universe.
-
-    Returns
-    -------
-    Dict[str, Any]
-        Dictionary containing entry and exit signals as well as optional
-        budget information.
-    """
-
-    latest_trading_date = determine_latest_trading_date()
-    download_end_date = (latest_trading_date + datetime.timedelta(days=1)).isoformat()
-    symbol_list = load_daily_job_symbols()
-    for symbol_name in symbol_list:
-        csv_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
-        try:
-            history_frame = pandas.read_csv(csv_path, index_col=0, parse_dates=True)
-            if history_frame.empty:
-                download_start = DEFAULT_START_DATE
-            else:
-                next_day = history_frame.index.max() + pandas.Timedelta(days=1)
-                download_start = next_day.date().isoformat()
-        except Exception as read_error:  # noqa: BLE001
-            LOGGER.warning("Could not read %s: %s", csv_path, read_error)
-            download_start = DEFAULT_START_DATE
-        try:
-            download_history(
-                symbol_name,
-                start=download_start,
-                end=download_end_date,
-                cache_path=csv_path,
-            )
-            try:
-                cached_frame = pandas.read_csv(csv_path, index_col=0, parse_dates=True)
-                deduplicated_frame = cached_frame.loc[
-                    ~cached_frame.index.duplicated(keep="last")
-                ]
-                deduplicated_frame.to_csv(csv_path)
-            except Exception as cache_error:  # noqa: BLE001
-                LOGGER.warning("Failed to deduplicate %s: %s", csv_path, cache_error)
-        except yfinance_exceptions.YFException as download_error:
-            LOGGER.warning(
-                "Removing %s from daily job symbols due to download error: %s",
-                symbol_name,
-                download_error,
-            )
-            remove_daily_job_symbol(symbol_name)
-        except Exception as download_error:  # noqa: BLE001
-            LOGGER.warning(
-                "Failed to refresh data for %s: %s", symbol_name, download_error
-            )
-
-    return find_history_signal(
-        latest_trading_date.isoformat(),
-        dollar_volume_filter,
-        buy_strategy,
-        sell_strategy,
-        stop_loss,
-        allowed_fama_french_groups,
-    )
-
-
 def find_history_signal(
-    date_string: str,
+    date_string: str | None,
     dollar_volume_filter: str,
     buy_strategy: str,
     sell_strategy: str,
@@ -566,14 +473,15 @@ def find_history_signal(
 ) -> Dict[str, Any]:
     """Run daily tasks for a single date and return signals and budget data.
 
-    The ``date_string`` represents the day on which indicator signals are
-    generated. Entries based on those signals occur on the next trading day's
-    open.
+    When ``date_string`` is ``None`` the most recent trading date is determined
+    via :func:`determine_latest_trading_date` and used for evaluation. Entries
+    based on generated signals occur on the next trading day's open.
 
     Parameters
     ----------
     date_string:
-        ISO formatted date string representing the signal date.
+        ISO formatted date string representing the signal date. ``None``
+        triggers evaluation for the latest trading day.
     dollar_volume_filter:
         Filter applied to select symbols based on dollar volume.
     buy_strategy:
@@ -600,6 +508,8 @@ def find_history_signal(
         ``slot_weight``, ``budget_per_entry``, and ``entry_budgets``.
     """
     # TODO: review
+    if date_string is None:
+        date_string = determine_latest_trading_date().isoformat()
     group_token = (
         ""
         if not allowed_fama_french_groups
