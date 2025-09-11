@@ -15,6 +15,7 @@ from pandas.tseries.offsets import BDay
 from .cron import parse_daily_task_arguments, run_daily_tasks
 from .data_loader import download_history, load_local_history
 from .symbols import SP500_SYMBOL, load_symbols
+from . import strategy
 
 LOGGER = logging.getLogger(__name__)
 
@@ -282,4 +283,85 @@ def find_history_signal(
     entry_signals = signal_result.get("entry_signals", [])
     exit_signals = signal_result.get("exit_signals", [])
     return {"entry_signals": entry_signals, "exit_signals": exit_signals}
+
+
+def filter_debug_values(
+    symbol_name: str,
+    evaluation_date_string: str,
+    buy_strategy_name: str,
+    sell_strategy_name: str,
+) -> Dict[str, float | bool | None]:
+    """Return indicator debug values for ``symbol_name`` on ``evaluation_date_string``.
+
+    Loads local price history, attaches indicators for the provided buy and sell
+    strategies, and extracts a handful of useful columns for debugging
+    threshold-based filters.
+    """
+
+    # TODO: review
+    csv_file_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
+    start_date_string = determine_start_date(STOCK_DATA_DIRECTORY)
+    end_date_string = (
+        pandas.Timestamp(evaluation_date_string) + pandas.Timedelta(days=1)
+    ).date().isoformat()
+    price_history_frame = load_local_history(
+        symbol_name, start_date_string, end_date_string, cache_path=csv_file_path
+    )
+    if price_history_frame.empty or pandas.Timestamp(evaluation_date_string) not in price_history_frame.index:
+        return {
+            "sma_angle": None,
+            "near_price_volume_ratio": None,
+            "above_price_volume_ratio": None,
+            "entry": False,
+            "exit": False,
+        }
+
+    (
+        buy_base_name,
+        buy_window_size,
+        buy_angle_range,
+        buy_near_percentage,
+        buy_above_percentage,
+    ) = strategy.parse_strategy_name(buy_strategy_name)
+    buy_function = strategy.BUY_STRATEGIES.get(buy_base_name)
+    if buy_function is not None:
+        buy_arguments: Dict[str, float | tuple[float, float]] = {}
+        if buy_window_size is not None:
+            buy_arguments["window_size"] = buy_window_size
+        if buy_angle_range is not None:
+            buy_arguments["angle_range"] = buy_angle_range
+        if buy_near_percentage is not None:
+            buy_arguments["near_pct"] = buy_near_percentage
+        if buy_above_percentage is not None:
+            buy_arguments["above_pct"] = buy_above_percentage
+        buy_function(price_history_frame, **buy_arguments)
+
+    (
+        sell_base_name,
+        sell_window_size,
+        sell_angle_range,
+        sell_near_percentage,
+        sell_above_percentage,
+    ) = strategy.parse_strategy_name(sell_strategy_name)
+    sell_function = strategy.SELL_STRATEGIES.get(sell_base_name)
+    if sell_function is not None:
+        sell_arguments: Dict[str, float | tuple[float, float]] = {}
+        if sell_window_size is not None:
+            sell_arguments["window_size"] = sell_window_size
+        if sell_angle_range is not None:
+            sell_arguments["angle_range"] = sell_angle_range
+        if sell_near_percentage is not None:
+            sell_arguments["near_pct"] = sell_near_percentage
+        if sell_above_percentage is not None:
+            sell_arguments["above_pct"] = sell_above_percentage
+        sell_function(price_history_frame, **sell_arguments)
+
+    row = price_history_frame.loc[pandas.Timestamp(evaluation_date_string)]
+    return {
+        "sma_angle": row.get("sma_angle"),
+        "near_price_volume_ratio": row.get("near_price_volume_ratio"),
+        "above_price_volume_ratio": row.get("above_price_volume_ratio"),
+        "entry": bool(row.get(f"{buy_base_name}_entry_signal", False)),
+        "exit": bool(row.get(f"{sell_base_name}_exit_signal", False)),
+    }
 

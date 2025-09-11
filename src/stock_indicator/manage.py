@@ -402,6 +402,49 @@ class StockShell(cmd.Cmd):
             "  OUTPUT_PATH: Destination path for the Parquet output file.\n"
         )
 
+    def do_filter_debug_values(self, argument_line: str) -> None:  # noqa: D401
+        """filter_debug_values SYMBOL DATE (BUY SELL | strategy=ID)
+
+        Display indicator debug metrics for a symbol on the given date."""
+        usage_message = (
+            "usage: filter_debug_values SYMBOL DATE (BUY SELL | strategy=ID)\n"
+        )
+        argument_parts: List[str] = argument_line.split()
+        if len(argument_parts) < 3:
+            self.stdout.write(usage_message)
+            return
+        symbol_name = argument_parts.pop(0)
+        date_string = argument_parts.pop(0)
+        strategy_identifier: str | None = None
+        if len(argument_parts) == 1 and argument_parts[0].startswith("strategy="):
+            strategy_identifier = argument_parts[0].split("=", 1)[1].strip()
+        elif len(argument_parts) == 2:
+            buy_strategy_name, sell_strategy_name = argument_parts
+        else:
+            self.stdout.write(usage_message)
+            return  # TODO: review
+        if strategy_identifier:
+            mapping = load_strategy_set_mapping()
+            if strategy_identifier not in mapping:
+                self.stdout.write(f"unknown strategy id: {strategy_identifier}\n")
+                return
+            buy_strategy_name, sell_strategy_name = mapping[strategy_identifier]
+        result = daily_job.filter_debug_values(
+            symbol_name, date_string, buy_strategy_name, sell_strategy_name
+        )
+        output_row = {"date": date_string, **result}
+        output_frame = pandas.DataFrame([output_row])
+        self.stdout.write(output_frame.to_string(index=False) + "\n")
+
+    def help_filter_debug_values(self) -> None:
+        """Display help for the filter_debug_values command."""
+        # TODO: review
+        self.stdout.write(
+            "filter_debug_values SYMBOL DATE (BUY SELL | strategy=ID)\n"
+            "Display indicator debug metrics for SYMBOL on DATE using either explicit "
+            "BUY and SELL strategies or a strategy id from data/strategy_sets.csv.\n"
+        )
+
     # TODO: review
     def do_start_simulate(self, argument_line: str) -> None:  # noqa: D401
         """start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [SHOW_DETAILS]
