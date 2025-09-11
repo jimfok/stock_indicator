@@ -1120,8 +1120,10 @@ def attach_ema_sma_cross_testing_signals(
     Entry signals mirror :func:`attach_ema_sma_cross_with_slope_signals` but do
     not require the closing price to remain above the long-term simple moving
     average. Instead, this variant recomputes chip concentration metrics and
-    validates that the near-price and above-price volume ratios fall below the
-    ``near_pct`` and ``above_pct`` thresholds.
+    validates that the near-price and above-price volume ratios on the
+    crossover date fall below the ``near_pct`` and ``above_pct`` thresholds.
+    The unshifted ratios are retained for ``*_raw_entry_signal`` evaluation so
+    same-day raw signals remain consistent.
 
     Parameters
     ----------
@@ -1194,25 +1196,43 @@ def attach_ema_sma_cross_testing_signals(
         above_ratios, index=price_data_frame.index
     )
 
-    near_ok = price_data_frame["near_price_volume_ratio"].le(near_pct)
-    above_ok = price_data_frame["above_price_volume_ratio"].le(above_pct)
+    price_data_frame["near_price_volume_ratio_previous"] = price_data_frame[
+        "near_price_volume_ratio"
+    ].shift(1)
+    price_data_frame["above_price_volume_ratio_previous"] = price_data_frame[
+        "above_price_volume_ratio"
+    ].shift(1)
+
+    near_price_ratio_previous_ok = price_data_frame[
+        "near_price_volume_ratio_previous"
+    ].le(near_pct)
+    above_price_ratio_previous_ok = price_data_frame[
+        "above_price_volume_ratio_previous"
+    ].le(above_pct)
+
     price_data_frame["ema_sma_cross_testing_entry_signal"] = (
         price_data_frame["ema_sma_cross_entry_signal"]
         & (price_data_frame["sma_angle"] >= angle_lower_bound)
         & (price_data_frame["sma_angle"] <= angle_upper_bound)
-        & near_ok.fillna(False)
-        & above_ok.fillna(False)
+        & near_price_ratio_previous_ok.fillna(False)
+        & above_price_ratio_previous_ok.fillna(False)
     )
     price_data_frame["ema_sma_cross_testing_exit_signal"] = price_data_frame[
         "ema_sma_cross_exit_signal"
     ]
     if include_raw_signals:
+        near_price_ratio_raw_ok = price_data_frame["near_price_volume_ratio"].le(
+            near_pct
+        )
+        above_price_ratio_raw_ok = price_data_frame["above_price_volume_ratio"].le(
+            above_pct
+        )
         price_data_frame["ema_sma_cross_testing_raw_entry_signal"] = (
             price_data_frame["ema_sma_cross_raw_entry_signal"]
             & (price_data_frame["sma_angle"] >= angle_lower_bound)
             & (price_data_frame["sma_angle"] <= angle_upper_bound)
-            & near_ok.fillna(False)
-            & above_ok.fillna(False)
+            & near_price_ratio_raw_ok.fillna(False)
+            & above_price_ratio_raw_ok.fillna(False)
         )
         price_data_frame["ema_sma_cross_testing_raw_exit_signal"] = (
             price_data_frame["ema_sma_cross_raw_exit_signal"]

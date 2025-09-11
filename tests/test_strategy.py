@@ -1769,6 +1769,7 @@ def test_attach_ema_sma_cross_testing_filters_by_angle_and_chip(
         window_size: int = 50,
         require_close_above_long_term_sma: bool = True,
         sma_window_factor: float | None = None,
+        include_raw_signals: bool = False,
     ) -> None:
         nonlocal recorded_flag
         recorded_flag = require_close_above_long_term_sma
@@ -1783,10 +1784,10 @@ def test_attach_ema_sma_cross_testing_filters_by_angle_and_chip(
 
     metrics_queue = [
         {"near_price_volume_ratio": 0.2, "above_price_volume_ratio": 0.2},
-        {"near_price_volume_ratio": 0.2, "above_price_volume_ratio": 0.2},
         {"near_price_volume_ratio": 0.11, "above_price_volume_ratio": 0.09},
         {"near_price_volume_ratio": 0.05, "above_price_volume_ratio": 0.11},
         {"near_price_volume_ratio": 0.13, "above_price_volume_ratio": 0.09},
+        {"near_price_volume_ratio": 0.2, "above_price_volume_ratio": 0.2},
     ]
 
     def fake_calculate_chip_concentration_metrics(
@@ -1843,6 +1844,83 @@ def test_attach_ema_sma_cross_testing_signals_raises_value_error_for_invalid_ang
             price_data_frame, angle_range=(1.0, -1.0)
         )
 
+
+def test_attach_ema_sma_cross_testing_uses_previous_day_ratios_on_gap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Entry uses prior-day chip ratios when a weekend gap separates cross and entry."""
+    import stock_indicator.strategy as strategy_module
+
+    trading_dates = pandas.to_datetime(
+        ["2023-05-18", "2023-05-19", "2023-05-22"]
+    )
+    price_data_frame = pandas.DataFrame(
+        {
+            "open": [1.0, 1.0, 1.0],
+            "high": [1.0, 1.0, 1.0],
+            "low": [1.0, 1.0, 1.0],
+            "close": [1.0, 1.0, 1.0],
+            "volume": [1.0, 1.0, 1.0],
+        },
+        index=trading_dates,
+    )
+
+    def fake_attach_ema_sma_cross_signals(
+        data_frame: pandas.DataFrame,
+        window_size: int = 40,
+        require_close_above_long_term_sma: bool = False,
+        sma_window_factor: float | None = None,
+        include_raw_signals: bool = False,
+    ) -> None:
+        data_frame["sma_value"] = pandas.Series(
+            [1.0, 1.1, 1.2], index=data_frame.index
+        )
+        data_frame["sma_previous"] = data_frame["sma_value"].shift(1)
+        data_frame["ema_sma_cross_entry_signal"] = pandas.Series(
+            [False, False, True], index=data_frame.index
+        )
+        data_frame["ema_sma_cross_exit_signal"] = pandas.Series(
+            [False, False, False], index=data_frame.index
+        )
+        data_frame["ema_sma_cross_raw_entry_signal"] = pandas.Series(
+            [False, True, False], index=data_frame.index
+        )
+        data_frame["ema_sma_cross_raw_exit_signal"] = pandas.Series(
+            [False, False, False], index=data_frame.index
+        )
+
+    metrics_queue = [
+        {"near_price_volume_ratio": 0.2, "above_price_volume_ratio": 0.2},
+        {"near_price_volume_ratio": 0.11, "above_price_volume_ratio": 0.09},
+        {"near_price_volume_ratio": 0.5, "above_price_volume_ratio": 0.5},
+    ]
+
+    def fake_calculate_chip_concentration_metrics(
+        frame: pandas.DataFrame,
+        lookback_window_size: int = 60,
+        bin_count: int = 50,
+        near_price_band_ratio: float = 0.03,
+        include_volume_profile: bool = False,
+    ) -> dict[str, float | int | None]:
+        return metrics_queue.pop(0)
+
+    monkeypatch.setattr(
+        strategy_module, "attach_ema_sma_cross_signals", fake_attach_ema_sma_cross_signals
+    )
+    monkeypatch.setattr(
+        strategy_module,
+        "calculate_chip_concentration_metrics",
+        fake_calculate_chip_concentration_metrics,
+    )
+
+    strategy_module.attach_ema_sma_cross_testing_signals(
+        price_data_frame, include_raw_signals=True
+    )
+
+    assert price_data_frame.loc[trading_dates[2], "ema_sma_cross_testing_entry_signal"]
+    assert not price_data_frame.loc[
+        trading_dates[2], "ema_sma_cross_testing_raw_entry_signal"
+    ]
 
 def test_attach_ema_sma_cross_with_slope_and_volume_requires_higher_ema_volume(
     monkeypatch: pytest.MonkeyPatch,
