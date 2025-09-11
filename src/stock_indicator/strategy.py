@@ -380,7 +380,8 @@ class TradeDetail:
     approximates the number of significant volume clusters. The ``result``
     field marks whether a closed trade ended in a win or a loss. For closing
     trades, ``percentage_change`` records the fractional price change between
-    entry and exit.
+    entry and exit. The ``exit_reason`` field captures why a trade closed,
+    such as ``"signal"``, ``"stop_loss"``, or ``"end_of_data"``.
     """
     # TODO: review
     date: pandas.Timestamp
@@ -404,6 +405,7 @@ class TradeDetail:
     concurrent_position_count: int = 0
     result: str | None = None  # TODO: review
     percentage_change: float | None = None  # TODO: review
+    exit_reason: str = "signal"
 
 
 @dataclass
@@ -2111,6 +2113,7 @@ def evaluate_combined_strategy(
                 percentage_change=percentage_change,
                 group_total_simple_moving_average_dollar_volume=group_exit_total,
                 group_simple_moving_average_dollar_volume_ratio=group_exit_ratio,
+                exit_reason=completed_trade.exit_reason,
             )
             trade_details_by_year.setdefault(
                 completed_trade.entry_date.year, []

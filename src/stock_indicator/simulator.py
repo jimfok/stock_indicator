@@ -42,6 +42,7 @@ class Trade:
     exit_price: float
     profit: float
     holding_period: int
+    exit_reason: str = "signal"
 
 
 @dataclass
@@ -160,6 +161,7 @@ def simulate_trades(
                             exit_price=exit_price,
                             profit=profit_value,
                             holding_period=holding_period_value,
+                            exit_reason="stop_loss",
                         )
                     )
                     in_position = False
@@ -188,6 +190,7 @@ def simulate_trades(
                         exit_price=exit_price,
                         profit=profit_value,
                         holding_period=holding_period_value,
+                        exit_reason="stop_loss",
                     )
                 )
                 in_position = False
@@ -250,6 +253,7 @@ def simulate_trades(
                 exit_price=exit_price,
                 profit=profit_value,
                 holding_period=holding_period_value,
+                exit_reason="end_of_data",
             )
         )
     total_profit = sum(completed_trade.profit for completed_trade in trades)

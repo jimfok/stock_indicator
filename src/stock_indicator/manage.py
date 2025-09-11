@@ -101,10 +101,14 @@ def save_trade_details_to_log(
                     if trade_detail.percentage_change is not None:
                         result_suffix = (
                             f" {trade_detail.result} "
-                            f"{trade_detail.percentage_change:.2%}"
+                            f"{trade_detail.percentage_change:.2%} "
+                            f"{trade_detail.exit_reason}"
                         )
                     else:
-                        result_suffix = f" {trade_detail.result}"
+                        result_suffix = (
+                            f" {trade_detail.result} "
+                            f"{trade_detail.exit_reason}"
+                        )
                 else:
                     result_suffix = ""
                 open_metrics = ""
@@ -841,6 +845,7 @@ class StockShell(cmd.Cmd):
                         "exit_date": detail.date.date(),
                         "result": detail.result,
                         "percentage_change": detail.percentage_change,
+                        "exit_reason": detail.exit_reason,
                     }
                 )
         output_directory = Path("logs") / "simulate_result"
@@ -861,6 +866,7 @@ class StockShell(cmd.Cmd):
                 "exit_date",
                 "result",
                 "percentage_change",
+                "exit_reason",
             ],
         ).to_csv(output_file, index=False)
         save_trade_details_to_log(
@@ -902,10 +908,14 @@ class StockShell(cmd.Cmd):
                         if trade_detail.percentage_change is not None:
                             result_suffix = (
                                 f" {trade_detail.result} "
-                                f"{trade_detail.percentage_change:.2%}"
+                                f"{trade_detail.percentage_change:.2%} "
+                                f"{trade_detail.exit_reason}"
                             )
                         else:
-                            result_suffix = f" {trade_detail.result}"
+                            result_suffix = (
+                                f" {trade_detail.result} "
+                                f"{trade_detail.exit_reason}"
+                            )
                     else:
                         result_suffix = ""
                     open_metrics = ""
@@ -1175,11 +1185,18 @@ class StockShell(cmd.Cmd):
                     if (
                         trade_detail.action == "close"
                         and trade_detail.result is not None
-                        and trade_detail.percentage_change is not None
                     ):
-                        result_suffix = (
-                            f" {trade_detail.result} {trade_detail.percentage_change:.2%}"
-                        )
+                        if trade_detail.percentage_change is not None:
+                            result_suffix = (
+                                f" {trade_detail.result} "
+                                f"{trade_detail.percentage_change:.2%} "
+                                f"{trade_detail.exit_reason}"
+                            )
+                        else:
+                            result_suffix = (
+                                f" {trade_detail.result} "
+                                f"{trade_detail.exit_reason}"
+                            )
                     else:
                         result_suffix = ""
                     open_metrics = ""
@@ -1434,11 +1451,18 @@ class StockShell(cmd.Cmd):
                     if (
                         trade_detail.action == "close"
                         and trade_detail.result is not None
-                        and trade_detail.percentage_change is not None
                     ):
-                        result_suffix = (
-                            f" {trade_detail.result} {trade_detail.percentage_change:.2%}"
-                        )
+                        if trade_detail.percentage_change is not None:
+                            result_suffix = (
+                                f" {trade_detail.result} "
+                                f"{trade_detail.percentage_change:.2%} "
+                                f"{trade_detail.exit_reason}"
+                            )
+                        else:
+                            result_suffix = (
+                                f" {trade_detail.result} "
+                                f"{trade_detail.exit_reason}"
+                            )
                     else:
                         result_suffix = ""
                     open_metrics = ""
