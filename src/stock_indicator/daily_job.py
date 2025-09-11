@@ -300,8 +300,10 @@ def filter_debug_values(
     """Return indicator debug values for ``symbol_name`` on ``evaluation_date_string``.
 
     Loads local price history, attaches indicators for the provided buy and sell
-    strategies, and extracts a handful of useful columns for debugging
-    threshold-based filters.
+    strategies on separate data copies, and extracts a handful of useful columns
+    for debugging threshold-based filters. Computing indicators on individual
+    copies prevents sell-side indicators from overwriting buy-side results when
+    both strategies share the same base name.
     """
 
     # TODO: review
@@ -322,6 +324,9 @@ def filter_debug_values(
             "exit": False,
         }
 
+    buy_price_history_frame = price_history_frame.copy()
+    sell_price_history_frame = price_history_frame.copy()
+
     (
         buy_base_name,
         buy_window_size,
@@ -340,7 +345,7 @@ def filter_debug_values(
             buy_arguments["near_pct"] = buy_near_percentage
         if buy_above_percentage is not None:
             buy_arguments["above_pct"] = buy_above_percentage
-        buy_function(price_history_frame, **buy_arguments)
+        buy_function(buy_price_history_frame, **buy_arguments)
 
     (
         sell_base_name,
@@ -360,14 +365,36 @@ def filter_debug_values(
             sell_arguments["near_pct"] = sell_near_percentage
         if sell_above_percentage is not None:
             sell_arguments["above_pct"] = sell_above_percentage
-        sell_function(price_history_frame, **sell_arguments)
+        sell_function(sell_price_history_frame, **sell_arguments)
 
-    row = price_history_frame.loc[pandas.Timestamp(evaluation_date_string)]
+    # TODO: review
+    debug_column_names = [
+        "sma_angle",
+        "near_price_volume_ratio",
+        "above_price_volume_ratio",
+    ]
+    buy_debug_column_names = [
+        column_name
+        for column_name in debug_column_names
+        if column_name in buy_price_history_frame.columns
+    ]
+    buy_entry_signal_column = f"{buy_base_name}_entry_signal"
+    if buy_entry_signal_column in buy_price_history_frame.columns:
+        buy_debug_column_names.append(buy_entry_signal_column)
+    debug_frame = buy_price_history_frame[buy_debug_column_names]
+
+    sell_exit_signal_column = f"{sell_base_name}_exit_signal"
+    if sell_exit_signal_column in sell_price_history_frame.columns:
+        debug_frame = debug_frame.join(
+            sell_price_history_frame[[sell_exit_signal_column]], how="outer"
+        )
+
+    row = debug_frame.loc[pandas.Timestamp(evaluation_date_string)]
     return {
         "sma_angle": row.get("sma_angle"),
         "near_price_volume_ratio": row.get("near_price_volume_ratio"),
         "above_price_volume_ratio": row.get("above_price_volume_ratio"),
-        "entry": bool(row.get(f"{buy_base_name}_entry_signal", False)),
-        "exit": bool(row.get(f"{sell_base_name}_exit_signal", False)),
+        "entry": bool(row.get(buy_entry_signal_column, False)),
+        "exit": bool(row.get(sell_exit_signal_column, False)),
     }
 
