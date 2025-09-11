@@ -55,6 +55,33 @@ def test_update_all_data_from_yf_deduplicates_history(
     assert not result_frame.index.duplicated().any()
 
 
+def test_update_all_data_from_yf_treats_end_as_inclusive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``update_all_data_from_yf`` should treat the ``end_date`` as inclusive."""
+
+    recorded_end_dates: list[str] = []
+
+    def fake_download_history(
+        symbol_name: str, start: str, end: str, cache_path: Path | None = None
+    ) -> pandas.DataFrame:
+        recorded_end_dates.append(end)
+        data_frame = pandas.DataFrame(
+            {"close": [1.0]}, index=pandas.to_datetime([start])
+        )
+        if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            data_frame.to_csv(cache_path)
+        return data_frame
+
+    monkeypatch.setattr(daily_job, "download_history", fake_download_history)
+    monkeypatch.setattr(daily_job, "load_symbols", lambda: ["AAA"])
+
+    daily_job.update_all_data_from_yf("2024-01-01", "2024-01-01", tmp_path)
+
+    assert recorded_end_dates == ["2024-01-02"]
+
+
 def test_update_all_data_from_yf_preserves_existing_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
