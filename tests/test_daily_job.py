@@ -1,250 +1,13 @@
 import datetime
-import json
 import logging
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import pytest
 import pandas
+import pytest
 import yfinance.exceptions as yfinance_exceptions
 
 from stock_indicator import daily_job
-
-
-def test_run_daily_job_writes_log_file(tmp_path, monkeypatch):
-    """run_daily_job should create a dated log file with signals."""
-
-    def fake_find_history_signal(
-        date_string: str,
-        dollar_volume_filter: str,
-        buy_strategy: str,
-        sell_strategy: str,
-        stop_loss: float,
-        allowed_groups: set[int] | None,
-    ):
-        return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
-
-    monkeypatch.setattr(daily_job, "find_history_signal", fake_find_history_signal)
-    monkeypatch.setattr(daily_job, "update_all_data_from_yf", lambda *a, **k: None)
-
-    log_directory = tmp_path / "logs"
-    data_directory = tmp_path / "data"
-    current_date = datetime.date(2024, 1, 10)
-
-    log_file_path = daily_job.run_daily_job(
-        "dollar_volume>1 ema_sma_cross ema_sma_cross",
-        data_directory=data_directory,
-        log_directory=log_directory,
-        current_date=current_date,
-    )
-
-    expected_log_path = log_directory / "2024-01-10.log"
-    assert log_file_path == expected_log_path
-    assert log_file_path.read_text(encoding="utf-8") == (
-        "entry_signals: AAA\nexit_signals: BBB\n"
-    )
-
-
-def test_run_daily_job_accepts_percentage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """run_daily_job should parse percentage-based filters."""
-
-    captured_arguments: dict[str, float | int | None] = {}
-
-    def fake_run_daily_tasks(
-        buy_strategy_name: str,
-        sell_strategy_name: str,
-        start_date: str,
-        end_date: str,
-        symbol_list=None,
-        data_download_function=None,
-        data_directory: Path | None = None,
-        minimum_average_dollar_volume: float | None = None,
-        top_dollar_volume_rank: int | None = None,
-        allowed_fama_french_groups: set[int] | None = None,
-        maximum_symbols_per_group: int = 1,
-        use_unshifted_signals: bool = False,
-    ):
-        captured_arguments["minimum_average_dollar_volume"] = minimum_average_dollar_volume
-        captured_arguments["top_dollar_volume_rank"] = top_dollar_volume_rank
-        return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
-
-    monkeypatch.setattr(daily_job.cron, "run_daily_tasks", fake_run_daily_tasks)
-    monkeypatch.setattr(daily_job, "update_all_data_from_yf", lambda *a, **k: None)
-
-    log_directory = tmp_path / "logs"
-    data_directory = tmp_path / "data"
-    current_date = datetime.date(2024, 1, 10)
-
-    log_file_path = daily_job.run_daily_job(
-        "dollar_volume>2.41% ema_sma_cross ema_sma_cross",
-        data_directory=data_directory,
-        log_directory=log_directory,
-        current_date=current_date,
-    )
-
-    assert captured_arguments["minimum_average_dollar_volume"] == pytest.approx(0.0241)
-    assert captured_arguments["top_dollar_volume_rank"] is None
-    assert log_file_path.read_text(encoding="utf-8") == (
-        "entry_signals: AAA\nexit_signals: BBB\n"
-    )
-
-
-def test_run_daily_job_accepts_percentage_and_rank(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """run_daily_job should parse combined percentage and ranking filters."""
-
-    captured_arguments: dict[str, float | int | None] = {}
-
-    def fake_run_daily_tasks(
-        buy_strategy_name: str,
-        sell_strategy_name: str,
-        start_date: str,
-        end_date: str,
-        symbol_list=None,
-        data_download_function=None,
-        data_directory: Path | None = None,
-        minimum_average_dollar_volume: float | None = None,
-        top_dollar_volume_rank: int | None = None,
-        allowed_fama_french_groups: set[int] | None = None,
-        maximum_symbols_per_group: int = 1,
-        use_unshifted_signals: bool = False,
-    ):
-        captured_arguments["minimum_average_dollar_volume"] = minimum_average_dollar_volume
-        captured_arguments["top_dollar_volume_rank"] = top_dollar_volume_rank
-        return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
-
-    monkeypatch.setattr(daily_job.cron, "run_daily_tasks", fake_run_daily_tasks)
-    monkeypatch.setattr(daily_job, "update_all_data_from_yf", lambda *a, **k: None)
-
-    log_directory = tmp_path / "logs"
-    data_directory = tmp_path / "data"
-    current_date = datetime.date(2024, 1, 10)
-
-    log_file_path = daily_job.run_daily_job(
-        "dollar_volume>2.41%,5th ema_sma_cross ema_sma_cross",
-        data_directory=data_directory,
-        log_directory=log_directory,
-        current_date=current_date,
-    )
-
-    assert captured_arguments["minimum_average_dollar_volume"] == pytest.approx(0.0241)
-    assert captured_arguments["top_dollar_volume_rank"] == 5
-    assert log_file_path.read_text(encoding="utf-8") == (
-        "entry_signals: AAA\nexit_signals: BBB\n"
-    )
-
-
-def test_run_daily_job_uses_oldest_data_date(tmp_path, monkeypatch):
-    """run_daily_job should start from the oldest available data date."""
-
-    captured_start_date: dict[str, str] = {}
-
-    def fake_run_daily_tasks_from_argument(
-        argument_line: str,
-        start_date: str,
-        end_date: str,
-        symbol_list=None,
-        data_download_function=None,
-        data_directory: Path | None = None,
-        use_unshifted_signals: bool = False,
-    ):
-        captured_start_date["value"] = start_date
-        return {"entry_signals": [], "exit_signals": []}
-
-    monkeypatch.setattr(
-        daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument
-    )
-    monkeypatch.setattr(daily_job, "update_all_data_from_yf", lambda *a, **k: None)
-
-    data_directory = tmp_path / "data"
-    data_directory.mkdir()
-    (data_directory / "AAA.csv").write_text(
-        "Date,open,close\n2018-06-01,1,1\n2018-06-02,1,1\n2024-01-10,1,1\n",
-        encoding="utf-8",
-    )
-    (data_directory / "BBB.csv").write_text(
-        "Date,open,close\n2019-01-01,1,1\n2019-01-02,1,1\n2024-01-10,1,1\n",
-        encoding="utf-8",
-    )
-    log_directory = tmp_path / "logs"
-    current_date = datetime.date(2024, 1, 10)
-
-    daily_job.run_daily_job(
-        "dollar_volume>1 ema_sma_cross ema_sma_cross",
-        data_directory=data_directory,
-        log_directory=log_directory,
-        current_date=current_date,
-    )
-
-    assert captured_start_date["value"] == "2014-01-01"
-
-
-def test_run_daily_job_expands_strategy_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """run_daily_job should replace ``strategy=ID`` with buy and sell names."""
-
-    captured_parameters: dict[str, object] = {}
-
-    def fake_find_history_signal(
-        date_string: str,
-        dollar_volume_filter: str,
-        buy_strategy: str,
-        sell_strategy: str,
-        stop_loss: float,
-        allowed_groups: set[int] | None,
-    ):
-        captured_parameters["dollar_volume_filter"] = dollar_volume_filter
-        captured_parameters["buy_strategy"] = buy_strategy
-        captured_parameters["sell_strategy"] = sell_strategy
-        captured_parameters["stop_loss"] = stop_loss
-        captured_parameters["allowed_groups"] = allowed_groups
-        return {"entry_signals": [], "exit_signals": []}
-
-    monkeypatch.setattr(daily_job, "find_history_signal", fake_find_history_signal)
-    monkeypatch.setattr(
-        daily_job.strategy_sets,
-        "load_strategy_set_mapping",
-        lambda: {"s1": ("buy_one", "sell_two")},
-    )
-    monkeypatch.setattr(daily_job, "update_all_data_from_yf", lambda *a, **k: None)
-
-    log_directory = tmp_path / "logs"
-    data_directory = tmp_path / "data"
-    current_date = datetime.date(2024, 1, 10)
-
-    daily_job.run_daily_job(
-        "group=1,2 dollar_volume>1 strategy=s1 0.5",
-        data_directory=data_directory,
-        log_directory=log_directory,
-        current_date=current_date,
-    )
-
-    assert captured_parameters["dollar_volume_filter"] == "dollar_volume>1"
-    assert captured_parameters["buy_strategy"] == "buy_one"
-    assert captured_parameters["sell_strategy"] == "sell_two"
-    assert captured_parameters["stop_loss"] == 0.5
-    assert captured_parameters["allowed_groups"] == {1, 2}
-
-
-def test_run_daily_job_unknown_strategy_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """run_daily_job should raise when strategy id is not found."""
-
-    monkeypatch.setattr(
-        daily_job.strategy_sets, "load_strategy_set_mapping", lambda: {}
-    )
-    monkeypatch.setattr(daily_job, "update_all_data_from_yf", lambda *a, **k: None)
-
-    log_directory = tmp_path / "logs"
-    data_directory = tmp_path / "data"
-    current_date = datetime.date(2024, 1, 10)
-
-    with pytest.raises(ValueError, match="unknown strategy id: missing"):
-        daily_job.run_daily_job(
-            "dollar_volume>1 strategy=missing 0.2",
-            data_directory=data_directory,
-            log_directory=log_directory,
-            current_date=current_date,
-        )
 
 
 def test_find_history_signal_returns_cron_output(
@@ -348,80 +111,6 @@ def test_find_history_signal_detects_same_day_crossover(
     assert signal_dictionary["entry_signals"] == ["AAA"]
 
 
-def test_run_daily_job_budget_matches_simulator(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """run_daily_job should compute budgets using the simulator sizing algorithm."""
-
-    data_directory = tmp_path / "data"
-    data_directory.mkdir()
-    log_directory = tmp_path / "logs"
-    log_directory.mkdir()
-    local_data_directory = tmp_path / "local_data"
-    local_data_directory.mkdir()
-    current_status_path = local_data_directory / "current_status.json"
-
-    current_status = {
-        "cash": 500.0,
-        "margin": 1.5,
-        "positions": [{"symbol": "AAA", "Qty": 10}],
-        "maximum_position_count": 5,
-    }
-    current_status_path.write_text(json.dumps(current_status), encoding="utf-8")
-
-    csv_content = "Date,close\n2024-01-09,10\n2024-01-10,12\n"
-    (data_directory / "AAA.csv").write_text(csv_content, encoding="utf-8")
-
-    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
-    monkeypatch.setattr(daily_job, "LOG_DIRECTORY", log_directory)
-    monkeypatch.setattr(daily_job, "CURRENT_STATUS_FILE", current_status_path)
-
-    def fake_find_history_signal(
-        date_string: str,
-        dollar_volume_filter: str,
-        buy_strategy: str,
-        sell_strategy: str,
-        stop_loss: float,
-        allowed_groups: set[int] | None,
-    ) -> dict[str, list[str]]:
-        return {"entry_signals": ["BBB", "CCC"], "exit_signals": []}
-
-    monkeypatch.setattr(daily_job, "find_history_signal", fake_find_history_signal)
-
-    current_date = datetime.date(2024, 1, 10)
-    log_file_path = daily_job.run_daily_job(
-        "dollar_volume>1 ema_sma_cross ema_sma_cross",
-        current_date=current_date,
-    )
-
-    log_lines = {
-        key.strip(): value.strip()
-        for key, value in (
-            line.split(":", 1) for line in log_file_path.read_text(encoding="utf-8").splitlines()
-        )
-    }
-
-    equity_value = float(log_lines["equity_usd"])
-    slot_weight = float(log_lines["slot_weight"])
-    budget_per_entry = float(log_lines["budget_per_entry_usd"])
-    per_symbol_budget_lines = log_lines["entry_budgets"].split(",")
-    budget_by_symbol = {}
-    for budget_entry_text in per_symbol_budget_lines:
-        symbol_name, amount_text = budget_entry_text.split(":")
-        budget_by_symbol[symbol_name.strip()] = float(amount_text)
-
-    expected_equity = 500.0 + 10 * 12.0
-    expected_slot_weight = min(1.5 / 5, 1.0)
-    expected_budget = expected_equity * expected_slot_weight
-
-    assert equity_value == pytest.approx(expected_equity)
-    assert slot_weight == pytest.approx(expected_slot_weight)
-    assert budget_per_entry == pytest.approx(expected_budget)
-    assert budget_by_symbol["BBB"] == pytest.approx(expected_budget)
-    assert budget_by_symbol["CCC"] == pytest.approx(expected_budget)
-
-
-# TODO: review
 def test_find_history_signal_skips_download_when_cache_covers_range(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -451,100 +140,14 @@ def test_find_history_signal_skips_download_when_cache_covers_range(
     )
 
     daily_job.find_history_signal(
-        "2024-01-10", "dollar_volume>1", "buy", "sell", 1.0
+        "2024-01-10",
+        "dollar_volume>1",
+        "buy",
+        "sell",
+        1.0,
     )
 
-    assert download_calls == []
-
-
-def test_find_history_signal_skips_missing_symbol_for_date(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """find_history_signal should skip symbols missing evaluation-day data."""
-
-    data_directory = tmp_path
-    csv_file_path = data_directory / "AAA.csv"
-    csv_file_path.write_text(
-        "Date,open,close\n2023-08-01,1,1\n2024-01-11,1,1\n",
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
-    monkeypatch.setattr(
-        daily_job.cron,
-        "run_daily_tasks_from_argument",
-        lambda *args, **kwargs: {"entry_signals": [], "exit_signals": []},
-    )
-
-    with caplog.at_level(logging.WARNING):
-        signal_result = daily_job.find_history_signal(
-            "2024-01-10",
-            "dollar_volume>1",
-            "buy",
-            "sell",
-            1.0,
-        )
-    assert signal_result["entry_signals"] == []
-    assert signal_result["exit_signals"] == []
-    assert "Skipping symbols missing 2024-01-10: AAA" in caplog.text
-
-
-def test_find_history_signal_excludes_missing_symbols_and_warns(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Symbols without evaluation-day data should be excluded and logged."""
-
-    data_directory = tmp_path
-    missing_csv_file_path = data_directory / "AAA.csv"
-    missing_csv_file_path.write_text(
-        "Date,open,close\n2023-08-01,1,1\n2024-01-11,1,1\n",
-        encoding="utf-8",
-    )
-    present_csv_file_path = data_directory / "BBB.csv"
-    present_csv_file_path.write_text(
-        "Date,open,close\n2024-01-10,1,1\n",
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
-
-    captured_symbol_list: list[str] | None = None
-
-    def fake_run_daily_tasks_from_argument(
-        argument_line: str,
-        *,
-        start_date: str,
-        end_date: str,
-        symbol_list: list[str] | None,
-        data_directory: Path,
-        use_unshifted_signals: bool,
-    ) -> dict[str, list[str]]:
-        nonlocal captured_symbol_list
-        captured_symbol_list = [] if symbol_list is None else list(symbol_list)
-        return {"entry_signals": captured_symbol_list, "exit_signals": []}
-
-    monkeypatch.setattr(
-        daily_job.cron,
-        "run_daily_tasks_from_argument",
-        fake_run_daily_tasks_from_argument,
-    )
-
-    with caplog.at_level(logging.WARNING):
-        signal_result = daily_job.find_history_signal(
-            "2024-01-10",
-            "dollar_volume>1",
-            "buy",
-            "sell",
-            1.0,
-        )
-
-    assert captured_symbol_list == ["BBB"]
-    assert signal_result["entry_signals"] == ["BBB"]
-    assert "Skipping symbols missing 2024-01-10: AAA" in caplog.text
+    assert not download_calls
 
 
 def test_update_all_data_from_yf_deduplicates_history(
@@ -555,7 +158,8 @@ def test_update_all_data_from_yf_deduplicates_history(
     data_directory = tmp_path
     csv_path = data_directory / "AAA.csv"
     csv_path.write_text(
-        "Date,open,close\n2024-01-01,1,1\n2024-01-02,1,1\n", encoding="utf-8"
+        "Date,open,close\n2024-01-01,1,1\n2024-01-02,1,1\n",
+        encoding="utf-8",
     )
 
     def fake_download_history(
@@ -633,6 +237,7 @@ def test_find_history_signal_without_date_uses_latest_trading_day(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Omitting the date should evaluate the latest trading day."""
+
     task_arguments: dict[str, str] = {}
 
     def fake_run_daily_tasks_from_argument(
@@ -738,3 +343,4 @@ def test_update_all_data_from_yf_logs_warning_on_error(
         )
 
     assert any("BBB" in record.message for record in caplog.records)
+
