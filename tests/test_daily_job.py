@@ -7,7 +7,7 @@ import pandas
 import pytest
 import yfinance.exceptions as yfinance_exceptions
 
-from stock_indicator import daily_job
+from stock_indicator import cron, daily_job
 
 
 def test_find_history_signal_returns_cron_output(
@@ -17,20 +17,10 @@ def test_find_history_signal_returns_cron_output(
 
     expected_result = {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
 
-    def fake_run_daily_tasks_from_argument(
-        argument_line: str,
-        start_date: str,
-        end_date: str,
-        symbol_list=None,
-        data_download_function=None,
-        data_directory: Path | None = None,
-        use_unshifted_signals: bool = False,
-    ):
+    def fake_run_daily_tasks(*args, **kwargs):
         return expected_result
 
-    monkeypatch.setattr(
-        daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument
-    )
+    monkeypatch.setattr(daily_job, "run_daily_tasks", fake_run_daily_tasks)
     csv_file_path = tmp_path / "AAA.csv"
     csv_file_path.write_text(
         "Date,open,close\n2023-08-01,1,1\n2024-01-10,1,1\n",
@@ -67,38 +57,46 @@ def test_find_history_signal_detects_same_day_crossover(
     (data_directory / "AAA.csv").write_text("".join(csv_lines), encoding="utf-8")
 
     monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
-    monkeypatch.setattr(daily_job.cron, "update_symbol_cache", lambda: None)
-    monkeypatch.setattr(daily_job.cron, "load_symbols", lambda: ["AAA"])
+    monkeypatch.setattr(cron, "update_symbol_cache", lambda: None)
+    monkeypatch.setattr(cron, "load_symbols", lambda: ["AAA"])
 
-    original_run = daily_job.cron.run_daily_tasks_from_argument
+    original_run = daily_job.run_daily_tasks
 
     def fake_download_history(
         symbol: str, start: str, end: str, cache_path: Path | None = None
     ):
         return pandas.read_csv(cache_path, parse_dates=["Date"], index_col="Date")
 
-    def patched_run_daily_tasks_from_argument(
-        argument_line: str,
+    def patched_run_daily_tasks(
+        buy_strategy_name: str,
+        sell_strategy_name: str,
         start_date: str,
         end_date: str,
         symbol_list=None,
         data_download_function=None,
         data_directory: Path | None = None,
+        minimum_average_dollar_volume=None,
+        top_dollar_volume_rank=None,
+        allowed_fama_french_groups=None,
+        maximum_symbols_per_group: int = 1,
         use_unshifted_signals: bool = False,
     ):
         return original_run(
-            argument_line,
+            buy_strategy_name,
+            sell_strategy_name,
             start_date,
             end_date,
             symbol_list=symbol_list,
             data_download_function=fake_download_history,
             data_directory=data_directory,
+            minimum_average_dollar_volume=minimum_average_dollar_volume,
+            top_dollar_volume_rank=top_dollar_volume_rank,
+            allowed_fama_french_groups=allowed_fama_french_groups,
+            maximum_symbols_per_group=maximum_symbols_per_group,
             use_unshifted_signals=use_unshifted_signals,
         )
 
-    monkeypatch.setattr(
-        daily_job.cron, "run_daily_tasks_from_argument", patched_run_daily_tasks_from_argument
-    )
+    monkeypatch.setattr(daily_job, "run_daily_tasks", patched_run_daily_tasks)
 
     signal_dictionary = daily_job.find_history_signal(
         "2024-02-20",
@@ -134,8 +132,8 @@ def test_find_history_signal_skips_download_when_cache_covers_range(
     monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
     monkeypatch.setattr(daily_job, "download_history", fake_download_history)
     monkeypatch.setattr(
-        daily_job.cron,
-        "run_daily_tasks_from_argument",
+        daily_job,
+        "run_daily_tasks",
         lambda *a, **k: {"entry_signals": [], "exit_signals": []},
     )
 
@@ -175,6 +173,7 @@ def test_update_all_data_from_yf_deduplicates_history(
         return combined_frame
 
     monkeypatch.setattr(daily_job, "download_history", fake_download_history)
+    monkeypatch.setattr(daily_job, "load_symbols", lambda: ["AAA"])
     daily_job.update_all_data_from_yf(
         "2024-01-01", "2024-01-04", data_directory
     )
@@ -218,6 +217,7 @@ def test_update_all_data_from_yf_preserves_existing_rows(
         return combined_frame
 
     monkeypatch.setattr(daily_job, "download_history", fake_download_history)
+    monkeypatch.setattr(daily_job, "load_symbols", lambda: ["AAA"])
 
     daily_job.update_all_data_from_yf(
         "2024-01-01", "2024-01-05", data_directory
@@ -240,20 +240,20 @@ def test_find_history_signal_without_date_uses_latest_trading_day(
 
     task_arguments: dict[str, str] = {}
 
-    def fake_run_daily_tasks_from_argument(
-        argument_line: str,
+    def fake_run_daily_tasks(
+        buy_strategy_name: str,
+        sell_strategy_name: str,
         start_date: str,
         end_date: str,
         symbol_list: list[str] | None,
         data_directory: Path,
         use_unshifted_signals: bool,
+        **_: object,
     ) -> dict[str, list[str]]:
         task_arguments["end_date"] = end_date
         return {"entry_signals": [], "exit_signals": []}
 
-    monkeypatch.setattr(
-        daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument
-    )
+    monkeypatch.setattr(daily_job, "run_daily_tasks", fake_run_daily_tasks)
     monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
     monkeypatch.setattr(
         daily_job, "determine_latest_trading_date", lambda: datetime.date(2024, 1, 10)
@@ -280,13 +280,15 @@ def test_find_history_signal_uses_previous_trading_day_before_market_open(
 
     task_arguments: dict[str, str] = {}
 
-    def fake_run_daily_tasks_from_argument(
-        argument_line: str,
+    def fake_run_daily_tasks(
+        buy_strategy_name: str,
+        sell_strategy_name: str,
         start_date: str,
         end_date: str,
         symbol_list: list[str] | None,
         data_directory: Path,
         use_unshifted_signals: bool,
+        **_: object,
     ) -> dict[str, list[str]]:
         task_arguments["end_date"] = end_date
         return {"entry_signals": [], "exit_signals": []}
@@ -305,9 +307,7 @@ def test_find_history_signal_uses_previous_trading_day_before_market_open(
         def today(cls) -> datetime.date:
             return datetime.date(2025, 9, 10)
 
-    monkeypatch.setattr(
-        daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument
-    )
+    monkeypatch.setattr(daily_job, "run_daily_tasks", fake_run_daily_tasks)
     monkeypatch.setattr(daily_job, "determine_latest_trading_date", fake_determine_latest_trading_date)
     monkeypatch.setattr(daily_job.datetime, "date", FakeDate)
     monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)

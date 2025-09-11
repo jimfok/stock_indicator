@@ -155,20 +155,13 @@ def test_find_history_signal_prints_recalculated_signals(
 
     recorded_arguments: dict[str, object] = {}
 
-    def fake_run_daily_tasks_from_argument(
-        argument_line: str,
-        start_date: str,
-        end_date: str,
-        symbol_list=None,
-        data_directory: Path | None = None,
-        use_unshifted_signals: bool = False,
-    ) -> dict[str, list[str]]:
+    def fake_run_daily_tasks(*args, **kwargs) -> dict[str, list[str]]:
         return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
 
     monkeypatch.setattr(
-        manage_module.daily_job.cron,
-        "run_daily_tasks_from_argument",
-        fake_run_daily_tasks_from_argument,
+        manage_module.daily_job,
+        "run_daily_tasks",
+        fake_run_daily_tasks,
     )
     monkeypatch.setattr(
         manage_module.daily_job,

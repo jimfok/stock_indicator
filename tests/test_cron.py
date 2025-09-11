@@ -277,10 +277,10 @@ def test_run_daily_tasks_honors_dollar_volume_rank(tmp_path, monkeypatch):
     assert result["exit_signals"] == []
 
 
-def test_run_daily_tasks_from_argument_group_ratio_and_rank(
+def test_run_daily_tasks_honors_group_ratio_and_rank(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``run_daily_tasks_from_argument`` should honor group ratio and ranking."""
+    """``run_daily_tasks`` should honor group ratio and ranking."""
 
     volume_by_symbol = {"AAA": 2_000_000, "BBB": 100_000, "CCC": 5_000_000}
     date_index = pandas.date_range("2020-01-01", periods=60, freq="D")
@@ -319,12 +319,26 @@ def test_run_daily_tasks_from_argument_group_ratio_and_rank(
     monkeypatch.setattr(cron, "load_symbols_excluded_by_industry", lambda: set())
 
     argument_line = "dollar_volume>1.6%,Top4 fake_strategy fake_strategy"
-    signal_result = cron.run_daily_tasks_from_argument(
-        argument_line,
-        start_date="2020-01-01",
-        end_date="2020-03-01",
-        data_directory=tmp_path,
+    (
+        minimum_average_dollar_volume,
+        top_dollar_volume_rank,
+        maximum_symbols_per_group,
+        buy_strategy_name,
+        sell_strategy_name,
+        _,
+        allowed_groups,
+    ) = cron.parse_daily_task_arguments(argument_line)
+    signal_result = cron.run_daily_tasks(
+        buy_strategy_name,
+        sell_strategy_name,
+        "2020-01-01",
+        "2020-03-01",
         symbol_list=["AAA", "BBB", "CCC"],
+        data_directory=tmp_path,
+        minimum_average_dollar_volume=minimum_average_dollar_volume,
+        top_dollar_volume_rank=top_dollar_volume_rank,
+        allowed_fama_french_groups=allowed_groups,
+        maximum_symbols_per_group=maximum_symbols_per_group,
     )
 
     entry_signal_symbols = signal_result["entry_signals"]
