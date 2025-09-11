@@ -171,6 +171,7 @@ def test_simulate_trades_closes_open_position_at_end() -> None:
     assert final_trade.exit_date == price_data_frame.index[-1]
     assert final_trade.exit_price == 3.0
     assert final_trade.holding_period == 1
+    assert final_trade.exit_reason == "end_of_data"
 
 
 def test_simulate_trades_applies_stop_loss_next_open() -> None:

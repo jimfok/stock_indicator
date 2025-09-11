@@ -633,6 +633,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
                     simple_moving_average_dollar_volume_ratio=0.3,
                     result="lose",
                     percentage_change=-1.0 / 30.0,
+                    exit_reason="end_of_data",
                 ),
             ],
         }
@@ -680,7 +681,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
         in output_buffer.getvalue()
     )
     assert (
-        "  2023-01-05 AAA close 11.00 0.1000 100.00M 1000.00M win 10.00%"
+        "  2023-01-05 AAA close 11.00 0.1000 100.00M 1000.00M win 10.00% signal"
         in output_buffer.getvalue()
     )
     assert (
@@ -688,7 +689,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
         in output_buffer.getvalue()
     )
     assert (
-        "  2024-03-05 CCC close 29.00 0.3000 300.00M 1000.00M lose -3.33%"
+        "  2024-03-05 CCC close 29.00 0.3000 300.00M 1000.00M lose -3.33% end_of_data"
         in output_buffer.getvalue()
     )
 
@@ -1979,6 +1980,7 @@ def test_start_simulate_creates_csv(
         "exit_date",
         "result",
         "percentage_change",
+        "exit_reason",
     ]
 
 
@@ -2050,5 +2052,5 @@ def test_start_simulate_writes_trade_detail_log(
     assert len(log_files) == 1
     assert log_files[0].read_text(encoding="utf-8").splitlines() == [
         "  2024-01-02 (1) AAA open 10.00 0.0000 0.00M 0.00M price_score=1.00 near_pct=0.50 above_pct=0.30 node_count=2",
-        "  2024-01-05 (0) AAA close 12.00 0.0000 0.00M 0.00M win 20.00%",
+        "  2024-01-05 (0) AAA close 12.00 0.0000 0.00M 0.00M win 20.00% signal",
     ]
