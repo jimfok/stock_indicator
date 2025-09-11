@@ -22,7 +22,9 @@ def test_run_daily_tasks_detects_signals(tmp_path, monkeypatch):
             frame.to_csv(cache_path)
         return frame
 
-    def fake_strategy(price_history_frame: pandas.DataFrame) -> None:
+    def fake_strategy(
+        price_history_frame: pandas.DataFrame, *, include_raw_signals: bool = False
+    ) -> None:
         price_history_frame["fake_strategy_entry_signal"] = [False, False, True]
         price_history_frame["fake_strategy_exit_signal"] = [False, False, False]
 
@@ -192,7 +194,9 @@ def test_run_daily_tasks_skips_symbol_update_errors(tmp_path, monkeypatch):
             frame.to_csv(cache_path, index=False)
         return frame
 
-    def fake_strategy(price_history_frame: pandas.DataFrame) -> None:
+    def fake_strategy(
+        price_history_frame: pandas.DataFrame, *, include_raw_signals: bool = False
+    ) -> None:
         price_history_frame["fake_strategy_entry_signal"] = [True]
         price_history_frame["fake_strategy_exit_signal"] = [False]
 
@@ -236,7 +240,9 @@ def test_run_daily_tasks_honors_dollar_volume_rank(tmp_path, monkeypatch):
             frame.to_csv(cache_path)
         return frame
 
-    def fake_strategy(price_history_frame: pandas.DataFrame) -> None:
+    def fake_strategy(
+        price_history_frame: pandas.DataFrame, *, include_raw_signals: bool = False
+    ) -> None:
         entry_signals = [False] * 59 + [True]
         price_history_frame["fake_strategy_entry_signal"] = entry_signals
         price_history_frame["fake_strategy_exit_signal"] = [False] * 60
@@ -289,7 +295,9 @@ def test_run_daily_tasks_from_argument_group_ratio_and_rank(
             }
         ).to_csv(tmp_path / f"{symbol_name}.csv", index=False)
 
-    def fake_strategy(price_history_frame: pandas.DataFrame) -> None:
+    def fake_strategy(
+        price_history_frame: pandas.DataFrame, *, include_raw_signals: bool = False
+    ) -> None:
         entry_signals = [False] * 59 + [True]
         price_history_frame["fake_strategy_entry_signal"] = entry_signals
         price_history_frame["fake_strategy_exit_signal"] = [False] * 60
@@ -390,7 +398,9 @@ def test_run_daily_tasks_applies_combined_filters(tmp_path, monkeypatch):
             frame.to_csv(cache_path)
         return frame
 
-    def fake_strategy(price_history_frame: pandas.DataFrame) -> None:
+    def fake_strategy(
+        price_history_frame: pandas.DataFrame, *, include_raw_signals: bool = False
+    ) -> None:
         entry_signals = [False] * 59 + [True]
         price_history_frame["fake_strategy_entry_signal"] = entry_signals
         price_history_frame["fake_strategy_exit_signal"] = [False] * 60

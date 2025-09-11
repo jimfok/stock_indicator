@@ -25,6 +25,7 @@ def test_run_daily_job_writes_log_file(tmp_path, monkeypatch):
         return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
 
     monkeypatch.setattr(daily_job, "find_history_signal", fake_find_history_signal)
+    monkeypatch.setattr(daily_job, "update_all_data_from_yf", lambda *a, **k: None)
 
     log_directory = tmp_path / "logs"
     data_directory = tmp_path / "data"
@@ -68,6 +69,7 @@ def test_run_daily_job_accepts_percentage(tmp_path: Path, monkeypatch: pytest.Mo
         return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
 
     monkeypatch.setattr(daily_job.cron, "run_daily_tasks", fake_run_daily_tasks)
+    monkeypatch.setattr(daily_job, "update_all_data_from_yf", lambda *a, **k: None)
 
     log_directory = tmp_path / "logs"
     data_directory = tmp_path / "data"
@@ -113,6 +115,7 @@ def test_run_daily_job_accepts_percentage_and_rank(
         return {"entry_signals": ["AAA"], "exit_signals": ["BBB"]}
 
     monkeypatch.setattr(daily_job.cron, "run_daily_tasks", fake_run_daily_tasks)
+    monkeypatch.setattr(daily_job, "update_all_data_from_yf", lambda *a, **k: None)
 
     log_directory = tmp_path / "logs"
     data_directory = tmp_path / "data"
@@ -152,6 +155,7 @@ def test_run_daily_job_uses_oldest_data_date(tmp_path, monkeypatch):
     monkeypatch.setattr(
         daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument
     )
+    monkeypatch.setattr(daily_job, "update_all_data_from_yf", lambda *a, **k: None)
 
     data_directory = tmp_path / "data"
     data_directory.mkdir()
@@ -202,6 +206,7 @@ def test_run_daily_job_expands_strategy_id(tmp_path: Path, monkeypatch: pytest.M
         "load_strategy_set_mapping",
         lambda: {"s1": ("buy_one", "sell_two")},
     )
+    monkeypatch.setattr(daily_job, "update_all_data_from_yf", lambda *a, **k: None)
 
     log_directory = tmp_path / "logs"
     data_directory = tmp_path / "data"
@@ -227,6 +232,7 @@ def test_run_daily_job_unknown_strategy_id(tmp_path: Path, monkeypatch: pytest.M
     monkeypatch.setattr(
         daily_job.strategy_sets, "load_strategy_set_mapping", lambda: {}
     )
+    monkeypatch.setattr(daily_job, "update_all_data_from_yf", lambda *a, **k: None)
 
     log_directory = tmp_path / "logs"
     data_directory = tmp_path / "data"
@@ -541,10 +547,10 @@ def test_find_history_signal_excludes_missing_symbols_and_warns(
     assert "Skipping symbols missing 2024-01-10: AAA" in caplog.text
 
 
-def test_find_history_signal_deduplicates_cached_history(
+def test_update_all_data_from_yf_deduplicates_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """find_history_signal should remove duplicate rows and preserve existing data."""
+    """update_all_data_from_yf should remove duplicate rows."""
 
     data_directory = tmp_path
     csv_path = data_directory / "AAA.csv"
@@ -553,10 +559,7 @@ def test_find_history_signal_deduplicates_cached_history(
     )
 
     def fake_download_history(
-        symbol_name: str,
-        start: str,
-        end: str,
-        cache_path: Path | None = None,
+        symbol_name: str, start: str, end: str, cache_path: Path | None = None
     ) -> pandas.DataFrame:
         existing_frame = pandas.read_csv(cache_path, index_col=0, parse_dates=True)
         new_frame = pandas.DataFrame(
@@ -567,55 +570,24 @@ def test_find_history_signal_deduplicates_cached_history(
         combined_frame.to_csv(cache_path)
         return combined_frame
 
-    def fake_run_daily_tasks_from_argument(
-        argument_line: str,
-        start_date: str,
-        end_date: str,
-        symbol_list=None,
-        data_download_function=None,
-        data_directory: Path | None = None,
-        use_unshifted_signals: bool = False,
-    ) -> dict[str, list[str]]:
-        return {"entry_signals": [], "exit_signals": []}
-
-    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
     monkeypatch.setattr(daily_job, "download_history", fake_download_history)
-    monkeypatch.setattr(
-        daily_job.cron,
-        "run_daily_tasks_from_argument",
-        fake_run_daily_tasks_from_argument,
+    daily_job.update_all_data_from_yf(
+        "2024-01-01", "2024-01-04", data_directory
     )
 
-    daily_job.find_history_signal(
-        "2024-01-03", "dollar_volume>1", "buy", "sell", 1.0
-    )
-    frame_after_first_run = pandas.read_csv(
-        csv_path, index_col=0, parse_dates=True
-    )
-    assert list(frame_after_first_run.index.strftime("%Y-%m-%d")) == [
+    result_frame = pandas.read_csv(csv_path, index_col=0, parse_dates=True)
+    assert list(result_frame.index.strftime("%Y-%m-%d")) == [
         "2024-01-01",
         "2024-01-02",
         "2024-01-03",
     ]
-
-    daily_job.find_history_signal(
-        "2024-01-03", "dollar_volume>1", "buy", "sell", 1.0
-    )
-    frame_after_second_run = pandas.read_csv(
-        csv_path, index_col=0, parse_dates=True
-    )
-    assert list(frame_after_second_run.index.strftime("%Y-%m-%d")) == [
-        "2024-01-01",
-        "2024-01-02",
-        "2024-01-03",
-    ]
-    assert not frame_after_second_run.index.duplicated().any()
+    assert not result_frame.index.duplicated().any()
 
 
-def test_find_history_signal_preserves_existing_rows(
+def test_update_all_data_from_yf_preserves_existing_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """find_history_signal should keep original history rows without introducing duplicates."""
+    """Existing rows should remain intact after a refresh."""
 
     data_directory = tmp_path
     csv_file_path = data_directory / "AAA.csv"
@@ -630,10 +602,7 @@ def test_find_history_signal_preserves_existing_rows(
     )
 
     def fake_download_history(
-        symbol_name: str,
-        start: str,
-        end: str,
-        cache_path: Path | None = None,
+        symbol_name: str, start: str, end: str, cache_path: Path | None = None
     ) -> pandas.DataFrame:
         existing_frame = pandas.read_csv(cache_path, index_col=0, parse_dates=True)
         new_frame = pandas.DataFrame(
@@ -644,27 +613,10 @@ def test_find_history_signal_preserves_existing_rows(
         combined_frame.to_csv(cache_path)
         return combined_frame
 
-    def fake_run_daily_tasks_from_argument(
-        argument_line: str,
-        start_date: str,
-        end_date: str,
-        symbol_list=None,
-        data_download_function=None,
-        data_directory: Path | None = None,
-        use_unshifted_signals: bool = False,
-    ) -> dict[str, list[str]]:
-        return {"entry_signals": [], "exit_signals": []}
-
-    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", data_directory)
     monkeypatch.setattr(daily_job, "download_history", fake_download_history)
-    monkeypatch.setattr(
-        daily_job.cron,
-        "run_daily_tasks_from_argument",
-        fake_run_daily_tasks_from_argument,
-    )
 
-    daily_job.find_history_signal(
-        "2024-01-04", "dollar_volume>1", "buy", "sell", 1.0
+    daily_job.update_all_data_from_yf(
+        "2024-01-01", "2024-01-05", data_directory
     )
 
     result_frame = pandas.read_csv(csv_file_path, index_col=0, parse_dates=True)
@@ -677,22 +629,11 @@ def test_find_history_signal_preserves_existing_rows(
     assert not result_frame.index.duplicated().any()
 
 
-# TODO: review
-def test_find_history_signal_without_date_refreshes_and_computes(
+def test_find_history_signal_without_date_uses_latest_trading_day(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A missing date should trigger refresh and signal computation."""
-    symbol_calls: list[str] = []
+    """Omitting the date should evaluate the latest trading day."""
     task_arguments: dict[str, str] = {}
-
-    def fake_download_history(
-        symbol_name: str, start: str, end: str, cache_path: Path
-    ) -> pandas.DataFrame:
-        symbol_calls.append(symbol_name)
-        frame = pandas.DataFrame({"close": [1.0]}, index=pandas.to_datetime([start]))
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        frame.to_csv(cache_path)
-        return frame
 
     def fake_run_daily_tasks_from_argument(
         argument_line: str,
@@ -705,21 +646,23 @@ def test_find_history_signal_without_date_refreshes_and_computes(
         task_arguments["end_date"] = end_date
         return {"entry_signals": [], "exit_signals": []}
 
-    monkeypatch.setattr(daily_job, "download_history", fake_download_history)
-    monkeypatch.setattr(daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument)
+    monkeypatch.setattr(
+        daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument
+    )
     monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
     monkeypatch.setattr(
         daily_job, "determine_latest_trading_date", lambda: datetime.date(2024, 1, 10)
     )
 
     csv_path = tmp_path / "AAA.csv"
-    csv_path.write_text("Date,close\n2024-01-01,1.0\n", encoding="utf-8")
+    csv_path.write_text(
+        "Date,close\n2024-01-10,1.0\n", encoding="utf-8"
+    )
 
     result = daily_job.find_history_signal(
         None, "dollar_volume>1", "buy", "sell", 1.0
     )
 
-    assert symbol_calls == ["AAA"]
     assert task_arguments["end_date"] == "2024-01-10"
     assert result["entry_signals"] == []
     assert result["exit_signals"] == []
@@ -730,17 +673,7 @@ def test_find_history_signal_uses_previous_trading_day_before_market_open(
 ) -> None:
     """A pre-market call should evaluate the prior trading day."""
 
-    download_arguments: dict[str, str] = {}
     task_arguments: dict[str, str] = {}
-
-    def fake_download_history(
-        symbol_name: str, start: str, end: str, cache_path: Path
-    ) -> pandas.DataFrame:
-        download_arguments["end"] = end
-        frame = pandas.DataFrame({"close": [1.0]}, index=pandas.to_datetime([start]))
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        frame.to_csv(cache_path)
-        return frame
 
     def fake_run_daily_tasks_from_argument(
         argument_line: str,
@@ -767,8 +700,9 @@ def test_find_history_signal_uses_previous_trading_day_before_market_open(
         def today(cls) -> datetime.date:
             return datetime.date(2025, 9, 10)
 
-    monkeypatch.setattr(daily_job, "download_history", fake_download_history)
-    monkeypatch.setattr(daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument)
+    monkeypatch.setattr(
+        daily_job.cron, "run_daily_tasks_from_argument", fake_run_daily_tasks_from_argument
+    )
     monkeypatch.setattr(daily_job, "determine_latest_trading_date", fake_determine_latest_trading_date)
     monkeypatch.setattr(daily_job.datetime, "date", FakeDate)
     monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
@@ -778,18 +712,16 @@ def test_find_history_signal_uses_previous_trading_day_before_market_open(
 
     daily_job.find_history_signal(None, "dollar_volume>1", "buy", "sell", 1.0)
 
-    assert download_arguments["end"] == "2025-09-10"
     assert task_arguments["end_date"] == "2025-09-09"
 
 
-# TODO: review
-def test_find_history_signal_logs_warning_on_yfinance_error(
+def test_update_all_data_from_yf_logs_warning_on_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Download errors should be reported but not raise exceptions."""
+    """Errors during download should be logged and not raised."""
 
     def fake_download_history(
-        symbol_name: str, start: str, end: str, cache_path: Path
+        symbol_name: str, start: str, end: str, cache_path: Path | None = None
     ) -> pandas.DataFrame:
         if symbol_name == "BBB":
             raise yfinance_exceptions.YFException("bad symbol")
@@ -799,19 +731,10 @@ def test_find_history_signal_logs_warning_on_yfinance_error(
         return frame
 
     monkeypatch.setattr(daily_job, "download_history", fake_download_history)
-    monkeypatch.setattr(daily_job.cron, "run_daily_tasks_from_argument", lambda *a, **k: {"entry_signals": [], "exit_signals": []})
-    monkeypatch.setattr(daily_job, "STOCK_DATA_DIRECTORY", tmp_path)
-    monkeypatch.setattr(
-        daily_job, "determine_latest_trading_date", lambda: datetime.date(2024, 1, 10)
-    )
-    csv_path_a = tmp_path / "AAA.csv"
-    csv_path_a.write_text("Date,close\n2024-01-09,1.0\n", encoding="utf-8")
-    csv_path_b = tmp_path / "BBB.csv"
-    csv_path_b.write_text("Date,close\n2024-01-09,1.0\n", encoding="utf-8")
 
     with caplog.at_level(logging.WARNING):
-        daily_job.find_history_signal(
-            None, "dollar_volume>1", "buy", "sell", 1.0
+        daily_job.update_all_data_from_yf(
+            "2024-01-01", "2024-01-05", tmp_path
         )
 
     assert any("BBB" in record.message for record in caplog.records)
