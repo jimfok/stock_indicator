@@ -247,11 +247,11 @@ def find_history_signal(
             if evaluation_timestamp not in history_frame.index:
                 missing_symbols.append(symbol_name)
         if missing_symbols:
-            warning_symbol_list = ", ".join(sorted(missing_symbols))
-            LOGGER.warning(
+            missing_symbol_list = ", ".join(sorted(missing_symbols))
+            LOGGER.debug(
                 "Skipping symbols missing %s: %s",
                 date_string,
-                warning_symbol_list,
+                missing_symbol_list,
             )
             local_symbols = [
                 symbol_name
