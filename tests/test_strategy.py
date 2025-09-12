@@ -1310,6 +1310,83 @@ def test_evaluate_combined_strategy_trade_details_use_latest_average_dollar_volu
     assert bbb_close.simple_moving_average_dollar_volume_ratio == pytest.approx(0.8)
 
 
+def test_evaluate_combined_strategy_trade_details_use_signal_day_chip_metrics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TradeDetail should log chip metrics from the prior trading day."""
+
+    import stock_indicator.strategy as strategy_module
+
+    date_index = pandas.date_range("2023-01-02", periods=61, freq="B")
+    pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": [10.0] * 61,
+            "close": [10.0] * 61,
+            "volume": [1_000_000] * 61,
+        }
+    ).to_csv(tmp_path / "AAA.csv", index=False)
+
+    monkeypatch.setattr(strategy_module, "BUY_STRATEGIES", {"noop": lambda frame: None})
+    monkeypatch.setattr(strategy_module, "SELL_STRATEGIES", {"noop": lambda frame: None})
+    monkeypatch.setattr(
+        strategy_module, "SUPPORTED_STRATEGIES", {"noop": lambda frame: None}
+    )
+
+    def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
+        price_data_frame: pandas.DataFrame = kwargs["data"]
+        entry_date = price_data_frame.index[60]
+        entry_price = float(price_data_frame.iloc[60]["open"])
+        trade = Trade(
+            entry_date=entry_date,
+            exit_date=entry_date,
+            entry_price=entry_price,
+            exit_price=entry_price,
+            profit=0.0,
+            holding_period=0,
+        )
+        return SimulationResult(trades=[trade], total_profit=0.0)
+
+    monkeypatch.setattr(strategy_module, "simulate_trades", fake_simulate_trades)
+
+    signal_date = date_index[59]
+    recorded_frame_end: pandas.Timestamp | None = None
+
+    def fake_calculate_chip_concentration_metrics(
+        frame: pandas.DataFrame,
+        lookback_window_size: int = 60,
+        bin_count: int = 50,
+        near_price_band_ratio: float = 0.03,
+        include_volume_profile: bool = False,
+    ) -> dict[str, float | int | None]:
+        nonlocal recorded_frame_end
+        recorded_frame_end = frame.index[-1]
+        return {
+            "price_score": 1.0,
+            "near_price_volume_ratio": 0.1,
+            "above_price_volume_ratio": 0.2,
+            "histogram_node_count": 5,
+        }
+
+    monkeypatch.setattr(
+        strategy_module,
+        "calculate_chip_concentration_metrics",
+        fake_calculate_chip_concentration_metrics,
+    )
+
+    result = strategy_module.evaluate_combined_strategy(tmp_path, "noop", "noop")
+    trade_details = result.trade_details_by_year[signal_date.year]
+    open_detail = [
+        detail for detail in trade_details if detail.action == "open"
+    ][0]
+
+    assert recorded_frame_end == signal_date
+    assert open_detail.price_concentration_score == pytest.approx(1.0)
+    assert open_detail.near_price_volume_ratio == pytest.approx(0.1)
+    assert open_detail.above_price_volume_ratio == pytest.approx(0.2)
+    assert open_detail.histogram_node_count == 5
+
+
 def test_evaluate_combined_strategy_handles_empty_csv(tmp_path: Path) -> None:
     """evaluate_combined_strategy should skip empty CSV files and return zero trades."""
     empty_data_frame = pandas.DataFrame(
