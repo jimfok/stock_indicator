@@ -1788,6 +1788,72 @@ def test_start_simulate_accepts_cash_and_withdraw(
     assert recorded_values["withdraw"] == 1000.0
 
 
+# TODO: review
+def test_start_simulate_accepts_strategy_set_with_commas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command should allow strategy set names containing commas."""
+    import stock_indicator.manage as manage_module
+    from stock_indicator.strategy import StrategyMetrics
+
+    def fake_evaluate(
+        data_directory: Path,
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        minimum_average_dollar_volume: float | None,
+        top_dollar_volume_rank: int | None = None,
+        minimum_average_dollar_volume_ratio: float | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
+        stop_loss_percentage: float = 1.0,
+        start_date: pandas.Timestamp | None = None,
+        **_: object,
+    ) -> StrategyMetrics:
+        return StrategyMetrics(
+            total_trades=0,
+            win_rate=0.0,
+            mean_profit_percentage=0.0,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.0,
+            loss_percentage_standard_deviation=0.0,
+            mean_holding_period=0.0,
+            holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=0,
+            maximum_drawdown=0.0,
+            final_balance=0.0,
+            compound_annual_growth_rate=0.0,
+            annual_returns={},
+            annual_trade_counts={},
+            trade_details_by_year={},
+        )
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "evaluate_combined_strategy",
+        fake_evaluate,
+    )
+    monkeypatch.setattr(
+        manage_module,
+        "load_strategy_set_mapping",
+        lambda: {
+            "s5": (
+                "ema_sma_cross_testing_4_-0.01_65_0.05,0.0802_0.83,1.00",
+                "ema_sma_cross_testing_5_-0.01_65_0.05,0.0802_0.83,1.00",
+            )
+        },
+    )
+    monkeypatch.setattr(
+        manage_module,
+        "determine_start_date",
+        lambda data_directory: "2020-01-01",
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd("start_simulate dollar_volume>0 strategy=s5")
+    assert "unsupported strategies" not in output_buffer.getvalue()
+
+
 def test_start_simulate_unsupported_strategy(monkeypatch: pytest.MonkeyPatch) -> None:
     """The command should report unsupported strategy names."""
     import stock_indicator.manage as manage_module

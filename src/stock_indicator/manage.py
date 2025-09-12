@@ -58,12 +58,26 @@ def _resolve_strategy_choice(raw_name: str, allowed: dict) -> str:
 
 
 def _has_supported_strategy(expression: str, allowed: dict) -> bool:
-    """Return True if any option in a composite expression is supported.
+    """Return ``True`` when ``expression`` references a supported strategy.
 
-    Splits on "or", "|", ",", or "/" and checks if at least one token's
-    base strategy exists in the provided ``allowed`` mapping.
+    The function first attempts to parse ``expression`` as a single strategy
+    name. When that succeeds and the resulting base name is found in
+    ``allowed``, the strategy is considered supported. Only if parsing the
+    entire expression fails do we split on common separators (``or``, ``|``,
+    ``/``, ``,``) and check each token individually.
     """
-    parts = re.split(r"\s*(?:\bor\b|\||,|/)\s*", expression.strip())
+    try:
+        base_name, _, _, _, _ = strategy.parse_strategy_name(expression)
+    except Exception:  # noqa: BLE001
+        pass
+    else:
+        if base_name in allowed:
+            return True
+        for allowed_name in allowed:
+            if expression.startswith(f"{allowed_name}_"):
+                return True
+
+    parts = re.split(r"\s*(?:\bor\b|\||/|,)\s*", expression.strip())
     for token in parts:
         if not token:
             continue
