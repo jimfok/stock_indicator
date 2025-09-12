@@ -44,13 +44,15 @@ DEFAULT_SHIFTED_EMA_ANGLE_RANGE: tuple[float, float] = (
 
 
 def _split_strategy_choices(strategy_name: str) -> list[str]:
-    """Split a strategy expression by common OR separators.
+    """Split a strategy expression by recognized OR separators.
 
-    Supports "or", "|", "/", and comma as separators. Trims whitespace and
-    returns the list of non-empty tokens. If no separator is present, returns
-    a single-item list containing the original name.
+    The function separates an expression like ``"a or b"`` or ``"a|b"`` into
+    individual strategy tokens. Commas are intentionally **not** treated as
+    separators so that parameter lists such as ``"0.05,0.10"`` remain intact.
+    Whitespace around the separators is ignored. When the expression contains
+    no separators, the original name is returned as the sole list element.
     """
-    parts = re.split(r"\s*(?:\bor\b|\||/|,)\s*", strategy_name.strip())
+    parts = re.split(r"\s*(?:\bor\b|\||/)\s*", strategy_name.strip())
     return [token for token in parts if token]
 
 
@@ -1438,11 +1440,25 @@ def parse_strategy_name(
         raise ValueError(f"Malformed strategy name: {strategy_name}")
 
     numeric_segments: list[str] = []
+
+    def _is_numeric_or_range(text: str) -> bool:
+        try:
+            float(text)
+            return True
+        except ValueError:
+            if "," in text:
+                lower_text, upper_text = text.split(",", 1)
+                try:
+                    float(lower_text)
+                    float(upper_text)
+                    return True
+                except ValueError:
+                    return False
+            return False
+
     while name_parts:
         segment = name_parts[-1]
-        try:
-            float(segment)
-        except ValueError:
+        if not _is_numeric_or_range(segment):
             break
         numeric_segments.append(segment)
         name_parts.pop()
