@@ -2087,8 +2087,22 @@ def evaluate_combined_strategy(
                 group_entry_ratio = float(entry_volume_ratio)
             else:
                 group_entry_ratio = float(entry_dollar_volume) / group_entry_total
+            try:
+                entry_index_position = price_data_frame.index.get_loc(
+                    completed_trade.entry_date
+                )
+            except KeyError:
+                signal_date = completed_trade.entry_date
+            else:
+                if (
+                    isinstance(entry_index_position, int)
+                    and entry_index_position > 0
+                ):
+                    signal_date = price_data_frame.index[entry_index_position - 1]
+                else:
+                    signal_date = completed_trade.entry_date
             chip_metrics = calculate_chip_concentration_metrics(
-                price_data_frame.loc[: completed_trade.entry_date],
+                price_data_frame.loc[: signal_date],
                 lookback_window_size=60,
                 include_volume_profile=False,
             )  # TODO: review
