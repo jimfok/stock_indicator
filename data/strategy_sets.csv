@@ -2,5 +2,5 @@ strategy_id,buy,sell
 s1,ema_sma_cross_with_slope_40_-16.7_65,ema_sma_cross_with_slope_50
 s2,ema_shift_cross_with_slope_20,ema_shift_cross_with_slope_20
 s3,20_50_sma_cross,20_50_sma_cross
-s4,"ema_sma_cross_testing_4_-16.7_65_0.05,0.0802_0.83,1.00","ema_sma_cross_testing_5_-16.7_65_0.05,0.0802_0.83,1.00"
-s5,"ema_sma_cross_testing_4_-0.01_65_0.05,0.0802_0.83,1.00","ema_sma_cross_testing_5_-0.01_65_0.05,0.0802_0.83,1.00"
+s4,"ema_sma_cross_testing_4_-0.01_65_-10.0,10.0_0.78,1.00","ema_sma_cross_testing_5_-0.01_65_-10.0,10.0_0.78,1.00"
+s5,"ema_sma_cross_testing_4_-0.01_65_-10.0,10.0_0.9,1.00","ema_sma_cross_testing_5_-0.01_65_-10.0,10.0_0.9,1.00"
