@@ -29,10 +29,10 @@ START_DATE="$("$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -c 'from datetime impo
 # Update historical data and record signals
 "$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -m stock_indicator.manage update_all_data_from_yf "$START_DATE" "$LATEST_DATE" >> "$LOG_DIRECTORY/cron_stdout.log" 2>&1
 
-echo 'ARG_LINE_1' >> "$LOG_DIRECTORY/cron_stdout.log"
+echo "$ARG_LINE_1" >> "$LOG_DIRECTORY/cron_stdout.log" # TODO: review
 "$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -m stock_indicator.manage find_history_signal "$LATEST_DATE" "$ARG_LINE_1" >> "$LOG_DIRECTORY/cron_stdout.log" 2>&1
 
-echo 'ARG_LINE_2' >> "$LOG_DIRECTORY/cron_stdout.log"
+echo "$ARG_LINE_2" >> "$LOG_DIRECTORY/cron_stdout.log" # TODO: review
 "$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -m stock_indicator.manage find_history_signal "$LATEST_DATE" "$ARG_LINE_2" >> "$LOG_DIRECTORY/cron_stdout.log" 2>&1
 
 # Write a marker file for the latest run
