@@ -331,8 +331,8 @@ def filter_debug_values(
         buy_base_name,
         buy_window_size,
         buy_angle_range,
-        buy_near_percentage,
-        buy_above_percentage,
+        buy_near_range,
+        buy_above_range,
     ) = strategy.parse_strategy_name(buy_strategy_name)
     buy_function = strategy.BUY_STRATEGIES.get(buy_base_name)
     if buy_function is not None:
@@ -341,18 +341,18 @@ def filter_debug_values(
             buy_arguments["window_size"] = buy_window_size
         if buy_angle_range is not None:
             buy_arguments["angle_range"] = buy_angle_range
-        if buy_near_percentage is not None:
-            buy_arguments["near_pct"] = buy_near_percentage
-        if buy_above_percentage is not None:
-            buy_arguments["above_pct"] = buy_above_percentage
+        if buy_near_range is not None:
+            buy_arguments["near_range"] = buy_near_range
+        if buy_above_range is not None:
+            buy_arguments["above_range"] = buy_above_range
         buy_function(buy_price_history_frame, **buy_arguments)
 
     (
         sell_base_name,
         sell_window_size,
         sell_angle_range,
-        sell_near_percentage,
-        sell_above_percentage,
+        sell_near_range,
+        sell_above_range,
     ) = strategy.parse_strategy_name(sell_strategy_name)
     sell_function = strategy.SELL_STRATEGIES.get(sell_base_name)
     if sell_function is not None:
@@ -361,10 +361,10 @@ def filter_debug_values(
             sell_arguments["window_size"] = sell_window_size
         if sell_angle_range is not None:
             sell_arguments["angle_range"] = sell_angle_range
-        if sell_near_percentage is not None:
-            sell_arguments["near_pct"] = sell_near_percentage
-        if sell_above_percentage is not None:
-            sell_arguments["above_pct"] = sell_above_percentage
+        if sell_near_range is not None:
+            sell_arguments["near_range"] = sell_near_range
+        if sell_above_range is not None:
+            sell_arguments["above_range"] = sell_above_range
         sell_function(sell_price_history_frame, **sell_arguments)
 
     # TODO: review

@@ -690,10 +690,10 @@ def test_evaluate_combined_strategy_passes_angle_range_with_volume(
     assert captured_arguments["angle_range"] == (-26.6, 26.6)
 
 
-def test_evaluate_combined_strategy_passes_near_and_above_percentages(
+def test_evaluate_combined_strategy_passes_near_and_above_ranges(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The function should forward chip concentration thresholds."""
+    """The function should forward chip concentration ranges."""
 
     date_index = pandas.date_range("2020-01-01", periods=2, freq="D")
     price_data_frame = pandas.DataFrame(
@@ -702,9 +702,9 @@ def test_evaluate_combined_strategy_passes_near_and_above_percentages(
     csv_path = tmp_path / "chip.csv"
     price_data_frame.to_csv(csv_path, index=False)
 
-    captured_parameters: dict[str, float | None] = {
-        "near_pct": None,
-        "above_pct": None,
+    captured_parameters: dict[str, tuple[float, float] | None] = {
+        "near_range": None,
+        "above_range": None,
     }
 
     def fake_attach_signals(
@@ -714,11 +714,11 @@ def test_evaluate_combined_strategy_passes_near_and_above_percentages(
             -16.69924423399362,
             64.95379922035721,
         ),
-        near_pct: float = 0.12,
-        above_pct: float = 0.10,
+        near_range: tuple[float, float] = (0.0, 0.12),
+        above_range: tuple[float, float] = (0.0, 0.10),
     ) -> None:
-        captured_parameters["near_pct"] = near_pct
-        captured_parameters["above_pct"] = above_pct
+        captured_parameters["near_range"] = near_range
+        captured_parameters["above_range"] = above_range
         frame["ema_sma_cross_testing_entry_signal"] = [True, False]
         frame["ema_sma_cross_testing_exit_signal"] = [False, True]
 
@@ -746,12 +746,12 @@ def test_evaluate_combined_strategy_passes_near_and_above_percentages(
 
     evaluate_combined_strategy(
         tmp_path,
-        "ema_sma_cross_testing_40_-1_1_0.15_0.2",
-        "ema_sma_cross_testing_40_-1_1_0.15_0.2",
+        "ema_sma_cross_testing_40_-1_1_0.15,0.2_0.25,0.3",
+        "ema_sma_cross_testing_40_-1_1_0.15,0.2_0.25,0.3",
     )
 
-    assert captured_parameters["near_pct"] == 0.15
-    assert captured_parameters["above_pct"] == 0.2
+    assert captured_parameters["near_range"] == (0.15, 0.2)
+    assert captured_parameters["above_range"] == (0.25, 0.3)
 
 
 def test_evaluate_combined_strategy_renames_columns_with_angle_range(
@@ -1999,6 +1999,74 @@ def test_attach_ema_sma_cross_testing_uses_previous_day_ratios_on_gap(
         trading_dates[2], "ema_sma_cross_testing_raw_entry_signal"
     ]
 
+
+def test_attach_ema_sma_cross_testing_respects_range_bounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Signals should not trigger when chip ratios fall outside bounds."""
+
+    import stock_indicator.strategy as strategy_module
+
+    price_data_frame = pandas.DataFrame(
+        {
+            "open": [1.0, 1.0, 1.0, 1.0, 1.0],
+            "high": [1.0, 1.0, 1.0, 1.0, 1.0],
+            "low": [1.0, 1.0, 1.0, 1.0, 1.0],
+            "close": [1.0, 1.0, 1.0, 1.0, 1.0],
+            "volume": [1.0, 1.0, 1.0, 1.0, 1.0],
+        }
+    )
+
+    def fake_attach_cross_signals(
+        data_frame: pandas.DataFrame,
+        window_size: int = 40,
+        require_close_above_long_term_sma: bool = False,
+        sma_window_factor: float | None = None,
+        include_raw_signals: bool = False,
+    ) -> None:
+        data_frame["sma_value"] = pandas.Series([1.0] * 5)
+        data_frame["sma_previous"] = data_frame["sma_value"].shift(1)
+        data_frame["ema_sma_cross_entry_signal"] = pandas.Series(
+            [False, True, True, True, True]
+        )
+        data_frame["ema_sma_cross_exit_signal"] = pandas.Series(
+            [False, False, False, False, False]
+        )
+
+    metrics_queue = [
+        {"near_price_volume_ratio": 0.2, "above_price_volume_ratio": 0.2},
+        {"near_price_volume_ratio": 0.04, "above_price_volume_ratio": 0.06},
+        {"near_price_volume_ratio": 0.06, "above_price_volume_ratio": 0.04},
+        {"near_price_volume_ratio": 0.07, "above_price_volume_ratio": 0.07},
+        {"near_price_volume_ratio": 0.07, "above_price_volume_ratio": 0.07},
+    ]
+
+    def fake_metrics(*_: object, **__: object) -> dict[str, float | int | None]:
+        return metrics_queue.pop(0)
+
+    monkeypatch.setattr(
+        strategy_module, "attach_ema_sma_cross_signals", fake_attach_cross_signals
+    )
+    monkeypatch.setattr(
+        strategy_module,
+        "calculate_chip_concentration_metrics",
+        fake_metrics,
+    )
+
+    strategy_module.attach_ema_sma_cross_testing_signals(
+        price_data_frame,
+        near_range=(0.05, 0.08),
+        above_range=(0.05, 0.08),
+    )
+
+    assert list(price_data_frame["ema_sma_cross_testing_entry_signal"]) == [
+        False,
+        False,
+        False,
+        False,
+        True,
+    ]
+
 def test_attach_ema_sma_cross_with_slope_and_volume_requires_higher_ema_volume(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2212,53 +2280,53 @@ def test_supported_strategies_includes_ema_sma_double_cross() -> None:
 def test_parse_strategy_name_with_window_size() -> None:
     """``parse_strategy_name`` should parse the window size suffix."""
 
-    base_name, window_size, angle_range, near_percentage, above_percentage = parse_strategy_name(
+    base_name, window_size, angle_range, near_range, above_range = parse_strategy_name(
         "ema_sma_cross_with_slope_40"
     )
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size == 40
     assert angle_range is None
-    assert near_percentage is None
-    assert above_percentage is None
+    assert near_range is None
+    assert above_range is None
 
 
 def test_parse_strategy_name_with_window_and_angle_range() -> None:
     """The parser should extract both window size and angle range."""
 
-    base_name, window_size, angle_range, near_percentage, above_percentage = parse_strategy_name(
+    base_name, window_size, angle_range, near_range, above_range = parse_strategy_name(
         "ema_sma_cross_with_slope_40_-26.6_26.6"
     )
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size == 40
     assert angle_range == (-26.6, 26.6)
-    assert near_percentage is None
-    assert above_percentage is None
+    assert near_range is None
+    assert above_range is None
 
 
 def test_parse_strategy_name_with_angle_range_only() -> None:
     """The parser should handle angle range without window size."""
 
-    base_name, window_size, angle_range, near_percentage, above_percentage = parse_strategy_name(
+    base_name, window_size, angle_range, near_range, above_range = parse_strategy_name(
         "ema_sma_cross_with_slope_-26.6_26.6"
     )
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size is None
     assert angle_range == (-26.6, 26.6)
-    assert near_percentage is None
-    assert above_percentage is None
+    assert near_range is None
+    assert above_range is None
 
 
 def test_parse_strategy_name_with_integer_slope_values() -> None:
     """``parse_strategy_name`` should convert integer slope bounds to floats."""
 
-    base_name, window_size, angle_range, near_percentage, above_percentage = parse_strategy_name(
+    base_name, window_size, angle_range, near_range, above_range = parse_strategy_name(
         "ema_sma_cross_with_slope_-1_2"
     )
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size is None
     assert angle_range == (-1.0, 2.0)
-    assert near_percentage is None
-    assert above_percentage is None
+    assert near_range is None
+    assert above_range is None
 
 
 def test_parse_strategy_name_with_all_segments() -> None:
@@ -2268,44 +2336,44 @@ def test_parse_strategy_name_with_all_segments() -> None:
         base_name,
         window_size,
         angle_range,
-        near_percentage,
-        above_percentage,
+        near_range,
+        above_range,
     ) = parse_strategy_name("ema_sma_cross_with_slope_40_-26.6_26.6_0.5_1.0")
     assert base_name == "ema_sma_cross_with_slope"
     assert window_size == 40
     assert angle_range == (-26.6, 26.6)
-    assert near_percentage == 0.5
-    assert above_percentage == 1.0
+    assert near_range == (0.0, 0.5)
+    assert above_range == (0.0, 1.0)
 
 
 def test_parse_strategy_name_with_near_and_above_thresholds() -> None:
-    """The parser should extract near and above percentage thresholds."""
+    """The parser should extract near and above range bounds."""
 
     (
         base_name,
         window_size,
         angle_range,
-        near_percentage,
-        above_percentage,
+        near_range,
+        above_range,
     ) = parse_strategy_name(
-        "ema_sma_cross_testing_40_-26.6_26.6_0.12_0.1"
+        "ema_sma_cross_testing_40_-26.6_26.6_0.11,0.12_0.09,0.1"
     )
     assert base_name == "ema_sma_cross_testing"
     assert window_size == 40
     assert angle_range == (-26.6, 26.6)
-    assert near_percentage == pytest.approx(0.12)
-    assert above_percentage == pytest.approx(0.1)
+    assert near_range == pytest.approx((0.11, 0.12))
+    assert above_range == pytest.approx((0.09, 0.1))
 
 
 def test_parse_strategy_name_without_suffix() -> None:
     """``parse_strategy_name`` should return ``None`` when no suffix is given."""
 
-    base_name, window_size, angle_range, near_percentage, above_percentage = parse_strategy_name("ema_sma_cross")
+    base_name, window_size, angle_range, near_range, above_range = parse_strategy_name("ema_sma_cross")
     assert base_name == "ema_sma_cross"
     assert window_size is None
     assert angle_range is None
-    assert near_percentage is None
-    assert above_percentage is None
+    assert near_range is None
+    assert above_range is None
 
 
 def test_parse_strategy_name_rejects_malformed_suffix() -> None:
@@ -2388,31 +2456,31 @@ def test_evaluate_combined_strategy_passes_near_and_above_thresholds(
     csv_path = tmp_path / "thresholds.csv"
     price_data_frame.to_csv(csv_path, index=False)
 
-    captured_arguments: dict[str, float | None] = {
-        "near_pct": None,
-        "above_pct": None,
+    captured_arguments: dict[str, tuple[float, float] | None] = {
+        "near_range": None,
+        "above_range": None,
     }
 
     def fake_attach_signals(
         frame: pandas.DataFrame,
         window_size: int = 40,
         angle_range: tuple[float, float] = (-26.6, 26.6),
-        near_pct: float = 0.12,
-        above_pct: float = 0.1,
+        near_range: tuple[float, float] = (0.0, 0.12),
+        above_range: tuple[float, float] = (0.0, 0.1),
     ) -> None:
-        captured_arguments["near_pct"] = near_pct
-        captured_arguments["above_pct"] = above_pct
+        captured_arguments["near_range"] = near_range
+        captured_arguments["above_range"] = above_range
         frame["ema_sma_cross_testing_entry_signal"] = [True, False]
         frame["ema_sma_cross_testing_exit_signal"] = [False, True]
 
     def fake_simulate_trades(*args: object, **kwargs: object) -> SimulationResult:
         passed_frame: pandas.DataFrame = kwargs["data"]
         assert (
-            "ema_sma_cross_testing_40_-26.6_26.6_0.11_0.09_entry_signal"
+            "ema_sma_cross_testing_40_-26.6_26.6_0.11,0.12_0.08,0.09_entry_signal"
             in passed_frame.columns
         )
         assert (
-            "ema_sma_cross_testing_40_-26.6_26.6_0.11_0.09_exit_signal"
+            "ema_sma_cross_testing_40_-26.6_26.6_0.11,0.12_0.08,0.09_exit_signal"
             in passed_frame.columns
         )
         trade = Trade(
@@ -2438,12 +2506,12 @@ def test_evaluate_combined_strategy_passes_near_and_above_thresholds(
 
     result = evaluate_combined_strategy(
         tmp_path,
-        "ema_sma_cross_testing_40_-26.6_26.6_0.11_0.09",
-        "ema_sma_cross_testing_40_-26.6_26.6_0.11_0.09",
+        "ema_sma_cross_testing_40_-26.6_26.6_0.11,0.12_0.08,0.09",
+        "ema_sma_cross_testing_40_-26.6_26.6_0.11,0.12_0.08,0.09",
     )
 
-    assert captured_arguments["near_pct"] == pytest.approx(0.11)
-    assert captured_arguments["above_pct"] == pytest.approx(0.09)
+    assert captured_arguments["near_range"] == pytest.approx((0.11, 0.12))
+    assert captured_arguments["above_range"] == pytest.approx((0.08, 0.09))
     assert result.total_trades == 1
 
 

@@ -2081,7 +2081,9 @@ def test_start_simulate_writes_trade_detail_log(
 
     shell = manage_module.StockShell(stdout=io.StringIO())
     shell.onecmd(
-        "start_simulate start=2024-01-01 dollar_volume>1 ema_sma_cross ema_sma_cross 1 false"
+        "start_simulate start=2024-01-01 dollar_volume>1 "
+        "ema_sma_cross_testing_40_-16.7_65_0.0,1.0_0.0,1.0 "
+        "ema_sma_cross_testing_40_-16.7_65_0.0,1.0_0.0,1.0 1 false"
     )
 
     log_directory = tmp_path / "logs" / "trade_detail"

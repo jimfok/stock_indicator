@@ -161,17 +161,17 @@ start_simulate dollar_volume>1 ema_sma_cross_with_slope_40_-5.7_50.2 ema_sma_cro
 The testing variant `ema_sma_cross_testing` accepts the same optional window
 size and slope range suffixes. In addition to the EMA/SMA cross and slope
 filters, it recalculates chip concentration metrics. Strategy names follow
-`ema_sma_cross_testing_<window>_<lower>_<upper>_<near>_<above>`:
+`ema_sma_cross_testing_<window>_<lower>_<upper>_<near_min>,<near_max>_<above_min>,<above_max>`:
 
 * `<window>` — EMA and SMA window size (default `40`).
 * `<lower>` and `<upper>` — inclusive simple moving average angle bounds in degrees (defaults `-16.7` and `65`).
-* `<near>` — maximum allowed near-price volume ratio (default `0.12`).
-* `<above>` — maximum allowed above-price volume ratio (default `0.10`).
+* `<near_min>` and `<near_max>` — inclusive bounds for the near-price volume ratio (default `0.0`–`0.12`).
+* `<above_min>` and `<above_max>` — inclusive bounds for the above-price volume ratio (default `0.0`–`0.10`).
 
-Example with custom chip concentration thresholds:
+Example with custom chip concentration ranges:
 
 ```
-start_simulate dollar_volume>1 ema_sma_cross_testing_40_-16.7_65_0.2_0.15 ema_sma_cross_testing_40_-16.7_65_0.2_0.15
+start_simulate dollar_volume>1 ema_sma_cross_testing_40_-16.7_65_0.1,0.2_0.05,0.15 ema_sma_cross_testing_40_-16.7_65_0.1,0.2_0.05,0.15
 ```
 
 The tests `tests/test_manage.py::test_start_simulate_accepts_slope_range_strategy_names` and `tests/test_strategy.py::test_evaluate_combined_strategy_passes_slope_range` confirm this behavior. The management test shows the command accepts strategy names with slope bounds, and the strategy test verifies that the evaluation routine passes the bounds to the strategy implementation.
