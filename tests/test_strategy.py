@@ -2003,7 +2003,7 @@ def test_attach_ema_sma_cross_testing_uses_previous_day_ratios_on_gap(
 def test_attach_ema_sma_cross_testing_respects_range_bounds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Signals should not trigger when chip ratios fall outside bounds."""
+    """Signals trigger when either chip ratio falls within bounds."""
 
     import stock_indicator.strategy as strategy_module
 
@@ -2062,8 +2062,8 @@ def test_attach_ema_sma_cross_testing_respects_range_bounds(
     assert list(price_data_frame["ema_sma_cross_testing_entry_signal"]) == [
         False,
         False,
-        False,
-        False,
+        True,
+        True,
         True,
     ]
 
