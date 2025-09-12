@@ -1122,11 +1122,10 @@ def attach_ema_sma_cross_testing_signals(
     Entry signals mirror :func:`attach_ema_sma_cross_with_slope_signals` but do
     not require the closing price to remain above the long-term simple moving
     average. Instead, this variant recomputes chip concentration metrics and
-    validates that at least one of the near-price or above-price volume ratios
-    on the crossover date falls within the inclusive ``near_range`` or
-    ``above_range`` bounds. The unshifted ratios are retained for
-    ``*_raw_entry_signal`` evaluation so same-day raw signals remain
-    consistent.
+    requires that both the near-price and the above-price volume ratios on the
+    crossover date fall within the inclusive ``near_range`` and ``above_range``
+    bounds. The unshifted ratios are retained for ``*_raw_entry_signal``
+    evaluation so same-day raw signals remain consistent.
 
     Parameters
     ----------
@@ -1223,7 +1222,7 @@ def attach_ema_sma_cross_testing_signals(
         & (price_data_frame["sma_angle"] <= angle_upper_bound)
         & (
             near_price_ratio_previous_ok.fillna(False)
-            | above_price_ratio_previous_ok.fillna(False)
+            & above_price_ratio_previous_ok.fillna(False)
         )
     )
     price_data_frame["ema_sma_cross_testing_exit_signal"] = price_data_frame[
@@ -1244,7 +1243,7 @@ def attach_ema_sma_cross_testing_signals(
             & (price_data_frame["sma_angle"] <= angle_upper_bound)
             & (
                 near_price_ratio_raw_ok.fillna(False)
-                | above_price_ratio_raw_ok.fillna(False)
+                & above_price_ratio_raw_ok.fillna(False)
             )
         )
         price_data_frame["ema_sma_cross_testing_raw_exit_signal"] = (
