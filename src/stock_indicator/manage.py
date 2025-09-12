@@ -39,12 +39,13 @@ STOCK_DATA_DIRECTORY = DATA_DIRECTORY / "stock_data"
 def _resolve_strategy_choice(raw_name: str, allowed: dict) -> str:
     """Return the first supported strategy token from ``raw_name``.
 
-    Allows config values like "ema_a | ema_b" or "ema_a or ema_b"; picks the
-    first token whose base name exists in the provided ``allowed`` dict.
-    Falls back to the original name when none match.
+    Configuration values may contain simple logical expressions such as
+    ``"ema_a | ema_b"`` or ``"ema_a or ema_b"``. The function splits the
+    expression on the recognized separators and returns the first token whose
+    base name exists in the ``allowed`` dictionary. If none match, the original
+    ``raw_name`` is returned unchanged.
     """
-    # Split on common separators: "or", "|", ",", "/"
-    parts = re.split(r"\s*(?:\bor\b|\||,|/)\s*", raw_name.strip())
+    parts = re.split(r"\s*(?:\bor\b|\||/)\s*", raw_name.strip())
     for token in parts:
         if not token:
             continue
@@ -63,8 +64,8 @@ def _has_supported_strategy(expression: str, allowed: dict) -> bool:
     The function first attempts to parse ``expression`` as a single strategy
     name. When that succeeds and the resulting base name is found in
     ``allowed``, the strategy is considered supported. Only if parsing the
-    entire expression fails do we split on common separators (``or``, ``|``,
-    ``/``, ``,``) and check each token individually.
+    entire expression fails do we split on the recognized separators (``or``,
+    ``|``, ``/``) and check each token individually.
     """
     try:
         base_name, _, _, _, _ = strategy.parse_strategy_name(expression)
@@ -77,7 +78,7 @@ def _has_supported_strategy(expression: str, allowed: dict) -> bool:
             if expression.startswith(f"{allowed_name}_"):
                 return True
 
-    parts = re.split(r"\s*(?:\bor\b|\||/|,)\s*", expression.strip())
+    parts = re.split(r"\s*(?:\bor\b|\||/)\s*", expression.strip())
     for token in parts:
         if not token:
             continue
