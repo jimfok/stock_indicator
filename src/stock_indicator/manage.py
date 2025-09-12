@@ -258,7 +258,8 @@ class StockShell(cmd.Cmd):
         )
         STOCK_DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
         output_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
-        data_frame_with_date.to_csv(output_path, index=False)
+        with output_path.open("w", encoding="utf-8") as fh:
+            data_frame_with_date.to_csv(fh, index=False)
         self.stdout.write(f"Data written to {output_path}\n")
         # Ensure this symbol is tracked by the YF daily job list
         try:
@@ -284,7 +285,8 @@ class StockShell(cmd.Cmd):
                 sp_frame.reset_index().rename(columns={"index": "Date"})
             )
             sp_output = STOCK_DATA_DIRECTORY / f"{SP500_SYMBOL}.csv"
-            sp_with_date.to_csv(sp_output, index=False)
+            with sp_output.open("w", encoding="utf-8") as fh:
+                sp_with_date.to_csv(fh, index=False)
             self.stdout.write(f"Data written to {sp_output}\n")
 
     def help_update_data_from_yf(self) -> None:
