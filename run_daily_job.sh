@@ -28,7 +28,12 @@ START_DATE="$(date -d "$LATEST_DATE -1 year" +%F)"
 
 # Update historical data and record signals
 "$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -m stock_indicator.manage update_all_data_from_yf "$START_DATE" "$LATEST_DATE" >> "$LOG_DIRECTORY/cron_stdout.log" 2>&1
+
+echo 'ARG_LINE_1' >> "$LOG_DIRECTORY/cron_stdout.log"
 "$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -m stock_indicator.manage find_history_signal "$LATEST_DATE" "$ARG_LINE_1" >> "$LOG_DIRECTORY/cron_stdout.log" 2>&1
+
+echo 'ARG_LINE_2' >> "$LOG_DIRECTORY/cron_stdout.log"
+"$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -m stock_indicator.manage find_history_signal "$LATEST_DATE" "$ARG_LINE_2" >> "$LOG_DIRECTORY/cron_stdout.log" 2>&1
 
 # Write a marker file for the latest run
 # TODO: review
