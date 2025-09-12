@@ -615,13 +615,13 @@ def compute_signals_for_date(
     entry_signal_symbols: List[str] = []
     exit_signal_symbols: List[str] = []
 
-    def _apply_strategy(
+    def _apply_parsed_strategy(
         full_name: str,
         base_name: str,
         window_size: int | None,
         angle_range: tuple[float, float] | None,
-        near_percentage: float | None,
-        above_percentage: float | None,
+        near_range: tuple[float, float] | None,
+        above_range: tuple[float, float] | None,
         table: Dict[str, Callable[..., None]],
         frame: pandas.DataFrame,
         include_raw_signals: bool,
@@ -646,11 +646,11 @@ def compute_signals_for_date(
                 kwargs["sma_window_factor"] = sma_factor_value
             if (
                 base_name == "ema_sma_cross_testing"
-                and near_percentage is not None
-                and above_percentage is not None
+                and near_range is not None
+                and above_range is not None
             ):
-                kwargs["near_pct"] = near_percentage
-                kwargs["above_pct"] = above_percentage
+                kwargs["near_range"] = near_range
+                kwargs["above_range"] = above_range
         table[base_name](frame, include_raw_signals=include_raw_signals, **kwargs)
         if base_name != full_name:
             rename_mapping = {
@@ -676,20 +676,20 @@ def compute_signals_for_date(
                     base_name,
                     window_size,
                     angle_range,
-                    near_percentage,
-                    above_percentage,
+                    near_range,
+                    above_range,
                 ) = parse_strategy_name(buy_name)
             except Exception:  # noqa: BLE001
                 continue
             if base_name not in BUY_STRATEGIES:
                 continue
-            _apply_strategy(
+            _apply_parsed_strategy(
                 buy_name,
                 base_name,
                 window_size,
                 angle_range,
-                near_percentage,
-                above_percentage,
+                near_range,
+                above_range,
                 BUY_STRATEGIES,
                 price_data_frame,
                 include_raw_signals=use_unshifted_signals,
@@ -712,20 +712,20 @@ def compute_signals_for_date(
                     base_name,
                     window_size,
                     angle_range,
-                    near_percentage,
-                    above_percentage,
+                    near_range,
+                    above_range,
                 ) = parse_strategy_name(sell_name)
             except Exception:  # noqa: BLE001
                 continue
             if base_name not in SELL_STRATEGIES:
                 continue
-            _apply_strategy(
+            _apply_parsed_strategy(
                 sell_name,
                 base_name,
                 window_size,
                 angle_range,
-                near_percentage,
-                above_percentage,
+                near_range,
+                above_range,
                 SELL_STRATEGIES,
                 price_data_frame,
                 include_raw_signals=use_unshifted_signals,
@@ -1109,8 +1109,8 @@ def attach_ema_sma_cross_testing_signals(
     price_data_frame: pandas.DataFrame,
     window_size: int = 40,
     angle_range: tuple[float, float] = DEFAULT_SMA_ANGLE_RANGE,
-    near_pct: float = 0.12,
-    above_pct: float = 0.10,
+    near_range: tuple[float, float] = (0.0, 0.12),
+    above_range: tuple[float, float] = (0.0, 0.10),
     sma_window_factor: float | None = None,
     bounds_as_tangent: bool = False,
     include_raw_signals: bool = False,
@@ -1121,9 +1121,10 @@ def attach_ema_sma_cross_testing_signals(
     not require the closing price to remain above the long-term simple moving
     average. Instead, this variant recomputes chip concentration metrics and
     validates that the near-price and above-price volume ratios on the
-    crossover date fall below the ``near_pct`` and ``above_pct`` thresholds.
-    The unshifted ratios are retained for ``*_raw_entry_signal`` evaluation so
-    same-day raw signals remain consistent.
+    crossover date fall within the inclusive ``near_range`` and
+    ``above_range`` bounds. The unshifted ratios are retained for
+    ``*_raw_entry_signal`` evaluation so same-day raw signals remain
+    consistent.
 
     Parameters
     ----------
@@ -1136,10 +1137,10 @@ def attach_ema_sma_cross_testing_signals(
         Inclusive range ``(lower_bound, upper_bound)`` for the SMA angle in
         degrees. When ``bounds_as_tangent`` is ``True``, interpret the bounds as
         tangents and convert them to degrees.
-    near_pct:
-        Maximum allowed fraction of volume near the current price.
-    above_pct:
-        Maximum allowed fraction of volume above the current price.
+    near_range:
+        Inclusive ``(lower, upper)`` bounds for the near-price volume ratio.
+    above_range:
+        Inclusive ``(lower, upper)`` bounds for the above-price volume ratio.
     sma_window_factor:
         Optional multiplier applied to ``window_size`` to determine the SMA
         window as ``ceil(window_size * factor)``. When ``None``, uses
@@ -1159,6 +1160,8 @@ def attach_ema_sma_cross_testing_signals(
     # TODO: review
 
     angle_lower_bound, angle_upper_bound = angle_range
+    near_lower_bound, near_upper_bound = near_range
+    above_lower_bound, above_upper_bound = above_range
     if bounds_as_tangent:
         angle_lower_bound = math.degrees(math.atan(angle_lower_bound))
         angle_upper_bound = math.degrees(math.atan(angle_upper_bound))
@@ -1203,12 +1206,14 @@ def attach_ema_sma_cross_testing_signals(
         "above_price_volume_ratio"
     ].shift(1)
 
-    near_price_ratio_previous_ok = price_data_frame[
-        "near_price_volume_ratio_previous"
-    ].le(near_pct)
-    above_price_ratio_previous_ok = price_data_frame[
-        "above_price_volume_ratio_previous"
-    ].le(above_pct)
+    near_price_ratio_previous_ok = (
+        price_data_frame["near_price_volume_ratio_previous"].ge(near_lower_bound)
+        & price_data_frame["near_price_volume_ratio_previous"].le(near_upper_bound)
+    )
+    above_price_ratio_previous_ok = (
+        price_data_frame["above_price_volume_ratio_previous"].ge(above_lower_bound)
+        & price_data_frame["above_price_volume_ratio_previous"].le(above_upper_bound)
+    )
 
     price_data_frame["ema_sma_cross_testing_entry_signal"] = (
         price_data_frame["ema_sma_cross_entry_signal"]
@@ -1221,11 +1226,13 @@ def attach_ema_sma_cross_testing_signals(
         "ema_sma_cross_exit_signal"
     ]
     if include_raw_signals:
-        near_price_ratio_raw_ok = price_data_frame["near_price_volume_ratio"].le(
-            near_pct
+        near_price_ratio_raw_ok = (
+            price_data_frame["near_price_volume_ratio"].ge(near_lower_bound)
+            & price_data_frame["near_price_volume_ratio"].le(near_upper_bound)
         )
-        above_price_ratio_raw_ok = price_data_frame["above_price_volume_ratio"].le(
-            above_pct
+        above_price_ratio_raw_ok = (
+            price_data_frame["above_price_volume_ratio"].ge(above_lower_bound)
+            & price_data_frame["above_price_volume_ratio"].le(above_upper_bound)
         )
         price_data_frame["ema_sma_cross_testing_raw_entry_signal"] = (
             price_data_frame["ema_sma_cross_raw_entry_signal"]
@@ -1370,8 +1377,8 @@ def parse_strategy_name(
     str,
     int | None,
     tuple[float, float] | None,
-    float | None,
-    float | None,
+    tuple[float, float] | None,
+    tuple[float, float] | None,
 ]:
     """Split ``strategy_name`` into base name and numeric suffix values.
 
@@ -1402,11 +1409,17 @@ def parse_strategy_name(
 
     Returns
     -------
-    tuple[str, int | None, tuple[float, float] | None, float | None, float | None]
-        ``(base_name, window_size, angle_range, near_percentage, above_percentage)``.
-        Angle range is a ``(lower, upper)`` tuple. Percentage fields are floats
-        representing near and above thresholds. When a component is not
-        present, its value is ``None``.
+    tuple[
+        str,
+        int | None,
+        tuple[float, float] | None,
+        tuple[float, float] | None,
+        tuple[float, float] | None,
+    ]
+        ``(base_name, window_size, angle_range, near_range, above_range)``.
+        ``angle_range`` is a ``(lower, upper)`` tuple in degrees. ``near_range``
+        and ``above_range`` are inclusive ``(lower, upper)`` tuples parsed from
+        ``"min,max"`` segments when present. Missing components yield ``None``.
 
     Raises
     ------
@@ -1449,7 +1462,7 @@ def parse_strategy_name(
                     "Window size must be a positive integer in strategy name: "
                     f"{strategy_name}"
                 )
-            return base_name, window_size, None, None, None
+        return base_name, window_size, None, None, None
         raise ValueError(
             "Malformed strategy name: expected two numeric segments for angle range "
             f"but found {segment_count} in '{strategy_name}'"
@@ -1498,14 +1511,22 @@ def parse_strategy_name(
             float(numeric_segments[1]),
             float(numeric_segments[2]),
         )
-        near_percentage = float(numeric_segments[3])
-        above_percentage = float(numeric_segments[4])
+
+        def _parse_range(segment: str) -> tuple[float, float]:
+            if "," in segment:
+                lower_str, upper_str = segment.split(",", 1)
+                return float(lower_str), float(upper_str)
+            value = float(segment)
+            return 0.0, value
+
+        near_range = _parse_range(numeric_segments[3])
+        above_range = _parse_range(numeric_segments[4])
         return (
             base_name,
             window_size,
             (lower_bound, upper_bound),
-            near_percentage,
-            above_percentage,
+            near_range,
+            above_range,
         )
 
     raise ValueError(
@@ -1871,8 +1892,8 @@ def evaluate_combined_strategy(
                     base_name,
                     window_size,
                     angle_range,
-                    near_percentage,
-                    above_percentage,
+                    near_range,
+                    above_range,
                 ) = parse_strategy_name(buy_name)
             except Exception:
                 continue
@@ -1899,11 +1920,11 @@ def evaluate_combined_strategy(
                     kwargs["sma_window_factor"] = sma_factor_value
                 if (
                     base_name == "ema_sma_cross_testing"
-                    and near_percentage is not None
-                    and above_percentage is not None
+                    and near_range is not None
+                    and above_range is not None
                 ):
-                    kwargs["near_pct"] = near_percentage
-                    kwargs["above_pct"] = above_percentage
+                    kwargs["near_range"] = near_range
+                    kwargs["above_range"] = above_range
             buy_function(price_data_frame, **kwargs)
             rename_signal_columns(price_data_frame, base_name, buy_name)
             entry_column_name = f"{buy_name}_entry_signal"
@@ -1931,8 +1952,8 @@ def evaluate_combined_strategy(
                     base_name,
                     window_size,
                     angle_range,
-                    near_percentage,
-                    above_percentage,
+                    near_range,
+                    above_range,
                 ) = parse_strategy_name(sell_name)
             except Exception:
                 continue
@@ -1957,11 +1978,11 @@ def evaluate_combined_strategy(
                     kwargs["sma_window_factor"] = sma_factor_value
                 if (
                     base_name == "ema_sma_cross_testing"
-                    and near_percentage is not None
-                    and above_percentage is not None
+                    and near_range is not None
+                    and above_range is not None
                 ):
-                    kwargs["near_pct"] = near_percentage
-                    kwargs["above_pct"] = above_percentage
+                    kwargs["near_range"] = near_range
+                    kwargs["above_range"] = above_range
             sell_function(sell_price_data_frame, **kwargs)
             rename_signal_columns(sell_price_data_frame, base_name, sell_name)
             entry_column_name = f"{sell_name}_entry_signal"
