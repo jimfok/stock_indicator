@@ -6,3 +6,4 @@ stock_output/.DS_Store
 logs
 cache
 data/stock_data
+venv
