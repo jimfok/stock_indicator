@@ -2588,6 +2588,50 @@ def test_compute_signals_for_date_returns_filtered_symbols_with_groups(
     assert ("BBB", 2) in result["filtered_symbols"]
 
 
+def test_compute_signals_for_date_orders_filtered_symbols_by_dollar_volume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Filtered symbols should be sorted by descending 50-day dollar volume."""
+
+    start_day = datetime.date(2024, 1, 1)
+    total_days = 60
+    symbol_volume_pairs = [
+        ("HIGH", 3_000_000),
+        ("MEDIUM", 2_000_000),
+        ("LOW", 1_000_000),
+    ]
+    for symbol_name, volume_value in symbol_volume_pairs:
+        price_lines = ["Date,open,close,volume\n"]
+        for day_offset in range(total_days):
+            current_day = start_day + datetime.timedelta(days=day_offset)
+            price_lines.append(
+                f"{current_day.isoformat()},1,1,{volume_value}\n"
+            )
+        (tmp_path / f"{symbol_name}.csv").write_text(
+            "".join(price_lines),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(strategy, "load_symbols_excluded_by_industry", lambda: set())
+    monkeypatch.setattr(
+        strategy,
+        "load_ff12_groups_by_symbol",
+        lambda: {"HIGH": 1, "MEDIUM": 2, "LOW": 3},
+    )
+
+    evaluation_day = start_day + datetime.timedelta(days=total_days - 1)
+    result = strategy.compute_signals_for_date(
+        data_directory=tmp_path,
+        evaluation_date=pandas.Timestamp(evaluation_day),
+        buy_strategy_name="20_50_sma_cross",
+        sell_strategy_name="20_50_sma_cross",
+        use_unshifted_signals=True,
+    )
+
+    filtered_symbol_names = [symbol_name for symbol_name, _ in result["filtered_symbols"]]
+    assert filtered_symbol_names == ["HIGH", "MEDIUM", "LOW"]
+
+
 def test_calculate_chip_concentration_metrics_defaults_volume_profile_to_none() -> None:
     """Volume profile metrics should be ``None`` when not requested."""
 
