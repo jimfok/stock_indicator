@@ -590,17 +590,48 @@ def compute_signals_for_date(
     )
 
     filtered_symbols_with_groups: List[tuple[str, int | None]] = []
+    last_eligible_date: pandas.Timestamp | None = None
     try:
         eligible_dates = eligibility_mask.index[eligibility_mask.index <= evaluation_date]
         if len(eligible_dates) > 0:
-            last_date = eligible_dates[-1]
-            eligibility_row = eligibility_mask.loc[last_date]
+            last_eligible_date = eligible_dates[-1]
+            eligibility_row = eligibility_mask.loc[last_eligible_date]
             for symbol_name, is_eligible in eligibility_row.items():
                 if bool(is_eligible):
                     group_identifier = symbol_to_group_map.get(symbol_name.upper())
                     filtered_symbols_with_groups.append((symbol_name, group_identifier))
     except Exception:  # noqa: BLE001
         filtered_symbols_with_groups = []
+        last_eligible_date = None
+
+    if filtered_symbols_with_groups and last_eligible_date is not None:
+        try:
+            latest_average_dollar_volume_series = merged_volume_frame.loc[
+                last_eligible_date
+            ]
+        except KeyError:
+            latest_average_dollar_volume_series = None
+        if isinstance(latest_average_dollar_volume_series, pandas.Series):
+            # TODO: review
+            symbol_to_average_dollar_volume: dict[str, float] = {}
+            for symbol_name, _ in filtered_symbols_with_groups:
+                average_dollar_volume_value = latest_average_dollar_volume_series.get(
+                    symbol_name,
+                    float("nan"),
+                )
+                if pandas.isna(average_dollar_volume_value):
+                    symbol_to_average_dollar_volume[symbol_name] = float("-inf")
+                else:
+                    symbol_to_average_dollar_volume[symbol_name] = float(
+                        average_dollar_volume_value
+                    )
+            filtered_symbols_with_groups.sort(
+                key=lambda symbol_with_group: symbol_to_average_dollar_volume.get(
+                    symbol_with_group[0],
+                    float("-inf"),
+                ),
+                reverse=True,
+            )
 
     # Prepare per-symbol masks aligned to each frame
     selected_symbol_data: List[tuple[Path, pandas.DataFrame, pandas.Series]] = []
