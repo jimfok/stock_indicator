@@ -395,6 +395,41 @@ def test_calculate_annual_returns_computes_yearly_returns() -> None:
     assert pytest.approx(annual_returns[2024], rel=1e-6) == expected_return_2024
 
 
+def test_calculate_annual_returns_marks_unsettled_proceeds_in_year_end() -> None:
+    """Unsettled proceeds should count toward the year they were earned."""
+    starting_cash = 1000.0
+    entry_price = 100.0
+    exit_price = 110.0
+    allocated_share_count = math.floor(starting_cash / entry_price)
+    entry_commission = calc_commission(allocated_share_count, entry_price)
+    exit_commission = calc_commission(allocated_share_count, exit_price)
+    trade_profit = (
+        allocated_share_count * (exit_price - entry_price)
+        - entry_commission
+        - exit_commission
+    )
+    trade_record = Trade(
+        entry_date=pandas.Timestamp("2020-12-30"),
+        exit_date=pandas.Timestamp("2020-12-31"),
+        entry_price=entry_price,
+        exit_price=exit_price,
+        profit=trade_profit,
+        holding_period=1,
+    )
+    simulation_start = pandas.Timestamp("2020-12-30")
+    annual_returns = calculate_annual_returns(
+        [trade_record],
+        starting_cash=starting_cash,
+        maximum_position_count=1,
+        simulation_start=simulation_start,
+        margin_interest_annual_rate=0.0,
+        settlement_lag_days=1,
+    )
+    expected_return_for_2020 = trade_profit / starting_cash
+    assert pytest.approx(annual_returns[2020], rel=1e-6) == expected_return_for_2020
+    assert pytest.approx(annual_returns[2021], rel=1e-6) == 0.0
+
+
 def test_simulate_portfolio_balance_applies_withdraw() -> None:
     """Portfolio simulation should deduct annual withdrawals."""
     trade_record = Trade(

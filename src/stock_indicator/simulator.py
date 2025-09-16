@@ -681,8 +681,9 @@ def calculate_annual_returns(
         next_date = current_date + pandas.Timedelta(days=1)
         next_year = next_date.year
         if next_year != current_year or current_date == end_date:
-            # compute end-of-year portfolio value MTM
-            portfolio_value = cash_balance + sum(
+            unsettled_proceeds_value = sum(pending_credits.values())
+            # Mark unsettled exit proceeds to market by including pending credits.
+            portfolio_value = cash_balance + unsettled_proceeds_value + sum(
                 pos.share_count * (pos.last_known_price or 0.0)
                 for pos in open_trades.values()
             )
@@ -692,7 +693,8 @@ def calculate_annual_returns(
                 annual_returns[current_year] = (portfolio_value - year_start_value) / year_start_value
             # Apply withdrawal at year end
             cash_balance -= withdraw_amount
-            year_start_value = cash_balance + sum(
+            # Carry the mark-to-market unsettled proceeds into the new year baseline.
+            year_start_value = cash_balance + unsettled_proceeds_value + sum(
                 pos.share_count * (pos.last_known_price or 0.0)
                 for pos in open_trades.values()
             )
