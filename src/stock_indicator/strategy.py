@@ -379,11 +379,13 @@ class TradeDetail:
     normalized Herfindahl index of the price-volume histogram. The
     ``near_price_volume_ratio`` and ``above_price_volume_ratio`` values capture
     the fractions of volume near and above the entry price. ``histogram_node_count``
-    approximates the number of significant volume clusters. The ``result``
-    field marks whether a closed trade ended in a win or a loss. For closing
-    trades, ``percentage_change`` records the fractional price change between
-    entry and exit. The ``exit_reason`` field captures why a trade closed,
-    such as ``"signal"``, ``"stop_loss"``, or ``"end_of_data"``.
+    approximates the number of significant volume clusters. The ``sma_angle``
+    value stores the simple moving average slope, expressed in degrees, that was
+    present on the signal date that triggered the entry. The ``result`` field
+    marks whether a closed trade ended in a win or a loss. For closing trades,
+    ``percentage_change`` records the fractional price change between entry and
+    exit. The ``exit_reason`` field captures why a trade closed, such as
+    ``"signal"``, ``"stop_loss"``, or ``"end_of_data"``.
     """
     # TODO: review
     date: pandas.Timestamp
@@ -401,6 +403,7 @@ class TradeDetail:
     near_price_volume_ratio: float | None = None
     above_price_volume_ratio: float | None = None
     histogram_node_count: int | None = None
+    sma_angle: float | None = None
     # Number of concurrent open positions at this event.
     # For an "open" event, includes this position. For a "close" event,
     # excludes the position being closed.
@@ -2177,6 +2180,14 @@ def evaluate_combined_strategy(
                 lookback_window_size=60,
                 include_volume_profile=False,
             )  # TODO: review
+            sma_angle_for_signal: float | None = None
+            if "sma_angle" in price_data_frame.columns:
+                for angle_date in (signal_date, completed_trade.entry_date):
+                    if angle_date in price_data_frame.index:
+                        angle_value = price_data_frame.at[angle_date, "sma_angle"]
+                        if pandas.notna(angle_value):
+                            sma_angle_for_signal = float(angle_value)
+                            break
             entry_detail = TradeDetail(
                 date=completed_trade.entry_date,
                 symbol=symbol_name,
@@ -2191,6 +2202,7 @@ def evaluate_combined_strategy(
                 near_price_volume_ratio=chip_metrics["near_price_volume_ratio"],
                 above_price_volume_ratio=chip_metrics["above_price_volume_ratio"],
                 histogram_node_count=chip_metrics["histogram_node_count"],
+                sma_angle=sma_angle_for_signal,
             )
             trade_result = "win" if completed_trade.profit > 0 else "lose"  # TODO: review
             group_exit_total = 0.0

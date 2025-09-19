@@ -2024,6 +2024,7 @@ def test_start_simulate_creates_csv(
         near_price_volume_ratio=0.5,
         above_price_volume_ratio=0.3,
         histogram_node_count=2,
+        sma_angle=15.0,
     )
     close_trade_detail = TradeDetail(
         date=pandas.Timestamp("2024-01-05"),
@@ -2080,6 +2081,7 @@ def test_start_simulate_creates_csv(
         "near_price_volume_ratio",
         "above_price_volume_ratio",
         "histogram_node_count",
+        "sma_angle",
         "exit_date",
         "result",
         "percentage_change",
