@@ -4,4 +4,4 @@ s2,ema_shift_cross_with_slope_20,ema_shift_cross_with_slope_20
 s3,20_50_sma_cross,20_50_sma_cross
 s4,"ema_sma_cross_testing_4_-0.01_65_-10.0,10.0_0.78,1.00","ema_sma_cross_testing_5_-0.01_65_-10.0,10.0_0.78,1.00"
 s5,"ema_sma_cross_testing_4_-0.01_65_-10.0,10.0_0.9,1.00","ema_sma_cross_testing_5_-0.01_65_-10.0,10.0_0.9,1.00"
-s6,"ema_sma_cross_testing_8_-0.015_65_-10.0,10.0_0.78,1.00","ema_sma_cross_testing_10_-0.015_65_-10.0,10.0_0.78,1.00"
+s6,"ema_sma_cross_testing_4_0.75_10_0.0,0.3_0.0,0.78","ema_sma_cross_testing_5_0.75_10_0.0,0.3_0.0,0.78"
