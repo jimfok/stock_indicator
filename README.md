@@ -7,15 +7,21 @@ Stock Indicator provides a collection of Python utilities for computing common t
 
 ### Requirements
 - Python 3.10+
-- Packages: `pandas`, `numpy`, `yfinance`, `matplotlib`
 - Internet connection for downloading market data from providers like [Yahoo Finance](https://finance.yahoo.com) or [Alpha Vantage](https://www.alphavantage.co/)
+- Python packages listed in [`requirements.txt`](./requirements.txt)
 
 ### Installation
 ```bash
 git clone https://github.com/yourusername/stock_indicator.git
 cd stock_indicator
-pip install pandas numpy yfinance matplotlib
+python -m venv .venv
+source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
+
+The requirements file installs the project's runtime dependencies, including
+`pandas`, `numpy`, `yfinance`, and other libraries used by the CLI utilities.
 
 ### Example Usage
 ```python
