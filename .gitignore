@@ -7,3 +7,5 @@ logs
 cache
 data/stock_data
 venv
+cron_logs/cron_stdout.log
+local_data/current_status.json
