@@ -435,6 +435,75 @@ class StrategyMetrics:
     trade_details_by_year: Dict[int, List[TradeDetail]] = field(default_factory=dict)
 
 
+@dataclass
+class ComplexStrategySetDefinition:
+    """Configuration for a strategy set used in complex simulations."""
+
+    label: str
+    buy_strategy_name: str
+    sell_strategy_name: str
+    stop_loss_percentage: float = 1.0
+    minimum_average_dollar_volume: float | None = None
+    minimum_average_dollar_volume_ratio: float | None = None
+    top_dollar_volume_rank: int | None = None
+    maximum_symbols_per_group: int = 1
+
+
+@dataclass
+class ComplexSimulationMetrics:
+    """Aggregate metrics for multiple strategy sets."""
+
+    metrics_by_set: Dict[str, StrategyMetrics]
+
+
+def run_complex_simulation(
+    data_directory: Path,
+    set_definitions: Dict[str, ComplexStrategySetDefinition],
+    *,
+    maximum_position_count: int,
+    starting_cash: float = 3000.0,
+    withdraw_amount: float = 0.0,
+    start_date: pandas.Timestamp | None = None,
+    margin_multiplier: float = 1.0,
+    margin_interest_annual_rate: float = 0.048,
+) -> ComplexSimulationMetrics:
+    """Evaluate multiple strategy sets under a shared configuration."""
+
+    if maximum_position_count <= 0:
+        raise ValueError("maximum_position_count must be positive")
+    if not set_definitions:
+        raise ValueError("set_definitions must not be empty")
+
+    effective_interest_rate = (
+        margin_interest_annual_rate if margin_multiplier != 1.0 else 0.0
+    )
+    metrics_by_set: Dict[str, StrategyMetrics] = {}
+    for label, definition in set_definitions.items():
+        maximum_positions_for_set = maximum_position_count
+        if label.upper() == "B":
+            maximum_positions_for_set = max(1, maximum_position_count // 2)
+        metrics = evaluate_combined_strategy(
+            data_directory,
+            definition.buy_strategy_name,
+            definition.sell_strategy_name,
+            minimum_average_dollar_volume=definition.minimum_average_dollar_volume,
+            top_dollar_volume_rank=definition.top_dollar_volume_rank,
+            maximum_symbols_per_group=definition.maximum_symbols_per_group,
+            minimum_average_dollar_volume_ratio=
+                definition.minimum_average_dollar_volume_ratio,
+            starting_cash=starting_cash,
+            withdraw_amount=withdraw_amount,
+            stop_loss_percentage=definition.stop_loss_percentage,
+            start_date=start_date,
+            maximum_position_count=maximum_positions_for_set,
+            margin_multiplier=margin_multiplier,
+            margin_interest_annual_rate=effective_interest_rate,
+        )
+        metrics_by_set[label] = metrics
+
+    return ComplexSimulationMetrics(metrics_by_set=metrics_by_set)
+
+
 def compute_signals_for_date(
     data_directory: Path,
     evaluation_date: pandas.Timestamp,

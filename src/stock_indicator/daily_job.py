@@ -83,7 +83,14 @@ def determine_start_date(data_directory: Path) -> str:
             continue
         if date_frame.empty:
             continue
-        column_minimum = date_frame.iloc[:, 0].min()
+        try:
+            column_minimum = date_frame.iloc[:, 0].min()
+        except TypeError:
+            LOGGER.warning(
+                "Skipping %s due to non-date values in the first column",
+                csv_file_path,
+            )
+            continue
         if not hasattr(column_minimum, "date"):
             continue
         earliest_candidate = column_minimum.date()

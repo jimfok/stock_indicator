@@ -91,6 +91,111 @@ def _has_supported_strategy(expression: str, allowed: dict) -> bool:
     return False
 
 
+def _parse_volume_filter(
+    volume_filter: str,
+) -> tuple[float | None, float | None, int | None, int]:
+    """Parse a dollar-volume filter expression."""
+
+    maximum_symbols_per_group = 1
+    pick_match = re.fullmatch(
+        r"(.*),Pick(\d+)", volume_filter, flags=re.IGNORECASE
+    )
+    if pick_match is not None:
+        volume_filter = pick_match.group(1)
+        maximum_symbols_per_group = int(pick_match.group(2))
+
+    combined_percentage_top_match = re.fullmatch(
+        r"dollar_volume>(\d+(?:\.\d{1,2})?)%,Top(\d+)",
+        volume_filter,
+        flags=re.IGNORECASE,
+    )
+    combined_percentage_nth_match = re.fullmatch(
+        r"dollar_volume>(\d+(?:\.\d{1,2})?)%,(\d+)th",
+        volume_filter,
+    )
+    if (
+        combined_percentage_top_match is not None
+        or combined_percentage_nth_match is not None
+    ):
+        match_obj = combined_percentage_top_match or combined_percentage_nth_match
+        minimum_average_dollar_volume_ratio = float(match_obj.group(1)) / 100
+        top_dollar_volume_rank = int(match_obj.group(2))
+        return (
+            None,
+            minimum_average_dollar_volume_ratio,
+            top_dollar_volume_rank,
+            maximum_symbols_per_group,
+        )
+
+    combined_top_match = re.fullmatch(
+        r"dollar_volume>(\d+(?:\.\d+)?),Top(\d+)",
+        volume_filter,
+        flags=re.IGNORECASE,
+    )
+    combined_nth_match = re.fullmatch(
+        r"dollar_volume>(\d+(?:\.\d+)?),(\d+)th",
+        volume_filter,
+    )
+    if combined_top_match is not None or combined_nth_match is not None:
+        match_obj = combined_top_match or combined_nth_match
+        minimum_average_dollar_volume = float(match_obj.group(1))
+        top_dollar_volume_rank = int(match_obj.group(2))
+        return (
+            minimum_average_dollar_volume,
+            None,
+            top_dollar_volume_rank,
+            maximum_symbols_per_group,
+        )
+
+    percentage_match = re.fullmatch(
+        r"dollar_volume>(\d+(?:\.\d{1,2})?)%",
+        volume_filter,
+    )
+    if percentage_match is not None:
+        minimum_average_dollar_volume_ratio = float(
+            percentage_match.group(1)
+        ) / 100
+        return (
+            None,
+            minimum_average_dollar_volume_ratio,
+            None,
+            maximum_symbols_per_group,
+        )
+
+    volume_match = re.fullmatch(
+        r"dollar_volume>(\d+(?:\.\d+)?)",
+        volume_filter,
+    )
+    if volume_match is not None:
+        minimum_average_dollar_volume = float(volume_match.group(1))
+        return (
+            minimum_average_dollar_volume,
+            None,
+            None,
+            maximum_symbols_per_group,
+        )
+
+    rank_top_match = re.fullmatch(
+        r"dollar_volume=Top(\d+)",
+        volume_filter,
+        flags=re.IGNORECASE,
+    )
+    rank_nth_match = re.fullmatch(
+        r"dollar_volume=(\d+)th",
+        volume_filter,
+    )
+    if rank_top_match is not None or rank_nth_match is not None:
+        top_dollar_volume_rank = int((rank_top_match or rank_nth_match).group(1))
+        return (None, None, top_dollar_volume_rank, maximum_symbols_per_group)
+
+    raise ValueError(
+        "unsupported filter; expected dollar_volume>NUMBER, "
+        "dollar_volume>NUMBER%, dollar_volume=TopN (or Nth), "
+        "dollar_volume>NUMBER,TopN (or ,Nth), or "
+        "dollar_volume>NUMBER%,TopN (or ,Nth)"
+    )
+
+
 def save_trade_details_to_log(
     evaluation_metrics: strategy.StrategyMetrics,
     log_path: Path,
@@ -414,6 +519,316 @@ class StockShell(cmd.Cmd):
             "filter_debug_values SYMBOL DATE (BUY SELL | strategy=ID)\n"
             "Display indicator debug metrics for SYMBOL on DATE using either explicit "
             "BUY and SELL strategies or a strategy id from data/strategy_sets.csv.\n"
+        )
+
+    # TODO: review
+    def do_complex_simulation(self, argument_line: str) -> None:  # noqa: D401
+        """complex_simulation MAX_POSITION_COUNT [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [margin=NUMBER] SET_A -- SET_B [SHOW_DETAILS]
+        Evaluate two strategy sets with shared capital limits."""
+
+        argument_parts: List[str] = argument_line.split()
+        if not argument_parts:
+            self.stdout.write(
+                "usage: complex_simulation MAX_POSITION_COUNT -- SET_A -- SET_B\n"
+            )
+            return
+
+        maximum_position_token = argument_parts.pop(0)
+        if maximum_position_token.startswith("maximum_position_count="):
+            maximum_position_value = maximum_position_token.split("=", 1)[1]
+        else:
+            maximum_position_value = maximum_position_token
+        try:
+            maximum_position_count = int(maximum_position_value)
+        except ValueError:
+            self.stdout.write("invalid maximum position count\n")
+            return
+        if maximum_position_count <= 0:
+            self.stdout.write("maximum position count must be positive\n")
+            return
+
+        show_trade_details = True
+        if argument_parts and argument_parts[-1].lower() in {"true", "false"}:
+            show_trade_details = argument_parts.pop(-1).lower() == "true"
+
+        starting_cash_value = 3000.0
+        withdraw_amount = 0.0
+        start_date_string: str | None = None
+        margin_multiplier = 1.0
+        while (
+            argument_parts
+            and argument_parts[0] != "--"
+            and argument_parts[0].startswith(
+                ("starting_cash=", "withdraw=", "start=", "margin=")
+            )
+        ):
+            parameter_part = argument_parts.pop(0)
+            name, value = parameter_part.split("=", 1)
+            if name == "start":
+                try:
+                    datetime.date.fromisoformat(value)
+                except ValueError:
+                    self.stdout.write("invalid start date\n")
+                    return
+                start_date_string = value
+                continue
+            if name == "margin":
+                try:
+                    margin_multiplier = float(value)
+                except ValueError:
+                    self.stdout.write("invalid margin multiplier\n")
+                    return
+                if margin_multiplier < 1.0:
+                    self.stdout.write("margin must be >= 1.0\n")
+                    return
+                continue
+            try:
+                numeric_value = float(value)
+            except ValueError:
+                self.stdout.write(f"invalid {name}\n")
+                return
+            if name == "starting_cash":
+                starting_cash_value = numeric_value
+            elif name == "withdraw":
+                withdraw_amount = numeric_value
+
+        set_tokens: list[list[str]] = [[]]
+        for token in argument_parts:
+            if token == "--":
+                if not set_tokens[-1]:
+                    self.stdout.write(
+                        "usage: complex_simulation MAX_POSITION_COUNT -- SET_A -- SET_B\n"
+                    )
+                    return
+                set_tokens.append([])
+                continue
+            set_tokens[-1].append(token)
+
+        if len(set_tokens) != 2 or any(not tokens for tokens in set_tokens):
+            self.stdout.write(
+                "usage: complex_simulation MAX_POSITION_COUNT -- SET_A -- SET_B\n"
+            )
+            return
+
+        strategy_mapping = load_strategy_set_mapping()
+
+        def build_set_definition(
+            label: str, tokens: list[str]
+        ) -> strategy.ComplexStrategySetDefinition:
+            if not tokens:
+                raise ValueError(f"strategy set {label} requires parameters")
+            remaining_tokens = tokens.copy()
+            volume_filter = remaining_tokens.pop(0)
+            try:
+                (
+                    minimum_average_dollar_volume,
+                    minimum_average_dollar_volume_ratio,
+                    top_dollar_volume_rank,
+                    maximum_symbols_per_group,
+                ) = _parse_volume_filter(volume_filter)
+            except ValueError as error:
+                raise ValueError(str(error)) from error
+
+            strategy_identifier: str | None = None
+            for index, token in enumerate(list(remaining_tokens)):
+                if token.startswith("strategy="):
+                    if strategy_identifier is not None:
+                        raise ValueError("only one strategy id may be provided")
+                    strategy_identifier = token.split("=", 1)[1].strip()
+                    remaining_tokens.pop(index)
+                    break
+
+            # Disallow stray strategy= tokens after the first extraction
+            if any(part.startswith("strategy=") for part in remaining_tokens):
+                raise ValueError("only one strategy id may be provided")
+
+            stop_loss_percentage = 1.0
+            if strategy_identifier:
+                if strategy_identifier not in strategy_mapping:
+                    raise ValueError(
+                        f"unknown strategy id: {strategy_identifier}"
+                    )
+                buy_strategy_name, sell_strategy_name = strategy_mapping[
+                    strategy_identifier
+                ]
+                if len(remaining_tokens) > 1:
+                    raise ValueError("invalid stop loss")
+                if remaining_tokens:
+                    try:
+                        stop_loss_percentage = float(remaining_tokens[0])
+                    except ValueError as error:
+                        raise ValueError("invalid stop loss") from error
+            else:
+                if len(remaining_tokens) < 2:
+                    raise ValueError(
+                        f"strategy set {label} requires buy and sell strategies"
+                    )
+                buy_strategy_name = remaining_tokens.pop(0)
+                sell_strategy_name = remaining_tokens.pop(0)
+                if not _has_supported_strategy(
+                    buy_strategy_name, strategy.BUY_STRATEGIES
+                ) or not _has_supported_strategy(
+                    sell_strategy_name, strategy.SELL_STRATEGIES
+                ):
+                    raise ValueError("unsupported strategies")
+                if remaining_tokens:
+                    if len(remaining_tokens) > 1:
+                        raise ValueError("invalid stop loss")
+                    try:
+                        stop_loss_percentage = float(remaining_tokens[0])
+                    except ValueError as error:
+                        raise ValueError("invalid stop loss") from error
+
+            return strategy.ComplexStrategySetDefinition(
+                label=label,
+                buy_strategy_name=buy_strategy_name,
+                sell_strategy_name=sell_strategy_name,
+                stop_loss_percentage=stop_loss_percentage,
+                minimum_average_dollar_volume=minimum_average_dollar_volume,
+                minimum_average_dollar_volume_ratio=
+                    minimum_average_dollar_volume_ratio,
+                top_dollar_volume_rank=top_dollar_volume_rank,
+                maximum_symbols_per_group=maximum_symbols_per_group,
+            )
+
+        try:
+            set_a_definition = build_set_definition("A", set_tokens[0])
+            set_b_definition = build_set_definition("B", set_tokens[1])
+        except ValueError as error:
+            self.stdout.write(f"{error}\n")
+            return
+
+        if start_date_string is None:
+            start_date_string = determine_start_date(DATA_DIRECTORY)
+        start_timestamp = pandas.Timestamp(start_date_string)
+
+        data_directory = (
+            STOCK_DATA_DIRECTORY
+            if STOCK_DATA_DIRECTORY.exists()
+            else DATA_DIRECTORY
+        )
+
+        try:
+            simulation_metrics = strategy.run_complex_simulation(
+                data_directory,
+                {"A": set_a_definition, "B": set_b_definition},
+                maximum_position_count=maximum_position_count,
+                starting_cash=starting_cash_value,
+                withdraw_amount=withdraw_amount,
+                start_date=start_timestamp,
+                margin_multiplier=margin_multiplier,
+                margin_interest_annual_rate=0.048,
+            )
+        except ValueError as error:
+            self.stdout.write(f"{error}\n")
+            return
+
+        self.stdout.write(
+            f"Simulation start date: {start_date_string}\n"
+        )
+
+        def format_trade_detail(detail: strategy.TradeDetail) -> str:
+            if detail.action == "close" and detail.result is not None:
+                if detail.percentage_change is not None:
+                    result_suffix = (
+                        f" {detail.result} "
+                        f"{detail.percentage_change:.2%} "
+                        f"{detail.exit_reason}"
+                    )
+                else:
+                    result_suffix = (
+                        f" {detail.result} "
+                        f"{detail.exit_reason}"
+                    )
+            else:
+                result_suffix = ""
+            open_metrics = ""
+            if detail.action == "open":
+                price_score_text = (
+                    f"{detail.price_concentration_score:.2f}"
+                    if detail.price_concentration_score is not None
+                    else "N/A"
+                )
+                near_ratio_text = (
+                    f"{detail.near_price_volume_ratio:.2f}"
+                    if detail.near_price_volume_ratio is not None
+                    else "N/A"
+                )
+                above_ratio_text = (
+                    f"{detail.above_price_volume_ratio:.2f}"
+                    if detail.above_price_volume_ratio is not None
+                    else "N/A"
+                )
+                node_count_text = (
+                    f"{detail.histogram_node_count}"
+                    if detail.histogram_node_count is not None
+                    else "N/A"
+                )
+                open_metrics = (
+                    f" price_score={price_score_text}"
+                    f" near_pct={near_ratio_text}"
+                    f" above_pct={above_ratio_text}"
+                    f" node_count={node_count_text}"
+                )
+            return (
+                f"{detail.date.date()} ({detail.concurrent_position_count}) "
+                f"{detail.symbol} {detail.action} {detail.price:.2f} "
+                f"{detail.group_simple_moving_average_dollar_volume_ratio:.4f} "
+                f"{detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
+                f"{detail.group_total_simple_moving_average_dollar_volume / 1_000_000:.2f}M"
+                f"{open_metrics}{result_suffix}"
+            )
+
+        for set_label in ("A", "B"):
+            metrics = simulation_metrics.metrics_by_set.get(set_label)
+            if metrics is None:
+                continue
+            self.stdout.write(
+                (
+                    f"[{set_label}] Trades: {metrics.total_trades}, "
+                    f"Win rate: {metrics.win_rate:.2%}, "
+                    f"Mean profit %: {metrics.mean_profit_percentage:.2%}, "
+                    f"Profit % Std Dev: {metrics.profit_percentage_standard_deviation:.2%}, "
+                    f"Mean loss %: {metrics.mean_loss_percentage:.2%}, "
+                    f"Loss % Std Dev: {metrics.loss_percentage_standard_deviation:.2%}, "
+                    f"Mean holding period: {metrics.mean_holding_period:.2f} bars, "
+                    f"Holding period Std Dev: {metrics.holding_period_standard_deviation:.2f} bars, "
+                    f"Max concurrent positions: {metrics.maximum_concurrent_positions}, "
+                    f"Final balance: {metrics.final_balance:.2f}, "
+                    f"CAGR: {metrics.compound_annual_growth_rate:.2%}, "
+                    f"Max drawdown: {metrics.maximum_drawdown:.2%}\n"
+                )
+            )
+            for year, annual_return in sorted(metrics.annual_returns.items()):
+                trade_count = metrics.annual_trade_counts.get(year, 0)
+                self.stdout.write(
+                    f"[{set_label}] Year {year}: {annual_return:.2%}, trade: {trade_count}\n"
+                )
+                if show_trade_details:
+                    trade_details = metrics.trade_details_by_year.get(year, [])
+                    for trade_detail in trade_details:
+                        formatted_detail = format_trade_detail(trade_detail)
+                        self.stdout.write(
+                            f"[{set_label}]   {formatted_detail}\n"
+                        )
+
+    # TODO: review
+    def help_complex_simulation(self) -> None:
+        """Display help for the complex_simulation command."""
+
+        self.stdout.write(
+            "complex_simulation MAX_POSITION_COUNT [starting_cash=NUMBER] [withdraw=NUMBER] "
+            "[start=YYYY-MM-DD] [margin=NUMBER] SET_A -- SET_B [SHOW_DETAILS]\n"
+            "Evaluate two strategy sets using a shared cash balance.\n"
+            "Parameters:\n"
+            "  MAX_POSITION_COUNT: Maximum concurrent positions for set A. Set B receives half (rounded down, minimum one).\n"
+            "  starting_cash: Optional initial cash balance. Defaults to 3000.\n"
+            "  withdraw: Optional annual withdrawal amount. Defaults to 0.\n"
+            "  start: Optional start date in YYYY-MM-DD format. Defaults to earliest cached data.\n"
+            "  margin: Optional leverage multiplier (>= 1.0). When greater than 1, a 4.8% annual interest rate is applied.\n"
+            "  SHOW_DETAILS: True (default) or False to control trade detail output.\n"
+            "Each SET definition must provide a dollar-volume filter followed by either BUY/SELL strategy names or strategy=ID,\n"
+            "optionally followed by a stop-loss value. Separate the two sets with --.\n"
         )
 
     # TODO: review
