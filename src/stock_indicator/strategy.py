@@ -492,6 +492,7 @@ class ComplexStrategySetDefinition:
 class ComplexSimulationMetrics:
     """Aggregate metrics for multiple strategy sets."""
 
+    overall_metrics: StrategyMetrics
     metrics_by_set: Dict[str, StrategyMetrics]
 
 
@@ -598,6 +599,17 @@ def run_complex_simulation(
             accepted_trades_by_set[label].append(trade)
 
     metrics_by_set: Dict[str, StrategyMetrics] = {}
+    aggregated_trades: List[Trade] = []
+    aggregated_trade_profit_list: List[float] = []
+    aggregated_profit_percentage_list: List[float] = []
+    aggregated_loss_percentage_list: List[float] = []
+    aggregated_holding_period_list: List[int] = []
+    aggregated_detail_pairs_with_label: List[
+        Tuple[TradeDetail, TradeDetail]
+    ] = []
+    aggregated_trade_symbol_lookup: Dict[Trade, str] = {}
+    aggregated_simulation_results: List[SimulationResult] = []
+    aggregated_closing_price_series_by_symbol: Dict[str, pandas.Series] = {}
 
     for label, artifacts in artifacts_by_set.items():
         trades_for_set = accepted_trades_by_set[label]
@@ -723,7 +735,107 @@ def run_complex_simulation(
             trade_details_by_year,
         )
 
-    return ComplexSimulationMetrics(metrics_by_set=metrics_by_set)
+        aggregated_trades.extend(trades_for_set)
+        aggregated_trade_profit_list.extend(trade_profit_list)
+        aggregated_profit_percentage_list.extend(profit_percentage_list)
+        aggregated_loss_percentage_list.extend(loss_percentage_list)
+        aggregated_holding_period_list.extend(holding_period_list)
+        aggregated_detail_pairs_with_label.extend(detail_pairs_with_label)
+        aggregated_trade_symbol_lookup.update(filtered_trade_symbol_lookup)
+        aggregated_simulation_results.extend(filtered_simulation_results)
+        for symbol_name, closing_series in (
+            artifacts.closing_price_series_by_symbol.items()
+        ):
+            if symbol_name not in aggregated_closing_price_series_by_symbol:
+                aggregated_closing_price_series_by_symbol[
+                    symbol_name
+                ] = closing_series
+
+    aggregated_trade_details_by_year = _organize_trade_details_by_year(
+        aggregated_detail_pairs_with_label
+    )
+    aggregated_maximum_concurrent_positions = calculate_maximum_concurrent_positions(
+        aggregated_simulation_results
+    )
+
+    if aggregated_trades:
+        start_dates = [
+            artifacts.simulation_start_date
+            for artifacts in artifacts_by_set.values()
+            if artifacts.simulation_start_date is not None
+        ]
+        if start_dates:
+            aggregated_simulation_start_date = min(start_dates)
+        else:
+            aggregated_simulation_start_date = pandas.Timestamp.now()
+        aggregated_annual_returns = calculate_annual_returns(
+            aggregated_trades,
+            starting_cash,
+            maximum_position_count,
+            aggregated_simulation_start_date,
+            withdraw_amount,
+            margin_multiplier=margin_multiplier,
+            margin_interest_annual_rate=effective_interest_rate,
+            trade_symbol_lookup=aggregated_trade_symbol_lookup,
+            closing_price_series_by_symbol=(
+                aggregated_closing_price_series_by_symbol
+            ),
+            settlement_lag_days=1,
+        )
+        aggregated_annual_trade_counts = calculate_annual_trade_counts(
+            aggregated_trades
+        )
+        aggregated_final_balance = simulate_portfolio_balance(
+            aggregated_trades,
+            starting_cash,
+            maximum_position_count,
+            withdraw_amount,
+            margin_multiplier=margin_multiplier,
+            margin_interest_annual_rate=effective_interest_rate,
+        )
+        aggregated_maximum_drawdown = calculate_max_drawdown(
+            aggregated_trades,
+            starting_cash,
+            maximum_position_count,
+            aggregated_trade_symbol_lookup,
+            aggregated_closing_price_series_by_symbol,
+            withdraw_amount,
+            margin_multiplier=margin_multiplier,
+            margin_interest_annual_rate=effective_interest_rate,
+        )
+        last_exit_date = max(trade.exit_date for trade in aggregated_trades)
+        aggregated_compound_annual_growth_rate = 0.0
+        if starting_cash > 0 and aggregated_simulation_start_date is not None:
+            duration_days = (last_exit_date - aggregated_simulation_start_date).days
+            if duration_days > 0:
+                duration_years = duration_days / 365.25
+                aggregated_compound_annual_growth_rate = (
+                    aggregated_final_balance / starting_cash
+                ) ** (1 / duration_years) - 1
+    else:
+        aggregated_annual_returns = {}
+        aggregated_annual_trade_counts = {}
+        aggregated_final_balance = 0.0
+        aggregated_maximum_drawdown = 0.0
+        aggregated_compound_annual_growth_rate = 0.0
+
+    overall_metrics = calculate_metrics(
+        aggregated_trade_profit_list,
+        aggregated_profit_percentage_list,
+        aggregated_loss_percentage_list,
+        aggregated_holding_period_list,
+        aggregated_maximum_concurrent_positions,
+        aggregated_maximum_drawdown,
+        aggregated_final_balance,
+        aggregated_compound_annual_growth_rate,
+        aggregated_annual_returns,
+        aggregated_annual_trade_counts,
+        aggregated_trade_details_by_year,
+    )
+
+    return ComplexSimulationMetrics(
+        overall_metrics=overall_metrics, metrics_by_set=metrics_by_set
+    )
 
 
 def compute_signals_for_date(
