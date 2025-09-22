@@ -94,6 +94,44 @@ def _extract_sma_factor(strategy_name: str) -> float | None:
     return None
 
 
+def rename_signal_columns(
+    price_data_frame: pandas.DataFrame, base_name: str, full_name: str
+) -> None:
+    """Rename strategy signal columns emitted with a base identifier.
+
+    Many strategy helpers emit standard column names such as
+    ``"ema_sma_cross_entry_signal"`` that reflect the base implementation name.
+    When strategies are parameterized, the caller expects the columns to use the
+    fully qualified strategy name, for example ``"ema_sma_cross_10_entry_signal"``.
+
+    This helper updates the signal columns in ``price_data_frame`` in-place when
+    ``full_name`` differs from ``base_name``. Columns that are not present are
+    ignored so the operation is safe to call for every strategy invocation.
+    """
+
+    if base_name == full_name:
+        return
+
+    rename_mapping: dict[str, str] = {}
+    signal_suffixes = [
+        "entry_signal",
+        "exit_signal",
+        "raw_entry_signal",
+        "raw_exit_signal",
+    ]
+    for suffix in signal_suffixes:
+        original_column_name = f"{base_name}_{suffix}"
+        renamed_column_name = f"{full_name}_{suffix}"
+        if (
+            original_column_name in price_data_frame.columns
+            and original_column_name != renamed_column_name
+        ):
+            rename_mapping[original_column_name] = renamed_column_name
+
+    if rename_mapping:
+        price_data_frame.rename(columns=rename_mapping, inplace=True)
+
+
 def _extract_short_long_windows_for_20_50(
     strategy_name: str,
 ) -> tuple[int, int] | None:
