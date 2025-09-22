@@ -200,41 +200,6 @@ class StockShell(cmd.Cmd):
             "This command has no parameters.\n"
         )
 
-    def do_update_yf_symbols(self, argument_line: str) -> None:  # noqa: D401
-        """update_yf_symbols
-        Rebuild the YF-ready symbol list from local CSVs under data/stock_data/."""
-        yf_symbols = symbols.update_yf_symbol_cache()
-        self.stdout.write(f"YF symbol cache updated (count={len(yf_symbols)})\n")
-
-    def help_update_yf_symbols(self) -> None:
-        """Display help for the update_yf_symbols command."""
-        self.stdout.write(
-            "update_yf_symbols\n"
-            "Scan data/stock_data/*.csv and write symbols to data/symbols_yf.txt.\n"
-            "Use this to treat locally available CSVs as 'ready for daily jobs'.\n"
-        )
-
-    def do_reset_symbols_daily_job(self, argument_line: str) -> None:  # noqa: D401
-        """reset_symbols_daily_job
-        Copy the Yahoo Finance-ready symbol list to symbols_daily_job.txt."""
-        try:
-            symbol_list = symbols.reset_daily_job_symbols()
-        except OSError as error:
-            self.stdout.write(f"Error: {error}\n")
-            return
-        self.stdout.write(
-            f"Daily job symbol list reset (count={len(symbol_list)})\n"
-        )
-
-    def help_reset_symbols_daily_job(self) -> None:
-        """Display help for the reset_symbols_daily_job command."""
-        self.stdout.write(
-            "reset_symbols_daily_job\n"
-            "Copy data/symbols_yf.txt to data/symbols_daily_job.txt.\n"
-            "Use this to reset the daily job symbol list from the "
-            "Yahoo Finance cache.\n"
-        )
-
     def do_update_data_from_yf(self, argument_line: str) -> None:  # noqa: D401
         """update_data_from_yf SYMBOL START END
         Download data from Yahoo Finance for SYMBOL between START and END and store as CSV.
@@ -261,13 +226,6 @@ class StockShell(cmd.Cmd):
         with output_path.open("w", encoding="utf-8") as fh:
             data_frame_with_date.to_csv(fh, index=False)
         self.stdout.write(f"Data written to {output_path}\n")
-        # Ensure this symbol is tracked by the YF daily job list
-        try:
-            symbols.add_symbol_to_yf_cache(symbol_name)
-        except Exception as error:  # noqa: BLE001
-            LOGGER.warning(
-                "Could not update YF symbol list with %s: %s", symbol_name, error
-            )
         # If sector data lacks this symbol, classify it as 'Other' (FF12=12)
         try:
             assign_symbol_to_other_if_missing(symbol_name)
@@ -349,20 +307,12 @@ class StockShell(cmd.Cmd):
                     )  # TODO: review
                     continue
             self.stdout.write(f"Data written to {output_path}\n")
-            # Keep YF symbol list in sync when a symbol successfully wrote
-            try:
-                symbols.add_symbol_to_yf_cache(symbol_name)
-            except Exception as error:  # noqa: BLE001
-                LOGGER.warning(
-                    "Could not update YF symbol list with %s: %s", symbol_name, error
-                )
 
     def help_update_all_data_from_yf(self) -> None:
         """Display help for the update_all_data_from_yf command."""
         self.stdout.write(
             "update_all_data_from_yf START END\n"
             "Download data from Yahoo Finance for all cached symbols and write CSVs to data/stock_data/.\n"
-            "Also appends symbols that successfully wrote CSVs to data/symbols_yf.txt for daily jobs.\n"
             "Parameters:\n"
             "  START: Start date in YYYY-MM-DD format.\n"
             "  END: End date in YYYY-MM-DD format (inclusive).\n"
