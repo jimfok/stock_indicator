@@ -481,7 +481,9 @@ def run_complex_simulation(
     for label, definition in set_definitions.items():
         maximum_positions_for_set = maximum_position_count
         if label.upper() == "B":
-            maximum_positions_for_set = max(1, maximum_position_count // 2)
+            maximum_positions_for_set = max(
+                1, math.ceil(maximum_position_count / 2)
+            )
         metrics = evaluate_combined_strategy(
             data_directory,
             definition.buy_strategy_name,

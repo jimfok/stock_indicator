@@ -2226,10 +2226,10 @@ def test_complex_simulation_strategy_id_resolution(
     assert "[B] Trades: 0" in output_text
 
 
-def test_complex_simulation_half_cap_for_set_b(
+def test_complex_simulation_half_cap_for_set_b_rounds_up(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Set B should receive half of the maximum position count."""
+    """Set B should receive half of the maximum position count, rounded up."""
 
     import stock_indicator.manage as manage_module
 
@@ -2258,9 +2258,9 @@ def test_complex_simulation_half_cap_for_set_b(
     output_buffer = io.StringIO()
     shell = manage_module.StockShell(stdout=output_buffer)
     shell.onecmd(
-        "complex_simulation 6 dollar_volume>1 ema_sma_cross ema_sma_cross -- "
+        "complex_simulation 5 dollar_volume>1 ema_sma_cross ema_sma_cross -- "
         "dollar_volume>1 ema_sma_cross_20 ema_sma_cross_20"
     )
 
-    assert recorded_maximums["ema_sma_cross"] == 6
+    assert recorded_maximums["ema_sma_cross"] == 5
     assert recorded_maximums["ema_sma_cross_20"] == 3
