@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pandas
 import pytest
@@ -153,7 +156,7 @@ def test_run_complex_simulation_allows_two_b_positions_when_limit_rounds_up(
 ) -> None:
     """Set B should receive the rounded-up half of the shared position cap."""
 
-    trade_a1 = _build_trade("2024-01-01", "2024-01-03", symbol="AAA")
+    trade_a1 = _build_trade("2024-01-03", "2024-01-05", symbol="AAA")
     trade_b1 = _build_trade("2024-01-01", "2024-01-03", symbol="BAA")
     trade_b2 = _build_trade("2024-01-02", "2024-01-04", symbol="BAB")
 
@@ -192,3 +195,51 @@ def test_run_complex_simulation_allows_two_b_positions_when_limit_rounds_up(
     )
 
     assert metrics.metrics_by_set["B"].total_trades == 2
+
+
+def test_run_complex_simulation_skips_b_when_global_open_count_reaches_quota(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Set B entries should be rejected once the shared open count hits its quota."""
+
+    trade_a1 = _build_trade("2024-01-01", "2024-01-10", symbol="AAA")
+    trade_a2 = _build_trade("2024-01-02", "2024-01-11", symbol="AAB")
+    trade_b1 = _build_trade("2024-01-03", "2024-01-05", symbol="BAA")
+    trade_b2 = _build_trade("2024-01-03", "2024-01-06", symbol="BAB")
+
+    artifacts_a = _build_artifacts([trade_a1, trade_a2])
+    artifacts_b = _build_artifacts([trade_b1, trade_b2])
+
+    artifact_map = {
+        "set_a": artifacts_a,
+        "set_b": artifacts_b,
+    }
+
+    def fake_generate(*args: object, **kwargs: object) -> strategy.StrategyEvaluationArtifacts:
+        buy_name = kwargs.get("buy_strategy_name") or args[1]
+        return artifact_map[str(buy_name)]
+
+    monkeypatch.setattr(strategy, "_generate_strategy_evaluation_artifacts", fake_generate)
+    _stub_metrics_functions(monkeypatch)
+
+    definitions = {
+        "A": strategy.ComplexStrategySetDefinition(
+            label="A",
+            buy_strategy_name="set_a",
+            sell_strategy_name="set_a",
+        ),
+        "B": strategy.ComplexStrategySetDefinition(
+            label="B",
+            buy_strategy_name="set_b",
+            sell_strategy_name="set_b",
+        ),
+    }
+
+    metrics = strategy.run_complex_simulation(
+        Path("/tmp"),
+        definitions,
+        maximum_position_count=4,
+    )
+
+    assert metrics.metrics_by_set["A"].total_trades == 2
+    assert metrics.metrics_by_set["B"].total_trades == 0
