@@ -39,7 +39,6 @@ def test_manager_cli_generates_logs_and_signals(
     monkeypatch.setattr(daily_job_module, "STOCK_DATA_DIRECTORY", stock_data_directory)
 
     monkeypatch.setattr(manage_module.symbols, "load_symbols", lambda: ["AAA"])
-    monkeypatch.setattr(manage_module.symbols, "add_symbol_to_yf_cache", lambda symbol_name: None)
 
     recorded_end_dates: list[str] = []
 
