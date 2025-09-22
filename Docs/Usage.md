@@ -1,13 +1,10 @@
 # Usage
 
-The daily job reads its ticker list from `data/symbols_daily_job.txt`. Run the
-`reset_symbols_daily_job` command to recreate this file by copying
-`data/symbols_yf.txt` whenever the list is missing or outdated. The command
-prints a confirmation or an error message.
-
-```
-reset_symbols_daily_job
-```
+The daily job automatically rebuilds its ticker list from the Yahoo Finance
+cache that the management shell maintains. Running commands such as
+`update_data_from_yf` or `update_all_data_from_yf` ensures that the cache tracks
+the symbols whose data has been downloaded, so no manual copying between text
+files is required.
 
 To evaluate the FTD EMA and SMA cross strategy in the management shell, call:
 
