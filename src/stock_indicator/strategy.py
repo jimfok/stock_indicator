@@ -3,13 +3,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import logging
 import math
 from math import ceil
 from pathlib import Path
 from statistics import mean, stdev
-from typing import Callable, Dict, List
+from typing import Callable, Dict, Iterable, List, Tuple
 import re
 
 import numpy
@@ -408,6 +408,7 @@ class TradeDetail:
     # For an "open" event, includes this position. For a "close" event,
     # excludes the position being closed.
     concurrent_position_count: int = 0
+    strategy_set_label: str | None = None
     result: str | None = None  # TODO: review
     percentage_change: float | None = None  # TODO: review
     exit_reason: str = "signal"
@@ -456,6 +457,18 @@ class ComplexSimulationMetrics:
     metrics_by_set: Dict[str, StrategyMetrics]
 
 
+@dataclass
+class StrategyEvaluationArtifacts:
+    """Container for intermediate results produced during strategy evaluation."""
+
+    trades: List[Trade]
+    simulation_results: List[SimulationResult]
+    trade_symbol_lookup: Dict[Trade, str]
+    closing_price_series_by_symbol: Dict[str, pandas.Series]
+    trade_detail_pairs: Dict[Trade, tuple[TradeDetail, TradeDetail]]
+    simulation_start_date: pandas.Timestamp | None
+
+
 def run_complex_simulation(
     data_directory: Path,
     set_definitions: Dict[str, ComplexStrategySetDefinition],
@@ -477,14 +490,16 @@ def run_complex_simulation(
     effective_interest_rate = (
         margin_interest_annual_rate if margin_multiplier != 1.0 else 0.0
     )
-    metrics_by_set: Dict[str, StrategyMetrics] = {}
+    artifacts_by_set: Dict[str, StrategyEvaluationArtifacts] = {}
+    position_limits_by_set: Dict[str, int] = {}
     for label, definition in set_definitions.items():
         maximum_positions_for_set = maximum_position_count
         if label.upper() == "B":
             maximum_positions_for_set = max(
                 1, math.ceil(maximum_position_count / 2)
             )
-        metrics = evaluate_combined_strategy(
+        position_limits_by_set[label] = maximum_positions_for_set
+        artifacts_by_set[label] = _generate_strategy_evaluation_artifacts(
             data_directory,
             definition.buy_strategy_name,
             definition.sell_strategy_name,
@@ -493,15 +508,176 @@ def run_complex_simulation(
             maximum_symbols_per_group=definition.maximum_symbols_per_group,
             minimum_average_dollar_volume_ratio=
                 definition.minimum_average_dollar_volume_ratio,
-            starting_cash=starting_cash,
-            withdraw_amount=withdraw_amount,
-            stop_loss_percentage=definition.stop_loss_percentage,
             start_date=start_date,
             maximum_position_count=maximum_positions_for_set,
+            allowed_fama_french_groups=None,
+            allowed_symbols=None,
+            exclude_other_ff12=True,
+            stop_loss_percentage=definition.stop_loss_percentage,
             margin_multiplier=margin_multiplier,
             margin_interest_annual_rate=effective_interest_rate,
         )
-        metrics_by_set[label] = metrics
+
+    accepted_trades_by_set: Dict[str, List[Trade]] = {
+        label: [] for label in set_definitions
+    }
+    open_position_counts_by_set: Dict[str, int] = {label: 0 for label in set_definitions}
+    open_trade_keys: Dict[Tuple[str, int], str] = {}
+    accepted_trade_keys: set[Tuple[str, int]] = set()
+    events: List[tuple[pandas.Timestamp, int, str, Trade]] = []
+    for label, artifacts in artifacts_by_set.items():
+        for trade in artifacts.trades:
+            events.append((trade.entry_date, 1, label, trade))
+            events.append((trade.exit_date, 0, label, trade))
+    events.sort(key=lambda event: (event[0], event[1]))
+
+    for event_date, event_type, label, trade in events:
+        trade_identifier = id(trade)
+        trade_key = (label, trade_identifier)
+        if event_type == 0:
+            if trade_key in open_trade_keys:
+                open_trade_keys.pop(trade_key, None)
+                open_position_counts_by_set[label] = max(
+                    0, open_position_counts_by_set[label] - 1
+                )
+        else:
+            if trade_key in accepted_trade_keys:
+                continue
+            current_open_total = len(open_trade_keys)
+            if current_open_total >= maximum_position_count:
+                continue
+            if open_position_counts_by_set[label] >= position_limits_by_set[label]:
+                continue
+            accepted_trade_keys.add(trade_key)
+            open_trade_keys[trade_key] = label
+            open_position_counts_by_set[label] += 1
+            accepted_trades_by_set[label].append(trade)
+
+    metrics_by_set: Dict[str, StrategyMetrics] = {}
+
+    for label, artifacts in artifacts_by_set.items():
+        trades_for_set = accepted_trades_by_set[label]
+        trade_profit_list: List[float] = []
+        profit_percentage_list: List[float] = []
+        loss_percentage_list: List[float] = []
+        holding_period_list: List[int] = []
+        detail_pairs_with_label: List[Tuple[TradeDetail, TradeDetail]] = []
+        filtered_trade_symbol_lookup: Dict[Trade, str] = {}
+
+        for trade in trades_for_set:
+            trade_profit_list.append(trade.profit)
+            holding_period_list.append(trade.holding_period)
+            percentage_change = trade.profit / trade.entry_price
+            if percentage_change > 0:
+                profit_percentage_list.append(percentage_change)
+            elif percentage_change < 0:
+                loss_percentage_list.append(abs(percentage_change))
+            filtered_trade_symbol_lookup[trade] = artifacts.trade_symbol_lookup.get(
+                trade, ""
+            )
+            entry_detail, exit_detail = artifacts.trade_detail_pairs[trade]
+            detail_pairs_with_label.append(
+                (
+                    replace(entry_detail, strategy_set_label=label),
+                    replace(exit_detail, strategy_set_label=label),
+                )
+            )
+
+        trade_details_by_year = _organize_trade_details_by_year(detail_pairs_with_label)
+        filtered_simulation_results: List[SimulationResult] = []
+        if trades_for_set:
+            filtered_simulation_results.append(
+                SimulationResult(
+                    trades=trades_for_set,
+                    total_profit=sum(trade.profit for trade in trades_for_set),
+                )
+            )
+        maximum_concurrent_positions = calculate_maximum_concurrent_positions(
+            filtered_simulation_results
+        )
+
+        if not trades_for_set:
+            metrics_by_set[label] = calculate_metrics(
+                [],
+                [],
+                [],
+                [],
+                maximum_concurrent_positions,
+                0.0,
+                0.0,
+                0.0,
+                {},
+                {},
+                trade_details_by_year,
+            )
+            continue
+
+        simulation_start_date = artifacts.simulation_start_date
+        if simulation_start_date is None:
+            simulation_start_date = pandas.Timestamp.now()
+        annual_returns = calculate_annual_returns(
+            trades_for_set,
+            starting_cash,
+            position_limits_by_set[label],
+            simulation_start_date,
+            withdraw_amount,
+            margin_multiplier=margin_multiplier,
+            margin_interest_annual_rate=effective_interest_rate,
+            trade_symbol_lookup=filtered_trade_symbol_lookup,
+            closing_price_series_by_symbol=artifacts.closing_price_series_by_symbol,
+            settlement_lag_days=1,
+        )
+        annual_trade_counts = calculate_annual_trade_counts(trades_for_set)
+        final_balance = simulate_portfolio_balance(
+            trades_for_set,
+            starting_cash,
+            position_limits_by_set[label],
+            withdraw_amount,
+            margin_multiplier=margin_multiplier,
+            margin_interest_annual_rate=effective_interest_rate,
+        )
+        maximum_drawdown = calculate_max_drawdown(
+            trades_for_set,
+            starting_cash,
+            position_limits_by_set[label],
+            filtered_trade_symbol_lookup,
+            artifacts.closing_price_series_by_symbol,
+            withdraw_amount,
+            margin_multiplier=margin_multiplier,
+            margin_interest_annual_rate=effective_interest_rate,
+        )
+        if trades_for_set:
+            last_trade_exit_date = max(
+                trade.exit_date for trade in trades_for_set
+            )
+        else:
+            last_trade_exit_date = simulation_start_date
+        compound_annual_growth_rate_value = 0.0
+        if (
+            simulation_start_date is not None
+            and last_trade_exit_date is not None
+            and starting_cash > 0
+        ):
+            duration_days = (last_trade_exit_date - simulation_start_date).days
+            if duration_days > 0:
+                duration_years = duration_days / 365.25
+                compound_annual_growth_rate_value = (
+                    final_balance / starting_cash
+                ) ** (1 / duration_years) - 1
+
+        metrics_by_set[label] = calculate_metrics(
+            trade_profit_list,
+            profit_percentage_list,
+            loss_percentage_list,
+            holding_period_list,
+            maximum_concurrent_positions,
+            maximum_drawdown,
+            final_balance,
+            compound_annual_growth_rate_value,
+            annual_returns,
+            annual_trade_counts,
+            trade_details_by_year,
+        )
 
     return ComplexSimulationMetrics(metrics_by_set=metrics_by_set)
 
@@ -1736,94 +1912,31 @@ def calculate_metrics(
     )
 
 
-def evaluate_combined_strategy(
+def _generate_strategy_evaluation_artifacts(
     data_directory: Path,
     buy_strategy_name: str,
     sell_strategy_name: str,
     minimum_average_dollar_volume: float | None = None,
-    top_dollar_volume_rank: int | None = None,  # TODO: review
+    top_dollar_volume_rank: int | None = None,
     maximum_symbols_per_group: int = 1,
     minimum_average_dollar_volume_ratio: float | None = None,
-    starting_cash: float = 3000.0,
-    withdraw_amount: float = 0.0,
-    stop_loss_percentage: float = 1.0,
     start_date: pandas.Timestamp | None = None,
     maximum_position_count: int = 3,
     allowed_fama_french_groups: set[int] | None = None,
     allowed_symbols: set[str] | None = None,
     exclude_other_ff12: bool = True,
+    stop_loss_percentage: float = 1.0,
     margin_multiplier: float = 1.0,
     margin_interest_annual_rate: float = 0.048,
-) -> StrategyMetrics:
-    """Evaluate a combination of strategies for entry and exit signals.
+) -> StrategyEvaluationArtifacts:
+    """Build intermediate artifacts for strategy evaluation.
 
-    The function evaluates strategies on full historical data and uses symbol
-    eligibility to gate entries. Exit signals remain active even when a symbol
-    becomes ineligible so existing positions can close.
-
-    Parameters
-    ----------
-    data_directory: Path
-        Directory containing price data in CSV format.
-    buy_strategy_name: str
-        Strategy name used to generate entry signals. The name may include a
-        numeric window size or a pair of slope bounds, for example
-        ``"ema_sma_cross_with_slope_40_-0.5_0.5"``.
-    sell_strategy_name: str
-        Strategy name used to generate exit signals. The same conventions as
-        ``buy_strategy_name`` apply.
-    minimum_average_dollar_volume: float | None, optional
-        Minimum 50-day moving average dollar volume, in millions, required for a
-        symbol to be included in the evaluation. When ``None``, no filter is
-        applied.
-    top_dollar_volume_rank: int | None, optional
-        Retain only the ``N`` symbols with the highest 50-day simple moving
-        average dollar volume on each trading day. When ``None``, no ranking
-        filter is applied. When provided, at most
-        ``maximum_symbols_per_group`` symbols are selected from each
-        Fama–French group.
-    maximum_symbols_per_group: int, optional
-        Maximum number of symbols to keep per Fama–French group when a
-        ranking filter is applied. Defaults to one to preserve legacy
-        behavior.
-    minimum_average_dollar_volume_ratio: float | None, optional
-        Minimum fraction of the total market 50-day average dollar volume that
-        a symbol must exceed to be eligible. Specify values as decimals, for
-        example ``0.01`` for ``1%``. When ``None``, no ratio filter is applied.
-    starting_cash: float, default 3000.0
-        Initial amount of cash used for portfolio simulation.
-    withdraw_amount: float, default 0.0
-        Cash amount removed from the balance at the end of each calendar year.
-    stop_loss_percentage: float, default 1.0
-        Fractional loss from the entry price that triggers an exit on the next
-        bar's opening price. Values greater than or equal to ``1.0`` disable
-        the stop-loss mechanism.
-    start_date: pandas.Timestamp | None, optional
-        First day of the simulation. When provided, price data is limited to
-        rows on or after this date before any signals are calculated. The
-        simulation begins on the later of ``start_date`` and the earliest date
-        on which a symbol becomes eligible.
-    maximum_position_count: int, default 3
-        Upper bound on the number of simultaneous open positions. Each
-        position uses a fixed fraction of equity based on this limit.
-    allowed_fama_french_groups: set[int] | None, optional
-        Restrict the tradable universe to the specified FF12 group identifiers
-        (1–11). Symbols in group 12 ("Other") are always excluded. When this
-        parameter is provided and a symbol lacks a known FF12 mapping, the
-        symbol is excluded to avoid unintended trades.
-    allowed_symbols: set[str] | None, optional
-        When provided, restrict evaluation to the specified set of symbols
-        (case-sensitive match to CSV stem). Useful for single-symbol
-        simulations.
-    exclude_other_ff12: bool, default True
-        When True, symbols tagged with FF12 group 12 ("Other") are excluded.
-        Set to False to allow trading of symbols in the "Other" group. This is
-        ignored when sector data is unavailable.
+    The helper encapsulates the heavy lifting originally performed directly by
+    :func:`evaluate_combined_strategy`. It prepares all simulation results,
+    trade metadata, and trade detail records so callers can compute metrics
+    tailored to their needs, such as enforcing custom position caps.
     """
-    # TODO: review
 
-    # Support composite strategy expressions like "A or B"; require that at
-    # least one option is a supported base strategy on each side.
     buy_choice_names = _split_strategy_choices(buy_strategy_name)
     sell_choice_names = _split_strategy_choices(sell_strategy_name)
 
@@ -1851,16 +1964,12 @@ def evaluate_combined_strategy(
             "minimum_average_dollar_volume_ratio, not both",
         )
 
-    trade_profit_list: List[float] = []
-    profit_percentage_list: List[float] = []
-    loss_percentage_list: List[float] = []
-    holding_period_list: List[int] = []
     simulation_results: List[SimulationResult] = []
     all_trades: List[Trade] = []
     simulation_start_date: pandas.Timestamp | None = None
-    trade_details_by_year: Dict[int, List[TradeDetail]] = {}  # TODO: review
     trade_symbol_lookup: Dict[Trade, str] = {}
     closing_price_series_by_symbol: Dict[str, pandas.Series] = {}
+    trade_detail_pairs: Dict[Trade, Tuple[TradeDetail, TradeDetail]] = {}
 
     symbol_frames: List[tuple[Path, pandas.DataFrame]] = []
     symbols_excluded_by_industry = (
@@ -1868,17 +1977,14 @@ def evaluate_combined_strategy(
     )
     symbol_to_group_map_for_filtering: dict[str, int] | None = None
     if allowed_fama_french_groups is not None:
-        # Build a mapping from symbol to FF12 group for filtering.
         symbol_to_group_map_for_filtering = load_ff12_groups_by_symbol()
     for csv_file_path in data_directory.glob("*.csv"):
         if csv_file_path.stem == SP500_SYMBOL:
             continue
         if allowed_symbols is not None and csv_file_path.stem not in allowed_symbols:
             continue
-        # Skip symbols classified as FF12==12 ("Other") when sector data exists.
         if csv_file_path.stem.upper() in symbols_excluded_by_industry:
             continue
-        # If an allowed group list is provided, enforce it here.
         if symbol_to_group_map_for_filtering is not None:
             group_identifier = symbol_to_group_map_for_filtering.get(
                 csv_file_path.stem.upper()
@@ -1888,8 +1994,6 @@ def evaluate_combined_strategy(
         price_data_frame = load_price_data(csv_file_path)
         if price_data_frame.empty:
             continue
-        # Compute dollar-volume SMA using full look-back before any slicing so
-        # the initial bars after start_date have valid values.
         if "volume" in price_data_frame.columns:
             dollar_volume_series_full = (
                 price_data_frame["close"] * price_data_frame["volume"]
@@ -1906,11 +2010,6 @@ def evaluate_combined_strategy(
                     "Volume column is required to compute dollar volume metrics"
                 )
             price_data_frame["simple_moving_average_dollar_volume"] = float("nan")
-        # Important: do NOT slice by start_date here. We keep full
-        # price history so long-window indicators (e.g., 150-day SMA)
-        # computed later have proper lookback across year boundaries.
-        # We will slice to the actual simulation_start_date right before
-        # running the trade simulation.
         symbol_frames.append((csv_file_path, price_data_frame))
 
     if symbol_frames:
@@ -1935,44 +2034,38 @@ def evaluate_combined_strategy(
     market_total_dollar_volume_by_date = (
         merged_volume_frame.sum(axis=1).to_dict()
     )
-    total_dollar_volume_by_date = (
-        merged_volume_frame.where(eligibility_mask).sum(axis=1).to_dict()
-    )
 
-    # Build per-group total dollar volume by date to support group-aware ratios in
-    # trade details. When sector data is not available, this remains empty and
-    # callers should fall back to market totals.
     symbol_to_fama_french_group_id_for_details = load_ff12_groups_by_symbol()
     group_total_dollar_volume_by_group_and_date: dict[int, dict[pandas.Timestamp, float]] = {}
     if not merged_volume_frame.empty and symbol_to_fama_french_group_id_for_details:
         group_id_to_symbol_columns_for_details: dict[int, list[str]] = {}
         for column_name in merged_volume_frame.columns:
-            group_id = symbol_to_fama_french_group_id_for_details.get(
+            group_identifier = symbol_to_fama_french_group_id_for_details.get(
                 column_name.upper()
             )
-            if group_id is None:
+            if group_identifier is None:
                 continue
-            group_id_to_symbol_columns_for_details.setdefault(group_id, []).append(
-                column_name
-            )
-        for group_id, column_list in group_id_to_symbol_columns_for_details.items():
-            group_frame = merged_volume_frame[column_list]
-            group_total_series = group_frame.sum(axis=1)
-            group_total_dollar_volume_by_group_and_date[group_id] = (
-                group_total_series.to_dict()
+            group_id_to_symbol_columns_for_details.setdefault(
+                group_identifier, []
+            ).append(column_name)
+        for group_identifier, column_names in group_id_to_symbol_columns_for_details.items():
+            group_frame = merged_volume_frame[column_names]
+            group_totals = group_frame.sum(axis=1)
+            group_total_dollar_volume_by_group_and_date[group_identifier] = (
+                group_totals.to_dict()
             )
 
     selected_symbol_data: List[tuple[Path, pandas.DataFrame, pandas.Series]] = []
-    simple_moving_average_dollar_volume_by_symbol_and_date: Dict[
-        str, Dict[pandas.Timestamp, float]
-    ] = {}
     first_eligible_dates: List[pandas.Timestamp] = []
+    simple_moving_average_dollar_volume_by_symbol_and_date: dict[str, dict[pandas.Timestamp, float]] = {}
     for csv_file_path, price_data_frame in symbol_frames:
         symbol_name = csv_file_path.stem
-        if symbol_name not in eligibility_mask.columns:
-            continue
-        symbol_mask = eligibility_mask[symbol_name]
-        symbol_mask = symbol_mask.reindex(price_data_frame.index, fill_value=False)
+        if eligibility_mask.empty or symbol_name not in eligibility_mask.columns:
+            symbol_mask = pandas.Series(False, index=price_data_frame.index)
+        else:
+            symbol_mask = eligibility_mask[symbol_name].reindex(
+                price_data_frame.index, fill_value=False
+            )
         if not symbol_mask.any():
             continue
         selected_symbol_data.append((csv_file_path, price_data_frame, symbol_mask))
@@ -1990,24 +2083,7 @@ def evaluate_combined_strategy(
     else:
         simulation_start_date = start_date
 
-    def rename_signal_columns(
-        price_data_frame: pandas.DataFrame,
-        original_name: str,
-        new_name: str,
-    ) -> None:
-        if original_name == new_name:
-            return
-        price_data_frame.rename(
-            columns={
-                f"{original_name}_entry_signal": f"{new_name}_entry_signal",
-                f"{original_name}_exit_signal": f"{new_name}_exit_signal",
-            },
-            inplace=True,
-        )
-
     for csv_file_path, price_data_frame, symbol_mask in selected_symbol_data:
-        # TODO: review
-        # Build signals for all buy-side choices
         buy_signal_columns: list[str] = []
         buy_bases_for_cooldown: set[str] = set()
         for buy_name in _split_strategy_choices(buy_strategy_name):
@@ -2035,7 +2111,6 @@ def evaluate_combined_strategy(
                     kwargs["window_size"] = window_size
                 if angle_range is not None:
                     kwargs["angle_range"] = angle_range
-                # Optional SMA window factor support for EMA/SMA strategies
                 sma_factor_value = _extract_sma_factor(buy_name)
                 if (
                     sma_factor_value is not None
@@ -2055,8 +2130,6 @@ def evaluate_combined_strategy(
             if entry_column_name in price_data_frame.columns:
                 buy_signal_columns.append(entry_column_name)
 
-        # Prepare a clean copy for sell strategies so they do not reuse
-        # indicators generated by buy-side evaluation.
         sell_price_data_frame = price_data_frame.copy()
         extraneous_columns = [
             column_name
@@ -2068,7 +2141,6 @@ def evaluate_combined_strategy(
             columns=extraneous_columns, inplace=True, errors="ignore"
         )
 
-        # Build signals for all sell-side choices on the cleaned frame
         sell_signal_columns: list[str] = []
         for sell_name in _split_strategy_choices(sell_strategy_name):
             try:
@@ -2117,8 +2189,6 @@ def evaluate_combined_strategy(
                 price_data_frame[exit_column_name] = sell_price_data_frame[exit_column_name]
                 sell_signal_columns.append(exit_column_name)
 
-        # Deduplicate column lists and build combined signals to avoid
-        # ambiguity when duplicate labels are present in the row index.
         buy_signal_columns = list(dict.fromkeys(buy_signal_columns))
         sell_signal_columns = list(dict.fromkeys(sell_signal_columns))
         if buy_signal_columns:
@@ -2139,15 +2209,12 @@ def evaluate_combined_strategy(
             return bool(current_row["_combined_buy_entry"]) and symbol_is_eligible
 
         def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
-            return bool(current_row["_combined_sell_exit"]) 
+            return bool(current_row["_combined_sell_exit"])
 
         cooldown_after_close = 5 if any(
             base in {"ema_sma_cross", "ema_sma_cross_with_slope", "ema_shift_cross_with_slope"}
             for base in buy_bases_for_cooldown
         ) else 0
-        # Slice to simulation_start_date only at simulation time so
-        # previously computed indicators (including long-term SMAs)
-        # retain lookback from pre-start history.
         if simulation_start_date is not None:
             run_frame = price_data_frame.loc[
                 price_data_frame.index >= simulation_start_date
@@ -2156,7 +2223,6 @@ def evaluate_combined_strategy(
             run_frame = price_data_frame
 
         if run_frame.empty:
-            # Nothing to simulate for this symbol in the requested window.
             continue
 
         simulation_result = simulate_trades(
@@ -2173,17 +2239,11 @@ def evaluate_combined_strategy(
         symbol_name = csv_file_path.stem
         closing_price_series_by_symbol[symbol_name] = price_data_frame["close"].copy()
         symbol_volume_lookup = simple_moving_average_dollar_volume_by_symbol_and_date.get(
-            symbol_name, {},
+            symbol_name, {}
         )
         for completed_trade in simulation_result.trades:
             trade_symbol_lookup[completed_trade] = symbol_name
-            trade_profit_list.append(completed_trade.profit)
-            holding_period_list.append(completed_trade.holding_period)
             percentage_change = completed_trade.profit / completed_trade.entry_price
-            if percentage_change > 0:
-                profit_percentage_list.append(percentage_change)
-            elif percentage_change < 0:
-                loss_percentage_list.append(abs(percentage_change))
 
             entry_dollar_volume = float(
                 symbol_volume_lookup.get(completed_trade.entry_date, 0.0)
@@ -2215,7 +2275,6 @@ def evaluate_combined_strategy(
                     exit_dollar_volume / market_total_exit_dollar_volume
                 )
 
-            # Compute group-aware totals and ratios for trade details.
             symbol_group_id = symbol_to_fama_french_group_id_for_details.get(
                 symbol_name.upper()
             )
@@ -2227,20 +2286,23 @@ def evaluate_combined_strategy(
                     .get(completed_trade.entry_date, 0.0)
                 )
             if group_entry_total == 0.0:
-                # Fallback to market total to avoid zero division and preserve interpretability
                 group_entry_total = float(market_total_entry_dollar_volume)
                 group_entry_ratio = float(entry_volume_ratio)
             else:
-                group_entry_ratio = float(entry_dollar_volume) / group_entry_total
-            try:
-                entry_index_position = price_data_frame.index.get_loc(
-                    completed_trade.entry_date
-                )
-            except KeyError:
-                signal_date = completed_trade.entry_date
-            else:
+                if group_entry_total == 0:
+                    group_entry_ratio = 0.0
+                else:
+                    group_entry_ratio = float(entry_dollar_volume) / group_entry_total
+
+            entry_index_position = run_frame.index.get_indexer_for(
+                [completed_trade.entry_date]
+            )
+            signal_date = completed_trade.entry_date
+            if entry_index_position.size == 1:
+                entry_index_position = int(entry_index_position[0])
                 if (
-                    isinstance(entry_index_position, int)
+                    entry_index_position >= 0
+                    and entry_index_position < len(run_frame.index)
                     and entry_index_position > 0
                 ):
                     signal_date = price_data_frame.index[entry_index_position - 1]
@@ -2250,7 +2312,7 @@ def evaluate_combined_strategy(
                 price_data_frame.loc[: signal_date],
                 lookback_window_size=60,
                 include_volume_profile=False,
-            )  # TODO: review
+            )
             sma_angle_for_signal: float | None = None
             if "sma_angle" in price_data_frame.columns:
                 for angle_date in (signal_date, completed_trade.entry_date):
@@ -2275,7 +2337,7 @@ def evaluate_combined_strategy(
                 histogram_node_count=chip_metrics["histogram_node_count"],
                 sma_angle=sma_angle_for_signal,
             )
-            trade_result = "win" if completed_trade.profit > 0 else "lose"  # TODO: review
+            trade_result = "win" if completed_trade.profit > 0 else "lose"
             group_exit_total = 0.0
             if symbol_group_id is not None:
                 group_exit_total = float(
@@ -2287,7 +2349,10 @@ def evaluate_combined_strategy(
                 group_exit_total = float(market_total_exit_dollar_volume)
                 group_exit_ratio = float(exit_volume_ratio)
             else:
-                group_exit_ratio = float(exit_dollar_volume) / group_exit_total
+                if group_exit_total == 0:
+                    group_exit_ratio = 0.0
+                else:
+                    group_exit_ratio = float(exit_dollar_volume) / group_exit_total
 
             exit_detail = TradeDetail(
                 date=completed_trade.exit_date,
@@ -2303,33 +2368,108 @@ def evaluate_combined_strategy(
                 group_simple_moving_average_dollar_volume_ratio=group_exit_ratio,
                 exit_reason=completed_trade.exit_reason,
             )
-            trade_details_by_year.setdefault(
-                completed_trade.entry_date.year, []
-            ).append(entry_detail)
-            trade_details_by_year.setdefault(
-                completed_trade.exit_date.year, []
-            ).append(exit_detail)
+            trade_detail_pairs[completed_trade] = (entry_detail, exit_detail)
+
+    return StrategyEvaluationArtifacts(
+        trades=all_trades,
+        simulation_results=simulation_results,
+        trade_symbol_lookup=trade_symbol_lookup,
+        closing_price_series_by_symbol=closing_price_series_by_symbol,
+        trade_detail_pairs=trade_detail_pairs,
+        simulation_start_date=simulation_start_date,
+    )
+
+
+def _organize_trade_details_by_year(
+    detail_pairs: Iterable[Tuple[TradeDetail, TradeDetail]]
+) -> Dict[int, List[TradeDetail]]:
+    """Group trade detail records by calendar year sorted by date."""
+
+    trade_details_by_year: Dict[int, List[TradeDetail]] = {}
+    for entry_detail, exit_detail in detail_pairs:
+        trade_details_by_year.setdefault(entry_detail.date.year, []).append(entry_detail)
+        trade_details_by_year.setdefault(exit_detail.date.year, []).append(exit_detail)
+    for year_details in trade_details_by_year.values():
+        year_details.sort(key=lambda detail: detail.date)
+    return trade_details_by_year
+
+
+def evaluate_combined_strategy(
+    data_directory: Path,
+    buy_strategy_name: str,
+    sell_strategy_name: str,
+    minimum_average_dollar_volume: float | None = None,
+    top_dollar_volume_rank: int | None = None,  # TODO: review
+    maximum_symbols_per_group: int = 1,
+    minimum_average_dollar_volume_ratio: float | None = None,
+    starting_cash: float = 3000.0,
+    withdraw_amount: float = 0.0,
+    stop_loss_percentage: float = 1.0,
+    start_date: pandas.Timestamp | None = None,
+    maximum_position_count: int = 3,
+    allowed_fama_french_groups: set[int] | None = None,
+    allowed_symbols: set[str] | None = None,
+    exclude_other_ff12: bool = True,
+    margin_multiplier: float = 1.0,
+    margin_interest_annual_rate: float = 0.048,
+) -> StrategyMetrics:
+    """Evaluate a combination of strategies for entry and exit signals."""
+
+    artifacts = _generate_strategy_evaluation_artifacts(
+        data_directory,
+        buy_strategy_name,
+        sell_strategy_name,
+        minimum_average_dollar_volume=minimum_average_dollar_volume,
+        top_dollar_volume_rank=top_dollar_volume_rank,
+        maximum_symbols_per_group=maximum_symbols_per_group,
+        minimum_average_dollar_volume_ratio=minimum_average_dollar_volume_ratio,
+        start_date=start_date,
+        maximum_position_count=maximum_position_count,
+        allowed_fama_french_groups=allowed_fama_french_groups,
+        allowed_symbols=allowed_symbols,
+        exclude_other_ff12=exclude_other_ff12,
+        stop_loss_percentage=stop_loss_percentage,
+        margin_multiplier=margin_multiplier,
+        margin_interest_annual_rate=margin_interest_annual_rate,
+    )
+
+    trade_profit_list: List[float] = []
+    profit_percentage_list: List[float] = []
+    loss_percentage_list: List[float] = []
+    holding_period_list: List[int] = []
+    for completed_trade in artifacts.trades:
+        trade_profit_list.append(completed_trade.profit)
+        holding_period_list.append(completed_trade.holding_period)
+        percentage_change = completed_trade.profit / completed_trade.entry_price
+        if percentage_change > 0:
+            profit_percentage_list.append(percentage_change)
+        elif percentage_change < 0:
+            loss_percentage_list.append(abs(percentage_change))
 
     maximum_concurrent_positions = calculate_maximum_concurrent_positions(
-        simulation_results
+        artifacts.simulation_results
     )
+    trade_details_by_year = _organize_trade_details_by_year(
+        artifacts.trade_detail_pairs.values()
+    )
+    simulation_start_date = artifacts.simulation_start_date
     if simulation_start_date is None:
         simulation_start_date = pandas.Timestamp.now()
     annual_returns = calculate_annual_returns(
-        all_trades,
+        artifacts.trades,
         starting_cash,
         maximum_position_count,
         simulation_start_date,
         withdraw_amount,
         margin_multiplier=margin_multiplier,
         margin_interest_annual_rate=margin_interest_annual_rate,
-        trade_symbol_lookup=trade_symbol_lookup,
-        closing_price_series_by_symbol=closing_price_series_by_symbol,
+        trade_symbol_lookup=artifacts.trade_symbol_lookup,
+        closing_price_series_by_symbol=artifacts.closing_price_series_by_symbol,
         settlement_lag_days=1,
     )
-    annual_trade_counts = calculate_annual_trade_counts(all_trades)
+    annual_trade_counts = calculate_annual_trade_counts(artifacts.trades)
     final_balance = simulate_portfolio_balance(
-        all_trades,
+        artifacts.trades,
         starting_cash,
         maximum_position_count,
         withdraw_amount,
@@ -2337,18 +2477,18 @@ def evaluate_combined_strategy(
         margin_interest_annual_rate=margin_interest_annual_rate,
     )
     maximum_drawdown = calculate_max_drawdown(
-        all_trades,
+        artifacts.trades,
         starting_cash,
         maximum_position_count,
-        trade_symbol_lookup,
-        closing_price_series_by_symbol,
+        artifacts.trade_symbol_lookup,
+        artifacts.closing_price_series_by_symbol,
         withdraw_amount,
         margin_multiplier=margin_multiplier,
         margin_interest_annual_rate=margin_interest_annual_rate,
     )
-    if all_trades:
+    if artifacts.trades:
         last_trade_exit_date = max(
-            completed_trade.exit_date for completed_trade in all_trades
+            completed_trade.exit_date for completed_trade in artifacts.trades
         )
     else:
         last_trade_exit_date = simulation_start_date
@@ -2364,12 +2504,10 @@ def evaluate_combined_strategy(
             compound_annual_growth_rate_value = (final_balance / starting_cash) ** (
                 1 / duration_years
             ) - 1
-    for year_trades in trade_details_by_year.values():
-        year_trades.sort(key=lambda detail: detail.date)
     return calculate_metrics(
         trade_profit_list,
         profit_percentage_list,
-       loss_percentage_list,
+        loss_percentage_list,
         holding_period_list,
         maximum_concurrent_positions,
         maximum_drawdown,
@@ -2381,195 +2519,7 @@ def evaluate_combined_strategy(
     )
 
 
-def evaluate_ema_sma_cross_strategy(
-    data_directory: Path,
-    window_size: int = 15,
-) -> StrategyMetrics:
-    """Evaluate EMA and SMA cross strategy across all CSV files in a directory.
 
-    The function calculates the win rate of applying an EMA and SMA cross
-    strategy to each CSV file in ``data_directory``. Entry occurs when the
-    exponential moving average crosses above the simple moving average. Positions
-    are opened at the next day's opening price. The position
-    is closed when the exponential moving average crosses below the simple
-    moving average, using the next day's opening price.
-
-    Parameters
-    ----------
-    data_directory: Path
-        Directory containing CSV files with columns ``open`` and ``close``.
-    window_size: int, default 15
-        Number of periods to use for both EMA and SMA calculations.
-
-    Returns
-    -------
-    StrategyMetrics
-        Metrics including total trades, win rate, profit and loss statistics, and
-        holding period analysis.
-    """
-    trade_profit_list: List[float] = []
-    profit_percentage_list: List[float] = []
-    loss_percentage_list: List[float] = []
-    holding_period_list: List[int] = []
-    simulation_results: List[SimulationResult] = []
-    for csv_path in data_directory.glob("*.csv"):
-        if csv_path.stem == SP500_SYMBOL:
-            continue  # Skip the S&P 500 index; it is not a tradable asset.
-        price_data_frame = pandas.read_csv(
-            csv_path, parse_dates=["Date"], index_col="Date"
-        )
-        if isinstance(price_data_frame.columns, pandas.MultiIndex):
-            price_data_frame.columns = price_data_frame.columns.get_level_values(0)
-        # Normalize column names to handle multi-level headers and varied casing
-        # so required columns can be detected consistently
-        price_data_frame.columns = [
-            re.sub(r"[^a-z0-9]+", "_", str(column_name).strip().lower())
-            for column_name in price_data_frame.columns
-        ]
-        # Remove trailing ticker identifiers such as "_riv" and any leading
-        # underscores so column names are reduced to identifiers like "open"
-        # and "close"
-        price_data_frame.columns = [
-            re.sub(
-                r"^_+",
-                "",
-                re.sub(
-                    r"(?:^|_)(open|close|high|low|volume)_.*",
-                    r"\1",
-                    column_name,
-                ),
-            )
-            for column_name in price_data_frame.columns
-        ]
-        required_columns = {"open", "close"}
-        missing_column_names = [
-            required_column
-            for required_column in required_columns
-            if required_column not in price_data_frame.columns
-        ]
-        if missing_column_names:
-            missing_columns_string = ", ".join(missing_column_names)
-            raise ValueError(
-                f"Missing required columns: {missing_columns_string} in file {csv_path.name}"
-            )
-
-        _close_r3 = price_data_frame["close"].round(3)
-        price_data_frame["ema_value"] = ema(_close_r3, window_size)
-        price_data_frame["sma_value"] = sma(_close_r3, window_size)
-        price_data_frame["long_term_sma_value"] = sma(
-            _close_r3, LONG_TERM_SMA_WINDOW
-        )
-        price_data_frame["ema_previous"] = price_data_frame["ema_value"].shift(1)
-        price_data_frame["sma_previous"] = price_data_frame["sma_value"].shift(1)
-        price_data_frame["long_term_sma_previous"] = price_data_frame[
-            "long_term_sma_value"
-        ].shift(1)
-        price_data_frame["close_previous"] = price_data_frame["close"].shift(1)
-        price_data_frame["cross_up"] = (
-            (price_data_frame["ema_previous"] <= price_data_frame["sma_previous"])
-            & (price_data_frame["ema_value"] > price_data_frame["sma_value"])
-        )
-        price_data_frame["cross_down"] = (
-            (price_data_frame["ema_previous"] >= price_data_frame["sma_previous"])
-            & (price_data_frame["ema_value"] < price_data_frame["sma_value"])
-        )
-        price_data_frame["entry_signal"] = price_data_frame["cross_up"].shift(
-            1, fill_value=False
-        )
-        price_data_frame["exit_signal"] = price_data_frame["cross_down"].shift(
-            1, fill_value=False
-        )
-
-        def entry_rule(current_row: pandas.Series) -> bool:
-            """Determine whether a trade should be entered."""
-            # TODO: review
-            return bool(current_row["entry_signal"]) and (
-                current_row["close_previous"]
-                > current_row["long_term_sma_previous"]
-            )
-
-        def exit_rule(
-            current_row: pandas.Series, entry_row: pandas.Series
-        ) -> bool:
-            return bool(current_row["exit_signal"])
-
-        simulation_result = simulate_trades(
-            data=price_data_frame,
-            entry_rule=entry_rule,
-            exit_rule=exit_rule,
-            entry_price_column="open",
-            exit_price_column="open",
-        )
-        simulation_results.append(simulation_result)
-        for completed_trade in simulation_result.trades:
-            trade_profit_list.append(completed_trade.profit)
-            holding_period_list.append(completed_trade.holding_period)
-            percentage_change = (
-                completed_trade.profit / completed_trade.entry_price
-            )
-            if percentage_change > 0:
-                profit_percentage_list.append(percentage_change)
-            elif percentage_change < 0:
-                loss_percentage_list.append(abs(percentage_change))
-
-    maximum_concurrent_positions = calculate_maximum_concurrent_positions(
-        simulation_results
-    )
-    total_trades = len(trade_profit_list)
-    if total_trades == 0:
-        return StrategyMetrics(
-            total_trades=0,
-            win_rate=0.0,
-            mean_profit_percentage=0.0,
-            profit_percentage_standard_deviation=0.0,
-            mean_loss_percentage=0.0,
-            loss_percentage_standard_deviation=0.0,
-            mean_holding_period=0.0,
-            holding_period_standard_deviation=0.0,
-            maximum_concurrent_positions=maximum_concurrent_positions,
-            maximum_drawdown=0.0,
-            final_balance=0.0,
-            compound_annual_growth_rate=0.0,
-            annual_returns={},
-            annual_trade_counts={},
-        )
-
-    winning_trade_count = sum(
-        1 for profit_amount in trade_profit_list if profit_amount > 0
-    )
-    win_rate = winning_trade_count / total_trades
-
-    def calculate_mean(values: List[float]) -> float:
-        return mean(values) if values else 0.0
-
-    def calculate_standard_deviation(values: List[float]) -> float:
-        return stdev(values) if len(values) > 1 else 0.0
-
-    return StrategyMetrics(
-        total_trades=total_trades,
-        win_rate=win_rate,
-        mean_profit_percentage=calculate_mean(profit_percentage_list),
-        profit_percentage_standard_deviation=calculate_standard_deviation(
-        profit_percentage_list
-        ),
-        mean_loss_percentage=calculate_mean(loss_percentage_list),
-        loss_percentage_standard_deviation=calculate_standard_deviation(
-            loss_percentage_list
-        ),
-        mean_holding_period=calculate_mean([float(value) for value in holding_period_list]),
-        holding_period_standard_deviation=calculate_standard_deviation(
-            [float(value) for value in holding_period_list]
-        ),
-        maximum_concurrent_positions=maximum_concurrent_positions,
-        maximum_drawdown=0.0,
-        final_balance=0.0,
-        compound_annual_growth_rate=0.0,
-        annual_returns={},
-        annual_trade_counts={},
-    )
-
-
-# TODO: review
 def evaluate_kalman_channel_strategy(
     data_directory: Path,
     process_variance: float = 1e-5,
