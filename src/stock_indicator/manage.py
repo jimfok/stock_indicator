@@ -821,7 +821,7 @@ class StockShell(cmd.Cmd):
             "[start=YYYY-MM-DD] [margin=NUMBER] SET_A -- SET_B [SHOW_DETAILS]\n"
             "Evaluate two strategy sets using a shared cash balance.\n"
             "Parameters:\n"
-            "  MAX_POSITION_COUNT: Maximum concurrent positions for set A. Set B receives half (rounded down, minimum one).\n"
+            "  MAX_POSITION_COUNT: Maximum concurrent positions for set A. Set B receives half (rounded up, minimum one).\n"
             "  starting_cash: Optional initial cash balance. Defaults to 3000.\n"
             "  withdraw: Optional annual withdrawal amount. Defaults to 0.\n"
             "  start: Optional start date in YYYY-MM-DD format. Defaults to earliest cached data.\n"
