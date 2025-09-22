@@ -572,6 +572,7 @@ def run_complex_simulation(
     for event_date, event_type, label, trade in events:
         trade_identifier = id(trade)
         trade_key = (label, trade_identifier)
+        normalized_label = label.upper()
         if event_type == 0:
             if trade_key in open_trade_keys:
                 open_trade_keys.pop(trade_key, None)
@@ -583,6 +584,11 @@ def run_complex_simulation(
                 continue
             current_open_total = len(open_trade_keys)
             if current_open_total >= maximum_position_count:
+                continue
+            if (
+                normalized_label == "B"
+                and current_open_total >= position_limits_by_set[label]
+            ):
                 continue
             if open_position_counts_by_set[label] >= position_limits_by_set[label]:
                 continue
