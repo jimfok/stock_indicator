@@ -727,6 +727,24 @@ class StockShell(cmd.Cmd):
             f"Simulation start date: {start_date_string}\n"
         )
 
+        def format_summary_line(
+            label: str, metrics: strategy.StrategyMetrics
+        ) -> str:
+            return (
+                f"[{label}] Trades: {metrics.total_trades}, "
+                f"Win rate: {metrics.win_rate:.2%}, "
+                f"Mean profit %: {metrics.mean_profit_percentage:.2%}, "
+                f"Profit % Std Dev: {metrics.profit_percentage_standard_deviation:.2%}, "
+                f"Mean loss %: {metrics.mean_loss_percentage:.2%}, "
+                f"Loss % Std Dev: {metrics.loss_percentage_standard_deviation:.2%}, "
+                f"Mean holding period: {metrics.mean_holding_period:.2f} bars, "
+                f"Holding period Std Dev: {metrics.holding_period_standard_deviation:.2f} bars, "
+                f"Max concurrent positions: {metrics.maximum_concurrent_positions}, "
+                f"Final balance: {metrics.final_balance:.2f}, "
+                f"CAGR: {metrics.compound_annual_growth_rate:.2%}, "
+                f"Max drawdown: {metrics.maximum_drawdown:.2%}\n"
+            )
+
         def format_trade_detail(detail: strategy.TradeDetail) -> str:
             if detail.action == "close" and detail.result is not None:
                 if detail.percentage_change is not None:
@@ -769,7 +787,7 @@ class StockShell(cmd.Cmd):
                     f" near_pct={near_ratio_text}"
                     f" above_pct={above_ratio_text}"
                     f" node_count={node_count_text}"
-                )
+            )
             return (
                 f"{detail.date.date()} ({detail.concurrent_position_count}) "
                 f"{detail.symbol} {detail.action} {detail.price:.2f} "
@@ -779,26 +797,14 @@ class StockShell(cmd.Cmd):
                 f"{open_metrics}{result_suffix}"
             )
 
+        total_metrics = simulation_metrics.overall_metrics
+        self.stdout.write(format_summary_line("Total", total_metrics))
+
         for set_label in ("A", "B"):
             metrics = simulation_metrics.metrics_by_set.get(set_label)
             if metrics is None:
                 continue
-            self.stdout.write(
-                (
-                    f"[{set_label}] Trades: {metrics.total_trades}, "
-                    f"Win rate: {metrics.win_rate:.2%}, "
-                    f"Mean profit %: {metrics.mean_profit_percentage:.2%}, "
-                    f"Profit % Std Dev: {metrics.profit_percentage_standard_deviation:.2%}, "
-                    f"Mean loss %: {metrics.mean_loss_percentage:.2%}, "
-                    f"Loss % Std Dev: {metrics.loss_percentage_standard_deviation:.2%}, "
-                    f"Mean holding period: {metrics.mean_holding_period:.2f} bars, "
-                    f"Holding period Std Dev: {metrics.holding_period_standard_deviation:.2f} bars, "
-                    f"Max concurrent positions: {metrics.maximum_concurrent_positions}, "
-                    f"Final balance: {metrics.final_balance:.2f}, "
-                    f"CAGR: {metrics.compound_annual_growth_rate:.2%}, "
-                    f"Max drawdown: {metrics.maximum_drawdown:.2%}\n"
-                )
-            )
+            self.stdout.write(format_summary_line(set_label, metrics))
             for year, annual_return in sorted(metrics.annual_returns.items()):
                 trade_count = metrics.annual_trade_counts.get(year, 0)
                 self.stdout.write(

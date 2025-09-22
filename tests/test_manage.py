@@ -2206,6 +2206,7 @@ def test_complex_simulation_strategy_id_resolution(
         recorded_arguments["set_definitions"] = set_definitions
         recorded_arguments["kwargs"] = kwargs
         return manage_module.strategy.ComplexSimulationMetrics(
+            overall_metrics=_create_empty_metrics(),
             metrics_by_set={
                 "A": _create_empty_metrics(),
                 "B": _create_empty_metrics(),
@@ -2231,6 +2232,7 @@ def test_complex_simulation_strategy_id_resolution(
     assert set_definitions["B"].buy_strategy_name == "ema_sma_cross_20"
     assert recorded_arguments["kwargs"]["starting_cash"] == 5000.0
     output_text = output_buffer.getvalue()
+    assert "[Total] Trades: 0" in output_text
     assert "[A] Trades: 0" in output_text
     assert "[B] Trades: 0" in output_text
 
@@ -2368,5 +2370,7 @@ def test_complex_simulation_half_cap_for_set_b_rounds_up(
     )
 
     output_text = output_buffer.getvalue()
+    assert "[Total] Trades: 3" in output_text
     assert "[A] Trades: 2" in output_text
-    assert "[B] Trades: 3" in output_text
+    assert "[B] Trades: 1" in output_text
+    assert output_text.index("[Total]") < output_text.index("[A]")
