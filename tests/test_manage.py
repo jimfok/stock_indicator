@@ -2171,7 +2171,11 @@ def test_complex_simulation_requires_two_sets(
     shell.onecmd("complex_simulation 3")
     assert (
         output_buffer.getvalue()
-        == "usage: complex_simulation MAX_POSITION_COUNT -- SET_A -- SET_B\n"
+        == (
+            "usage: complex_simulation MAX_POSITION_COUNT [starting_cash=NUMBER] "
+            "[withdraw=NUMBER] [start=YYYY-MM-DD] [margin=NUMBER] SET_A -- SET_B "
+            "[SHOW_DETAILS]\n"
+        )
     )
 
 

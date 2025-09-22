@@ -526,11 +526,15 @@ class StockShell(cmd.Cmd):
         """complex_simulation MAX_POSITION_COUNT [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [margin=NUMBER] SET_A -- SET_B [SHOW_DETAILS]
         Evaluate two strategy sets with shared capital limits."""
 
+        usage_message = (
+            "usage: complex_simulation MAX_POSITION_COUNT [starting_cash=NUMBER] "
+            "[withdraw=NUMBER] [start=YYYY-MM-DD] [margin=NUMBER] SET_A -- SET_B "
+            "[SHOW_DETAILS]\n"
+        )
+
         argument_parts: List[str] = argument_line.split()
         if not argument_parts:
-            self.stdout.write(
-                "usage: complex_simulation MAX_POSITION_COUNT -- SET_A -- SET_B\n"
-            )
+            self.stdout.write(usage_message)
             return
 
         maximum_position_token = argument_parts.pop(0)
@@ -596,18 +600,14 @@ class StockShell(cmd.Cmd):
         for token in argument_parts:
             if token == "--":
                 if not set_tokens[-1]:
-                    self.stdout.write(
-                        "usage: complex_simulation MAX_POSITION_COUNT -- SET_A -- SET_B\n"
-                    )
+                    self.stdout.write(usage_message)
                     return
                 set_tokens.append([])
                 continue
             set_tokens[-1].append(token)
 
         if len(set_tokens) != 2 or any(not tokens for tokens in set_tokens):
-            self.stdout.write(
-                "usage: complex_simulation MAX_POSITION_COUNT -- SET_A -- SET_B\n"
-            )
+            self.stdout.write(usage_message)
             return
 
         strategy_mapping = load_strategy_set_mapping()
