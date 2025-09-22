@@ -14,7 +14,7 @@ from typing import Callable, Dict, Iterable, List, Tuple
 
 import pandas
 
-from .symbols import update_symbol_cache, load_symbols, load_yf_symbols
+from .symbols import update_symbol_cache, load_symbols
 from .data_loader import download_history
 from .strategy import (
     SUPPORTED_STRATEGIES,
