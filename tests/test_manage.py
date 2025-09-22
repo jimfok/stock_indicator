@@ -15,7 +15,12 @@ import pandas
 import pytest
 
 from stock_indicator.simulator import SimulationResult
-from stock_indicator.strategy import StrategyMetrics
+from stock_indicator.strategy import (
+    StrategyEvaluationArtifacts,
+    StrategyMetrics,
+    Trade,
+    TradeDetail,
+)
 
 
 def _create_empty_metrics() -> StrategyMetrics:
@@ -2233,21 +2238,117 @@ def test_complex_simulation_half_cap_for_set_b_rounds_up(
 
     import stock_indicator.manage as manage_module
 
-    recorded_maximums: dict[str, int] = {}
-
-    def fake_evaluate(
-        data_directory: Path,
-        buy_strategy_name: str,
-        sell_strategy_name: str,
-        **kwargs: object,
-    ) -> StrategyMetrics:
-        recorded_maximums[buy_strategy_name] = int(
-            kwargs.get("maximum_position_count", 0)
+    def build_trade(
+        symbol: str,
+        *,
+        price_increment: float = 0.0,
+    ) -> tuple[Trade, tuple[TradeDetail, TradeDetail]]:
+        entry_timestamp = pandas.Timestamp("2024-01-01")
+        exit_timestamp = pandas.Timestamp("2024-01-05")
+        exit_price = 11.0 + price_increment
+        profit_value = exit_price - 10.0
+        trade = Trade(
+            entry_date=entry_timestamp,
+            exit_date=exit_timestamp,
+            entry_price=10.0,
+            exit_price=exit_price,
+            profit=profit_value,
+            holding_period=(exit_timestamp - entry_timestamp).days,
+            exit_reason="signal",
         )
-        return _create_empty_metrics()
+        entry_detail = TradeDetail(
+            date=entry_timestamp,
+            symbol=symbol,
+            action="open",
+            price=10.0,
+            simple_moving_average_dollar_volume=0.0,
+            total_simple_moving_average_dollar_volume=0.0,
+            simple_moving_average_dollar_volume_ratio=0.0,
+        )
+        exit_detail = TradeDetail(
+            date=exit_timestamp,
+            symbol=symbol,
+            action="close",
+            price=exit_price,
+            simple_moving_average_dollar_volume=0.0,
+            total_simple_moving_average_dollar_volume=0.0,
+            simple_moving_average_dollar_volume_ratio=0.0,
+            result="win",
+            percentage_change=profit_value / 10.0,
+        )
+        return trade, (entry_detail, exit_detail)
+
+    def build_artifacts(symbols_with_offsets: list[tuple[str, float] | str]) -> StrategyEvaluationArtifacts:
+        trades_with_details = []
+        for symbol_entry in symbols_with_offsets:
+            if isinstance(symbol_entry, tuple):
+                symbol_value, increment_value = symbol_entry
+            else:
+                symbol_value, increment_value = symbol_entry, 0.0
+            trades_with_details.append(
+                build_trade(symbol_value, price_increment=increment_value)
+            )
+        trades = [trade for trade, _ in trades_with_details]
+        trade_symbol_lookup = {
+            trade: detail_pair[0].symbol for trade, detail_pair in trades_with_details
+        }
+        closing_series = {
+            detail_pair[0].symbol: pandas.Series(
+                [10.0, 11.0],
+                index=[detail_pair[0].date, detail_pair[1].date],
+            )
+            for _, detail_pair in trades_with_details
+        }
+        detail_pairs = {trade: detail_pair for trade, detail_pair in trades_with_details}
+        simulation_results = [
+            SimulationResult(
+                trades=trades,
+                total_profit=sum(current_trade.profit for current_trade in trades),
+            )
+        ]
+        earliest_entry = min(trade.entry_date for trade in trades)
+        return StrategyEvaluationArtifacts(
+            trades=trades,
+            simulation_results=simulation_results,
+            trade_symbol_lookup=trade_symbol_lookup,
+            closing_price_series_by_symbol=closing_series,
+            trade_detail_pairs=detail_pairs,
+            simulation_start_date=earliest_entry,
+        )
+
+    artifacts_a = build_artifacts([("AAA", 0.0), ("AAB", 0.05)])
+    artifacts_b = build_artifacts(
+        [
+            ("BAA", 0.0),
+            ("BAB", 0.1),
+            ("BAC", 0.2),
+        ]
+    )
+
+    artifact_map = {"ema_sma_cross": artifacts_a, "ema_sma_cross_20": artifacts_b}
+
+    def fake_generate(*args: object, **kwargs: object) -> StrategyEvaluationArtifacts:
+        buy_name = kwargs.get("buy_strategy_name") or args[1]
+        return artifact_map[str(buy_name)]
 
     monkeypatch.setattr(
-        manage_module.strategy, "evaluate_combined_strategy", fake_evaluate
+        manage_module.strategy,
+        "_generate_strategy_evaluation_artifacts",
+        fake_generate,
+    )
+    monkeypatch.setattr(
+        manage_module.strategy, "calculate_annual_returns", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(
+        manage_module.strategy, "calculate_annual_trade_counts", lambda trades: {}
+    )
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "simulate_portfolio_balance",
+        lambda trades, starting_cash, *args, **kwargs: float(starting_cash),
+    )
+    monkeypatch.setattr(
+        manage_module.strategy, "calculate_max_drawdown", lambda *args, **kwargs: 0.0
     )
     monkeypatch.setattr(
         manage_module, "determine_start_date", lambda directory: "2001-01-01"
@@ -2262,5 +2363,6 @@ def test_complex_simulation_half_cap_for_set_b_rounds_up(
         "dollar_volume>1 ema_sma_cross_20 ema_sma_cross_20"
     )
 
-    assert recorded_maximums["ema_sma_cross"] == 5
-    assert recorded_maximums["ema_sma_cross_20"] == 3
+    output_text = output_buffer.getvalue()
+    assert "[A] Trades: 2" in output_text
+    assert "[B] Trades: 3" in output_text
