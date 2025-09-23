@@ -326,10 +326,10 @@ def test_run_complex_simulation_overall_metrics_use_global_limits(
     assert call_records["calculate_max_drawdown"][-1] == 3
 
 
-def test_run_complex_simulation_prioritizes_high_above_ratio_for_s4(
+def test_run_complex_simulation_prioritizes_low_above_ratio_for_s4(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Set definitions linked to s4 favor higher above-ratio entries."""
+    """Set definitions linked to s4 favor lower above-ratio entries."""
 
     lower_ratio_trade = _build_trade(
         "2024-01-01",
@@ -376,7 +376,7 @@ def test_run_complex_simulation_prioritizes_high_above_ratio_for_s4(
         if detail.action == "open"
     ]
     assert len(entry_details) == 1
-    assert entry_details[0].symbol == "HIGH"
+    assert entry_details[0].symbol == "LOW"
 
 
 def test_run_complex_simulation_prioritizes_low_near_ratio_for_s6(
