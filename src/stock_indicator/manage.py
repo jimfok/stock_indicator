@@ -799,6 +799,11 @@ class StockShell(cmd.Cmd):
 
         total_metrics = simulation_metrics.overall_metrics
         self.stdout.write(format_summary_line("Total", total_metrics))
+        for year, annual_return in sorted(total_metrics.annual_returns.items()):
+            total_trade_count = total_metrics.annual_trade_counts.get(year, 0)
+            self.stdout.write(
+                f"[Total] Year {year}: {annual_return:.2%}, trade: {total_trade_count}\n"
+            )
 
         for set_label in ("A", "B"):
             metrics = simulation_metrics.metrics_by_set.get(set_label)
