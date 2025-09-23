@@ -2179,6 +2179,56 @@ def test_complex_simulation_requires_two_sets(
     )
 
 
+def test_complex_simulation_prints_total_annual_returns(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The command should display annual totals for combined results."""
+
+    import stock_indicator.manage as manage_module
+
+    total_metrics = _create_empty_metrics()
+    total_metrics.annual_returns = {2020: 0.1, 2021: -0.05}
+    total_metrics.annual_trade_counts = {2020: 3, 2021: 4}
+
+    def fake_run_complex_simulation(
+        data_directory: Path,
+        set_definitions: dict[str, object],
+        **kwargs: object,
+    ) -> manage_module.strategy.ComplexSimulationMetrics:
+        set_metrics = {
+            "A": _create_empty_metrics(),
+            "B": _create_empty_metrics(),
+        }
+        return manage_module.strategy.ComplexSimulationMetrics(
+            overall_metrics=total_metrics,
+            metrics_by_set=set_metrics,
+        )
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "run_complex_simulation",
+        fake_run_complex_simulation,
+    )
+    monkeypatch.setattr(
+        manage_module,
+        "determine_start_date",
+        lambda directory: "2010-01-01",
+    )
+    monkeypatch.setattr(manage_module, "STOCK_DATA_DIRECTORY", tmp_path)
+    monkeypatch.setattr(manage_module, "DATA_DIRECTORY", tmp_path)
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd(
+        "complex_simulation 3 dollar_volume>1 ema_sma_cross ema_sma_cross -- "
+        "dollar_volume>1 ema_sma_cross ema_sma_cross False"
+    )
+
+    output_text = output_buffer.getvalue()
+    assert "[Total] Year 2020: 10.00%, trade: 3" in output_text
+    assert "[Total] Year 2021: -5.00%, trade: 4" in output_text
+
+
 def test_complex_simulation_strategy_id_resolution(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
