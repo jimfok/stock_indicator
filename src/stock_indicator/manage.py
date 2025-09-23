@@ -683,6 +683,7 @@ class StockShell(cmd.Cmd):
                 label=label,
                 buy_strategy_name=buy_strategy_name,
                 sell_strategy_name=sell_strategy_name,
+                strategy_identifier=strategy_identifier,
                 stop_loss_percentage=stop_loss_percentage,
                 minimum_average_dollar_volume=minimum_average_dollar_volume,
                 minimum_average_dollar_volume_ratio=

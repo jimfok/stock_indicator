@@ -481,6 +481,7 @@ class ComplexStrategySetDefinition:
     label: str
     buy_strategy_name: str
     sell_strategy_name: str
+    strategy_identifier: str | None = None
     stop_loss_percentage: float = 1.0
     minimum_average_dollar_volume: float | None = None
     minimum_average_dollar_volume_ratio: float | None = None
@@ -531,6 +532,7 @@ def run_complex_simulation(
     )
     artifacts_by_set: Dict[str, StrategyEvaluationArtifacts] = {}
     position_limits_by_set: Dict[str, int] = {}
+    priority_mode_by_set: Dict[str, str] = {}
     for label, definition in set_definitions.items():
         maximum_positions_for_set = maximum_position_count
         if label.upper() == "B":
@@ -538,6 +540,13 @@ def run_complex_simulation(
                 1, math.ceil(maximum_position_count / 2)
             )
         position_limits_by_set[label] = maximum_positions_for_set
+        strategy_identifier = (
+            definition.strategy_identifier.lower()
+            if definition.strategy_identifier
+            else None
+        )
+        if strategy_identifier in {"s4", "s6"}:
+            priority_mode_by_set[label] = strategy_identifier
         artifacts_by_set[label] = _generate_strategy_evaluation_artifacts(
             data_directory,
             definition.buy_strategy_name,
@@ -563,14 +572,63 @@ def run_complex_simulation(
     open_position_counts_by_set: Dict[str, int] = {label: 0 for label in set_definitions}
     open_trade_keys: Dict[Tuple[str, int], str] = {}
     accepted_trade_keys: set[Tuple[str, int]] = set()
-    events: List[tuple[pandas.Timestamp, int, str, Trade]] = []
+    events: List[
+        tuple[pandas.Timestamp, int, float, int, str, Trade]
+    ] = []
+    event_insertion_counter = 0
     for label, artifacts in artifacts_by_set.items():
+        priority_mode = priority_mode_by_set.get(label)
         for trade in artifacts.trades:
-            events.append((trade.entry_date, 1, label, trade))
-            events.append((trade.exit_date, 0, label, trade))
-    events.sort(key=lambda event: (event[0], event[1]))
+            entry_priority = 0.0
+            trade_detail_pair = artifacts.trade_detail_pairs.get(trade)
+            if trade_detail_pair is not None and priority_mode is not None:
+                entry_detail = trade_detail_pair[0]
+                if priority_mode == "s4":
+                    ratio_value = (
+                        entry_detail.above_price_volume_ratio
+                        if entry_detail.above_price_volume_ratio is not None
+                        else float("inf")
+                    )
+                    entry_priority = -ratio_value
+                elif priority_mode == "s6":
+                    ratio_value = (
+                        entry_detail.near_price_volume_ratio
+                        if entry_detail.near_price_volume_ratio is not None
+                        else float("inf")
+                    )
+                    entry_priority = ratio_value
+            events.append(
+                (
+                    trade.entry_date,
+                    1,
+                    entry_priority,
+                    event_insertion_counter,
+                    label,
+                    trade,
+                )
+            )
+            event_insertion_counter += 1
+            events.append(
+                (
+                    trade.exit_date,
+                    0,
+                    0.0,
+                    event_insertion_counter,
+                    label,
+                    trade,
+                )
+            )
+            event_insertion_counter += 1
+    events.sort(key=lambda event: (event[0], event[1], event[2], event[3]))
 
-    for event_date, event_type, label, trade in events:
+    for (
+        event_date,
+        event_type,
+        _event_priority,
+        _insertion_counter,
+        label,
+        trade,
+    ) in events:
         trade_identifier = id(trade)
         trade_key = (label, trade_identifier)
         normalized_label = label.upper()
