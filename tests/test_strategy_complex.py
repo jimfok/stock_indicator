@@ -21,6 +21,8 @@ def _build_trade(
     exit_price: float = 11.0,
     profit: float = 1.0,
     symbol: str = "AAA",
+    near_price_volume_ratio: float | None = None,
+    above_price_volume_ratio: float | None = None,
 ) -> tuple[strategy.Trade, tuple[strategy.TradeDetail, strategy.TradeDetail]]:
     """Create a trade and associated detail records for testing."""
 
@@ -44,6 +46,8 @@ def _build_trade(
         simple_moving_average_dollar_volume=0.0,
         total_simple_moving_average_dollar_volume=0.0,
         simple_moving_average_dollar_volume_ratio=0.0,
+        near_price_volume_ratio=near_price_volume_ratio,
+        above_price_volume_ratio=above_price_volume_ratio,
     )
     exit_detail = strategy.TradeDetail(
         date=exit_timestamp,
@@ -320,3 +324,109 @@ def test_run_complex_simulation_overall_metrics_use_global_limits(
 
     assert call_records["simulate_portfolio_balance"][-1] == 3
     assert call_records["calculate_max_drawdown"][-1] == 3
+
+
+def test_run_complex_simulation_prioritizes_high_above_ratio_for_s4(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Set definitions linked to s4 favor higher above-ratio entries."""
+
+    lower_ratio_trade = _build_trade(
+        "2024-01-01",
+        "2024-01-05",
+        symbol="LOW",
+        above_price_volume_ratio=0.5,
+    )
+    higher_ratio_trade = _build_trade(
+        "2024-01-01",
+        "2024-01-06",
+        symbol="HIGH",
+        above_price_volume_ratio=1.2,
+    )
+
+    artifacts = _build_artifacts([lower_ratio_trade, higher_ratio_trade])
+
+    def fake_generate(*args: object, **kwargs: object) -> strategy.StrategyEvaluationArtifacts:
+        return artifacts
+
+    monkeypatch.setattr(
+        strategy, "_generate_strategy_evaluation_artifacts", fake_generate
+    )
+    _stub_metrics_functions(monkeypatch)
+
+    definitions = {
+        "A": strategy.ComplexStrategySetDefinition(
+            label="A",
+            buy_strategy_name="set_a",
+            sell_strategy_name="set_a",
+            strategy_identifier="s4",
+        )
+    }
+
+    metrics = strategy.run_complex_simulation(
+        Path("/tmp"),
+        definitions,
+        maximum_position_count=1,
+    )
+
+    assert metrics.metrics_by_set["A"].total_trades == 1
+    entry_details = [
+        detail
+        for detail in metrics.metrics_by_set["A"].trade_details_by_year.get(2024, [])
+        if detail.action == "open"
+    ]
+    assert len(entry_details) == 1
+    assert entry_details[0].symbol == "HIGH"
+
+
+def test_run_complex_simulation_prioritizes_low_near_ratio_for_s6(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Set definitions linked to s6 favor lower near-ratio entries."""
+
+    higher_ratio_trade = _build_trade(
+        "2024-01-01",
+        "2024-01-05",
+        symbol="HIGH",
+        near_price_volume_ratio=0.8,
+    )
+    lower_ratio_trade = _build_trade(
+        "2024-01-01",
+        "2024-01-06",
+        symbol="LOW",
+        near_price_volume_ratio=0.2,
+    )
+
+    artifacts = _build_artifacts([higher_ratio_trade, lower_ratio_trade])
+
+    def fake_generate(*args: object, **kwargs: object) -> strategy.StrategyEvaluationArtifacts:
+        return artifacts
+
+    monkeypatch.setattr(
+        strategy, "_generate_strategy_evaluation_artifacts", fake_generate
+    )
+    _stub_metrics_functions(monkeypatch)
+
+    definitions = {
+        "A": strategy.ComplexStrategySetDefinition(
+            label="A",
+            buy_strategy_name="set_a",
+            sell_strategy_name="set_a",
+            strategy_identifier="s6",
+        )
+    }
+
+    metrics = strategy.run_complex_simulation(
+        Path("/tmp"),
+        definitions,
+        maximum_position_count=1,
+    )
+
+    assert metrics.metrics_by_set["A"].total_trades == 1
+    entry_details = [
+        detail
+        for detail in metrics.metrics_by_set["A"].trade_details_by_year.get(2024, [])
+        if detail.action == "open"
+    ]
+    assert len(entry_details) == 1
+    assert entry_details[0].symbol == "LOW"
