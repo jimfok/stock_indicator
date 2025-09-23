@@ -589,7 +589,7 @@ def run_complex_simulation(
                         if entry_detail.above_price_volume_ratio is not None
                         else float("inf")
                     )
-                    entry_priority = -ratio_value
+                    entry_priority = ratio_value
                 elif priority_mode == "s6":
                     ratio_value = (
                         entry_detail.near_price_volume_ratio
