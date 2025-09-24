@@ -2,6 +2,7 @@
 
 # TODO: review
 
+import datetime
 import io
 import os
 import sys
@@ -352,6 +353,80 @@ def test_find_history_signal_with_strategy_id(
         "stop": 1.0,
         "group": None,
     }
+
+
+def test_find_history_signal_sorts_entry_signals_for_s4(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Strategy id s4 should sort entry signals by the above ratio."""
+
+    import stock_indicator.manage as manage_module
+
+    captured_arguments: dict[str, object] = {}
+
+    def fake_find_history_signal(
+        date_string: str,
+        dollar_volume_filter: str,
+        buy_strategy: str,
+        sell_strategy: str,
+        stop_loss: float,
+        allowed_group_identifiers: set[int] | None = None,
+    ) -> dict[str, list[str]]:
+        captured_arguments["date"] = date_string
+        return {
+            "entry_signals": ["CCC", "AAA", "BBB"],
+            "exit_signals": [],
+        }
+
+    monkeypatch.setattr(
+        manage_module.daily_job,
+        "find_history_signal",
+        fake_find_history_signal,
+    )
+
+    def fake_load_mapping() -> dict[str, tuple[str, str]]:
+        return {"s4": ("buy_strategy", "sell_strategy")}
+
+    monkeypatch.setattr(manage_module, "load_strategy_set_mapping", fake_load_mapping)
+
+    def fake_determine_latest_trading_date() -> datetime.date:
+        return datetime.date(2024, 1, 10)
+
+    monkeypatch.setattr(
+        manage_module.daily_job,
+        "determine_latest_trading_date",
+        fake_determine_latest_trading_date,
+    )
+
+    ratio_by_symbol: dict[str, float] = {
+        "AAA": 0.1,
+        "BBB": 0.2,
+        "CCC": 0.3,
+    }
+
+    def fake_filter_debug_values(
+        symbol_name: str,
+        evaluation_date_string: str,
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+    ) -> dict[str, float]:
+        assert evaluation_date_string == "2024-01-10"
+        assert buy_strategy_name == "buy_strategy"
+        assert sell_strategy_name == "sell_strategy"
+        return {"above_price_volume_ratio": ratio_by_symbol[symbol_name]}
+
+    monkeypatch.setattr(
+        manage_module.daily_job,
+        "filter_debug_values",
+        fake_filter_debug_values,
+    )
+
+    shell = manage_module.StockShell(stdout=io.StringIO())
+    shell.onecmd("find_history_signal dollar_volume>1 1.0 strategy=s4")
+
+    output = shell.stdout.getvalue().splitlines()
+    assert "entry signals: ['AAA', 'BBB', 'CCC']" in output
+    assert captured_arguments["date"] is None
 
 
 def test_find_history_signal_prints_filtered_symbols(monkeypatch: pytest.MonkeyPatch) -> None:
