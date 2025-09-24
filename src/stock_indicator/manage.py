@@ -2010,6 +2010,42 @@ class StockShell(cmd.Cmd):
         )
         self.stdout.write(f"filtered symbols: {filtered_symbol_list}\n")
         entry_signal_list: List[str] = signal_data.get("entry_signals", [])
+        if strategy_id in {"s4", "s6"} and entry_signal_list:
+            if date_string is None:
+                effective_date_string = (
+                    daily_job.determine_latest_trading_date().isoformat()
+                )
+            else:
+                effective_date_string = date_string
+            above_ratio_by_symbol: Dict[str, float | None] = {}
+            for symbol_name in entry_signal_list:
+                try:
+                    debug_values = daily_job.filter_debug_values(
+                        symbol_name,
+                        effective_date_string,
+                        buy_strategy_name,
+                        sell_strategy_name,
+                    )
+                except Exception:  # noqa: BLE001
+                    debug_values = {}
+                raw_ratio_value = debug_values.get("above_price_volume_ratio")
+                ratio_value: float | None
+                if raw_ratio_value is None:
+                    ratio_value = None
+                else:
+                    try:
+                        ratio_value = float(raw_ratio_value)
+                    except (TypeError, ValueError):
+                        ratio_value = None
+                above_ratio_by_symbol[symbol_name] = ratio_value
+            entry_signal_list = sorted(
+                entry_signal_list,
+                key=lambda name: (
+                    above_ratio_by_symbol.get(name) is None,
+                    above_ratio_by_symbol.get(name, float("inf")),
+                    name,
+                ),
+            )
         exit_signal_list: List[str] = signal_data.get("exit_signals", [])
         self.stdout.write(f"entry signals: {entry_signal_list}\n")
         self.stdout.write(f"exit signals: {exit_signal_list}\n")
