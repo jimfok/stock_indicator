@@ -6,22 +6,49 @@ Stock Indicator provides a collection of Python utilities for computing common t
 ## Quick Start
 
 ### Requirements
-- Python 3.10+
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) for dependency and environment management
 - Internet connection for downloading market data from providers like [Yahoo Finance](https://finance.yahoo.com) or [Alpha Vantage](https://www.alphavantage.co/)
-- Python packages listed in [`requirements.txt`](./requirements.txt)
 
 ### Installation
 ```bash
 git clone https://github.com/yourusername/stock_indicator.git
 cd stock_indicator
-python -m venv .venv
+uv sync
 source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
-pip install --upgrade pip
-pip install -r requirements.txt
 ```
 
-The requirements file installs the project's runtime dependencies, including
-`pandas`, `numpy`, `yfinance`, and other libraries used by the CLI utilities.
+`uv sync` creates the project-local virtual environment in `.venv` and installs
+the dependencies declared in `pyproject.toml`. You can skip manual activation by
+using `uv run <command>` when running one-off scripts:
+
+```bash
+uv run python -m stock_indicator.manage --help
+```
+
+### VS Code and Codex CLI
+- The project expects the virtual environment at `.venv`; run `source .venv/bin/activate` in each new VS Code terminal session.
+- Run `uv sync` whenever dependencies change or the lock file updates.
+- Use `uv run` for ad-hoc commands (`uv run pytest`, `uv run python -m stock_indicator.cli ...`) when activation is inconvenient.
+- Configure VS Code's interpreter path to `.venv/bin/python` (or `.venv\\Scripts\\python.exe` on Windows) so linting and tests reuse the synced environment.
+
+### Migrating from a pip Workflow
+If you previously managed dependencies with `pip install -r requirements.txt`, follow these steps to switch to uv:
+
+```bash
+# Install uv (one time). Replace python3 with the interpreter you used previously.
+python3 -m pip install --upgrade uv
+
+# Deactivate and remove the old virtual environment if it exists.
+deactivate 2>/dev/null || true
+rm -rf .venv
+
+# Recreate the environment and install dependencies through uv.
+uv sync
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+```
+
+After the migration, run project commands with `uv run` or the activated `.venv` to keep everything in sync with `pyproject.toml` and `uv.lock`.
 
 ### Example Usage
 ```python

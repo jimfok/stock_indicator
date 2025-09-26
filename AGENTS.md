@@ -50,6 +50,16 @@ This document defines **rules and guidelines for AI coding agents** working in t
 
 ---
 
+## Environment Setup
+
+- Use [uv](https://docs.astral.sh/uv/) for dependency management; avoid invoking `pip` commands directly.
+- Run `uv sync` whenever `pyproject.toml` or `uv.lock` changes before executing tests or scripts.
+- Activate the project environment with `source .venv/bin/activate` (Windows: `.venv\\Scripts\\activate`) for terminal sessions, including VS Code.
+- When activation is impractical, prefer `uv run <command>` (`uv run pytest`, `uv run python -m stock_indicator.manage`, etc.).
+- Record new dependencies in `pyproject.toml`, regenerate the lock file with `uv lock --upgrade-package <name>` if needed, and commit both files together.
+
+---
+
 ## Python-Specific Notes
 
 * **Imports**
