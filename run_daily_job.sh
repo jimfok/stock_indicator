@@ -8,7 +8,7 @@ ulimit -n 4096
 SCRIPT_DIRECTORY="$(cd "$(dirname "$0")" && pwd)"
 REPOSITORY_ROOT="${REPO:-$SCRIPT_DIRECTORY}"
 SOURCE_DIRECTORY="${SRC:-$REPOSITORY_ROOT/src}"
-VIRTUAL_ENVIRONMENT_DIRECTORY="${VENV:-$REPOSITORY_ROOT/venv}"
+VIRTUAL_ENVIRONMENT_DIRECTORY="${VENV:-$REPOSITORY_ROOT/.venv}"
 
 # Your daily_job argument line
 ARG_LINE_1='dollar_volume>0.05%,Top50,Pick2 strategy=s4 1.0'

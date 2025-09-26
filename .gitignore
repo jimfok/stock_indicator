@@ -1,10 +1,24 @@
-.DS_Store
-logs/*
-cache/*
-data/stock_data/*
-venv/*
-.venv/*
-cron_logs/*
-local_data/*
+logs/
+cache/
+data/stock_data/
+venv/
+.venv/
+cron_logs/
+local_data/
 .vscode
 *.swp
+.DS_Store
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg-info/
+.eggs/
+build/
+dist/
+
+src/**/__pycache__/
+src/**/*.egg-info/
