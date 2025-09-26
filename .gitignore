@@ -20,5 +20,5 @@ __pycache__/
 build/
 dist/
 
-src/**/__pycache__/
-src/**/*.egg-info/
+**/__pycache__/
+**/*.egg-info/
