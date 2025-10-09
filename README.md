@@ -282,6 +282,21 @@ The resulting table is written to
 The ticker universe is always derived from the SEC `company_tickers.json`
 dataset and cannot be overridden with a custom list.
 
+### Automating Sector Refreshes
+
+Two helper scripts under `scripts/` wrap the management shell for automated sector updates:
+
+- `scripts/init_sector.sh` — one-time or manual rebuild that accepts a mapping source URL (or file path) and optional output path. The script activates the virtual environment, exports a default `SEC_USER_AGENT`, and runs `python -m stock_indicator.manage update_sector_data --ff-map-url=URL OUTPUT_PATH`.
+- `scripts/update_sector.sh` — lightweight wrapper for scheduled runs. It reuses the configuration recorded by the previous build, logs each execution to `logs/update_sector.log`, and updates `data/symbols_with_sector.parquet`.
+
+Example cron entry that refreshes the dataset every five minutes:
+
+```
+*/5 * * * * /Users/you/JimGit/stock_indicator/scripts/update_sector.sh
+```
+
+Adjust the schedule to suit your environment and make sure `SEC_USER_AGENT` contains a valid contact per SEC guidance.
+
 ## Contribution Guidelines
 1. Fork the repository and create a new branch for each feature or bug fix.
 2. Ensure your code passes all tests by running `pytest` before submitting.
