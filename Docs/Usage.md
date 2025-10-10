@@ -18,6 +18,18 @@ backtest refresh, export `HISTORICAL_START_DATE=1990-01-01` (and optionally adju
 `HISTORICAL_END_DATE`) before invoking the script; the log spells out which range
 was used so operators can confirm the intent.
 
+### Shortcut commands
+
+A `justfile` bundles the most common maintenance tasks:
+
+* `just build` — run `uv sync` with the virtual environment activated.
+* `just test` — execute the test suite via `uv run pytest`.
+* `just manage CMD="update_symbols"` — execute a single management command and exit.
+* `just sector-refresh` — apply the weekly prior-year update pipeline.
+* `just data-full-backfill` — refresh history from 1990-01-01 through today.
+
+Use `just` with no arguments to list all available recipes.
+
 To evaluate the FTD EMA and SMA cross strategy in the management shell, call:
 
 ```
