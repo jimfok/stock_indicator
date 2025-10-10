@@ -12,8 +12,11 @@ Run `scripts/init_sector.sh` manually to build the sector dataset with a specifi
 SIC to Fama–French mapping source. For recurring refreshes, schedule
 `scripts/update_data_cron.sh`; it sequentially invokes `update_sector_data`,
 `update_symbols`, and `update_all_data_from_yf` and logs progress to
-`logs/update_data_pipeline.log`. Override the default `1990-01-01` start date by
-exporting `HISTORICAL_START_DATE` and `HISTORICAL_END_DATE` before execution.
+`logs/update_data_pipeline.log`. Weekly executions run in a rolling “prior year”
+mode so the download covers January 1 of last year through today. For a full
+backtest refresh, export `HISTORICAL_START_DATE=1990-01-01` (and optionally adjust
+`HISTORICAL_END_DATE`) before invoking the script; the log spells out which range
+was used so operators can confirm the intent.
 
 To evaluate the FTD EMA and SMA cross strategy in the management shell, call:
 
