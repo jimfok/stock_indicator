@@ -297,6 +297,18 @@ Example cron entry that refreshes the dataset every five minutes:
 
 Adjust the schedule to suit your environment and make sure `SEC_USER_AGENT` contains a valid contact per SEC guidance.
 
+### Justfile Shortcuts
+
+Frequently used workflows are captured in the repository `justfile`. Run `just` to list recipes such as:
+
+- `just build` — synchronize dependencies with `uv sync`.
+- `just test` — execute the pytest suite through `uv`.
+- `just manage CMD="update_symbols"` — run a single management-shell command without entering the REPL.
+- `just sector-refresh` — invoke the cron pipeline wrapper (prior-year rolling window).
+- `just data-full-backfill` — run the full 1990-to-today refresh by exporting the backtest start date automatically.
+
+Extend the `lint` recipe once project-wide linting is enabled.
+
 ## Contribution Guidelines
 1. Fork the repository and create a new branch for each feature or bug fix.
 2. Ensure your code passes all tests by running `pytest` before submitting.
