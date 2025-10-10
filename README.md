@@ -287,7 +287,7 @@ dataset and cannot be overridden with a custom list.
 Two helper scripts under `scripts/` wrap the management shell for automated data updates:
 
 - `scripts/init_sector.sh` — one-time or manual rebuild that accepts a mapping source URL (or file path) and optional output path. The script activates the virtual environment, exports a default `SEC_USER_AGENT`, and runs `python -m stock_indicator.manage update_sector_data --ff-map-url=URL OUTPUT_PATH`.
-- `scripts/update_data_cron.sh` — cron-oriented wrapper that replays the cached sector configuration, refreshes `data/symbols.txt`, and downloads historical price data. Override the default `1990-01-01` → today range by exporting `HISTORICAL_START_DATE` and `HISTORICAL_END_DATE` before invocation. Each run is appended to `logs/update_data_pipeline.log`.
+- `scripts/update_data_cron.sh` — cron-oriented wrapper that replays the cached sector configuration, refreshes `data/symbols.txt`, and downloads historical price data. By default it reloads the prior calendar year's history (rolling window). Export `HISTORICAL_START_DATE=1990-01-01` to trigger the full backtest range, and optionally override `HISTORICAL_END_DATE`. Each run is appended to `logs/update_data_pipeline.log`, and the log notes which mode ran.
 
 Example cron entry that refreshes the dataset every five minutes:
 
