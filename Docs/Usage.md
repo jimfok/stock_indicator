@@ -6,6 +6,15 @@ cache that the management shell maintains. Running commands such as
 the symbols whose data has been downloaded, so no manual copying between text
 files is required.
 
+## Data maintenance scripts
+
+Run `scripts/init_sector.sh` manually to build the sector dataset with a specific
+SIC to Fama–French mapping source. For recurring refreshes, schedule
+`scripts/update_data_cron.sh`; it sequentially invokes `update_sector_data`,
+`update_symbols`, and `update_all_data_from_yf` and logs progress to
+`logs/update_data_pipeline.log`. Override the default `1990-01-01` start date by
+exporting `HISTORICAL_START_DATE` and `HISTORICAL_END_DATE` before execution.
+
 To evaluate the FTD EMA and SMA cross strategy in the management shell, call:
 
 ```
