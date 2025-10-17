@@ -24,6 +24,9 @@ DEFAULT_START_DATE = "2019-01-01"
 # missing rows in local caches. Modify only when extending the supported
 # history range.
 MINIMUM_HISTORY_DATE = "2014-01-01"
+# Maximum trailing window (in calendar days) of history needed to evaluate
+# indicator windows safely when recomputing signals for a single date.
+SIGNAL_HISTORY_LOOKBACK_DAYS = 756
 DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "data"
 STOCK_DATA_DIRECTORY = DATA_DIRECTORY / "stock_data"
 
@@ -202,9 +205,12 @@ def find_history_signal(
         tradable universe. Group 12 (Other) is always excluded when sector data
         is available.
 
-    Historical data starting from either the earliest cached date in
-    ``data/stock_data`` or ``2014-01-01``—whichever is earlier—is used to
-    ensure sufficient look-back.
+    Historical data starting from the later of
+    ``SIGNAL_HISTORY_LOOKBACK_DAYS`` before the evaluation date or
+    ``MINIMUM_HISTORY_DATE`` is used. When the cached history begins after that
+    point, the available start date is used instead. This bounds the amount of
+    data loaded for each symbol while maintaining enough history for indicator
+    calculations.
 
     Returns
     -------
@@ -222,16 +228,22 @@ def find_history_signal(
         else "group=" + ",".join(str(i) for i in sorted(allowed_fama_french_groups)) + " "
     )
     argument_line = f"{group_token}{dollar_volume_filter} {buy_strategy} {sell_strategy} {stop_loss}"
-    start_date_string = determine_start_date(STOCK_DATA_DIRECTORY)
-    minimum_timestamp = pandas.Timestamp(MINIMUM_HISTORY_DATE)
-    if pandas.Timestamp(start_date_string) > minimum_timestamp:
-        start_date_string = MINIMUM_HISTORY_DATE
     try:
         evaluation_timestamp = pandas.Timestamp(date_string)
         evaluation_end_date_string = evaluation_timestamp.date().isoformat()
     except Exception:  # noqa: BLE001
         evaluation_timestamp = pandas.Timestamp.today()
         evaluation_end_date_string = evaluation_timestamp.date().isoformat()
+    cached_start_timestamp = pandas.Timestamp(
+        determine_start_date(STOCK_DATA_DIRECTORY)
+    )
+    minimum_timestamp = pandas.Timestamp(MINIMUM_HISTORY_DATE)
+    requested_start_timestamp = max(
+        minimum_timestamp,
+        evaluation_timestamp - pandas.Timedelta(days=SIGNAL_HISTORY_LOOKBACK_DAYS),
+    )
+    start_timestamp = max(cached_start_timestamp, requested_start_timestamp)
+    start_date_string = start_timestamp.date().isoformat()
     try:
         local_symbols = [
             csv_path.stem
