@@ -171,10 +171,15 @@ def calculate_chip_concentration_metrics(
             "histogram_node_count": None,
         }
     window_frame = ohlcv.tail(lookback_window_size).copy()
-    if (
-        len(window_frame) < max(lookback_window_size, 30)
-        or float(window_frame["volume"].sum()) <= 0.0
-    ):
+    if window_frame.empty:
+        return {
+            "price_score": None,
+            "near_price_volume_ratio": None,
+            "above_price_volume_ratio": None,
+            "histogram_node_count": None,
+        }
+
+    if float(window_frame["volume"].sum()) <= 0.0:
         return {
             "price_score": None,
             "near_price_volume_ratio": None,
@@ -187,6 +192,9 @@ def calculate_chip_concentration_metrics(
     volume_array = window_frame["volume"].astype(float).to_numpy()
     lowest_price = float(window_frame["low"].min())
     highest_price = float(window_frame["high"].max())
+    if numpy.isclose(highest_price, lowest_price):
+        price_epsilon = max(abs(highest_price) * 1e-6, 1e-6)
+        highest_price = lowest_price + price_epsilon
     bin_edges = numpy.linspace(lowest_price, highest_price, bin_count + 1)
     bin_indices = numpy.clip(
         numpy.digitize(typical_price_series, bin_edges) - 1, 0, bin_count - 1
