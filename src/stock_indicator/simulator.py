@@ -70,6 +70,7 @@ def simulate_trades(
     entry_price_column: str = "close",
     exit_price_column: str | None = None,
     stop_loss_percentage: float = 1.0,
+    take_profit_percentage: float = 0.0,
     cooldown_bars: int = 0,
 ) -> SimulationResult:
     """Simulate trades using supplied entry and exit rules.
@@ -94,6 +95,12 @@ def simulate_trades(
         the stop price (cap on loss). If the bar never reaches the stop but the
         close is below the stop, an exit is scheduled for the next bar's open.
         Values greater than or equal to ``1.0`` disable the stop-loss.
+    take_profit_percentage: float, default 0.0
+        Fractional gain from the entry price that triggers a profit target.
+        When the bar's high reaches the target, the position closes on the same
+        bar at the target price. If the target is exceeded only on the close,
+        the position exits on the next bar's open. Values less than or equal to
+        ``0.0`` disable take-profit handling.
     cooldown_bars: int, default 0
         Minimum number of bars that must pass after a position closes before a
         new position may be opened. A value of ``5`` blocks re-entry for the
@@ -112,6 +119,7 @@ def simulate_trades(
     entry_row: pandas.Series | None = None
     entry_row_index: int | None = None
     stop_loss_pending = False
+    take_profit_pending = False
     last_exit_index: int | None = None
     for row_index in range(len(data)):
         current_row = data.iloc[row_index]
@@ -130,22 +138,21 @@ def simulate_trades(
                 in_position = True
                 entry_row = current_row
                 entry_row_index = row_index
+                stop_loss_pending = False
+                take_profit_pending = False
         else:
             if entry_row is None or entry_row_index is None:
                 continue
-            # Intraday stop-loss: if the bar's low touches the stop price,
-            # exit on this bar at the stop price (caps loss at threshold).
+            entry_price = float(entry_row[entry_price_column])
+            price_column_name = (
+                exit_price_column if exit_price_column is not None else entry_price_column
+            )
+            has_low = "low" in data.columns
+            has_high = "high" in data.columns
+
             if 0 < stop_loss_percentage < 1:
-                entry_price = float(entry_row[entry_price_column])
                 stop_price = entry_price * (1 - stop_loss_percentage)
-                # Prefer using the 'low' column when available; fallback to 'close'
-                # if 'low' does not exist in the dataset.
-                has_low = "low" in data.columns
                 if has_low and float(current_row["low"]) <= stop_price:
-                    price_column_name = (
-                        exit_price_column if exit_price_column is not None else entry_price_column
-                    )
-                    # Fill at the stop price to emulate a stop order execution.
                     exit_price = float(stop_price)
                     entry_commission = calc_commission(1, entry_price)
                     exit_commission = calc_commission(1, exit_price)
@@ -168,13 +175,38 @@ def simulate_trades(
                     entry_row = None
                     entry_row_index = None
                     stop_loss_pending = False
+                    take_profit_pending = False
+                    last_exit_index = row_index
+                    continue
+            if 0 < take_profit_percentage < 1:
+                target_price = entry_price * (1 + take_profit_percentage)
+                if has_high and float(current_row["high"]) >= target_price:
+                    exit_price = float(target_price)
+                    entry_commission = calc_commission(1, entry_price)
+                    exit_commission = calc_commission(1, exit_price)
+                    profit_value = (
+                        exit_price - entry_price - entry_commission - exit_commission
+                    )
+                    holding_period_value = row_index - entry_row_index
+                    trades.append(
+                        Trade(
+                            entry_date=data.index[entry_row_index],
+                            exit_date=data.index[row_index],
+                            entry_price=entry_price,
+                            exit_price=exit_price,
+                            profit=profit_value,
+                            holding_period=holding_period_value,
+                            exit_reason="take_profit",
+                        )
+                    )
+                    in_position = False
+                    entry_row = None
+                    entry_row_index = None
+                    stop_loss_pending = False
+                    take_profit_pending = False
                     last_exit_index = row_index
                     continue
             if stop_loss_pending:
-                entry_price = float(entry_row[entry_price_column])
-                price_column_name = (
-                    exit_price_column if exit_price_column is not None else entry_price_column
-                )
                 exit_price = float(current_row[price_column_name])
                 entry_commission = calc_commission(1, entry_price)
                 exit_commission = calc_commission(1, exit_price)
@@ -197,13 +229,36 @@ def simulate_trades(
                 entry_row = None
                 entry_row_index = None
                 stop_loss_pending = False
+                take_profit_pending = False
+                last_exit_index = row_index
+                continue
+            if take_profit_pending:
+                exit_price = float(current_row[price_column_name])
+                entry_commission = calc_commission(1, entry_price)
+                exit_commission = calc_commission(1, exit_price)
+                profit_value = (
+                    exit_price - entry_price - entry_commission - exit_commission
+                )
+                holding_period_value = row_index - entry_row_index
+                trades.append(
+                    Trade(
+                        entry_date=data.index[entry_row_index],
+                        exit_date=data.index[row_index],
+                        entry_price=entry_price,
+                        exit_price=exit_price,
+                        profit=profit_value,
+                        holding_period=holding_period_value,
+                        exit_reason="take_profit",
+                    )
+                )
+                in_position = False
+                entry_row = None
+                entry_row_index = None
+                stop_loss_pending = False
+                take_profit_pending = False
                 last_exit_index = row_index
                 continue
             if exit_rule(current_row, entry_row):
-                entry_price = float(entry_row[entry_price_column])
-                price_column_name = (
-                    exit_price_column if exit_price_column is not None else entry_price_column
-                )
                 exit_price = float(current_row[price_column_name])
                 entry_commission = calc_commission(1, entry_price)
                 exit_commission = calc_commission(1, exit_price)
@@ -224,15 +279,16 @@ def simulate_trades(
                 in_position = False
                 entry_row = None
                 entry_row_index = None
+                stop_loss_pending = False
+                take_profit_pending = False
                 last_exit_index = row_index
                 continue
             if 0 < stop_loss_percentage < 1 and not is_last_row:
-                entry_price = float(entry_row[entry_price_column])
-                # For trailing behavior across days using close only: if today's
-                # close is beyond the stop threshold (but intraday did not hit),
-                # schedule an exit on the next bar's open.
                 if float(current_row["close"]) <= entry_price * (1 - stop_loss_percentage):
                     stop_loss_pending = True
+            if 0 < take_profit_percentage < 1 and not is_last_row:
+                if float(current_row["close"]) >= entry_price * (1 + take_profit_percentage):
+                    take_profit_pending = True
     if in_position and entry_row is not None and entry_row_index is not None:
         # TODO: review
         price_column_name = (

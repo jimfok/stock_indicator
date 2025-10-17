@@ -423,7 +423,7 @@ class TradeDetail:
     marks whether a closed trade ended in a win or a loss. For closing trades,
     ``percentage_change`` records the fractional price change between entry and
     exit. The ``exit_reason`` field captures why a trade closed, such as
-    ``"signal"``, ``"stop_loss"``, or ``"end_of_data"``.
+    ``"signal"``, ``"stop_loss"``, ``"take_profit"``, or ``"end_of_data"``.
     """
     # TODO: review
     date: pandas.Timestamp
@@ -483,6 +483,7 @@ class ComplexStrategySetDefinition:
     sell_strategy_name: str
     strategy_identifier: str | None = None
     stop_loss_percentage: float = 1.0
+    take_profit_percentage: float = 0.0
     minimum_average_dollar_volume: float | None = None
     minimum_average_dollar_volume_ratio: float | None = None
     top_dollar_volume_rank: int | None = None
@@ -562,6 +563,7 @@ def run_complex_simulation(
             allowed_symbols=None,
             exclude_other_ff12=True,
             stop_loss_percentage=definition.stop_loss_percentage,
+            take_profit_percentage=definition.take_profit_percentage,
             margin_multiplier=margin_multiplier,
             margin_interest_annual_rate=effective_interest_rate,
         )
@@ -2140,6 +2142,7 @@ def _generate_strategy_evaluation_artifacts(
     allowed_symbols: set[str] | None = None,
     exclude_other_ff12: bool = True,
     stop_loss_percentage: float = 1.0,
+    take_profit_percentage: float = 0.0,
     margin_multiplier: float = 1.0,
     margin_interest_annual_rate: float = 0.048,
 ) -> StrategyEvaluationArtifacts:
@@ -2446,6 +2449,7 @@ def _generate_strategy_evaluation_artifacts(
             entry_price_column="open",
             exit_price_column="open",
             stop_loss_percentage=stop_loss_percentage,
+            take_profit_percentage=take_profit_percentage,
             cooldown_bars=cooldown_after_close,
         )
         simulation_results.append(simulation_result)
@@ -2619,6 +2623,7 @@ def evaluate_combined_strategy(
     starting_cash: float = 3000.0,
     withdraw_amount: float = 0.0,
     stop_loss_percentage: float = 1.0,
+    take_profit_percentage: float = 0.0,
     start_date: pandas.Timestamp | None = None,
     maximum_position_count: int = 3,
     allowed_fama_french_groups: set[int] | None = None,
@@ -2643,6 +2648,7 @@ def evaluate_combined_strategy(
         allowed_symbols=allowed_symbols,
         exclude_other_ff12=exclude_other_ff12,
         stop_loss_percentage=stop_loss_percentage,
+        take_profit_percentage=take_profit_percentage,
         margin_multiplier=margin_multiplier,
         margin_interest_annual_rate=margin_interest_annual_rate,
     )

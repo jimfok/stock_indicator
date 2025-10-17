@@ -36,6 +36,7 @@ def test_start_simulate_filters_pre_2014_googl(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         trade_details_by_year = {
