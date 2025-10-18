@@ -1168,7 +1168,8 @@ def compute_signals_for_date(
     # Build signals and sample the most recent bar at or before evaluation_date
     for csv_file_path, price_data_frame, symbol_mask in selected_symbol_data:
         # Build buy-side signals (support composite expressions)
-        buy_signal_columns: list[str] = []
+        raw_buy_signal_columns: list[str] = []
+        shifted_buy_signal_columns: list[str] = []
         for buy_name in buy_choice_names:
             try:
                 (
@@ -1193,16 +1194,16 @@ def compute_signals_for_date(
                 price_data_frame,
                 include_raw_signals=use_unshifted_signals,
             )
+            entry_column_name = f"{buy_name}_entry_signal"
             if use_unshifted_signals:
-                column_name = f"{buy_name}_raw_entry_signal"
-                if column_name in price_data_frame.columns:
-                    buy_signal_columns.append(column_name)
-                elif f"{buy_name}_entry_signal" in price_data_frame.columns:
-                    buy_signal_columns.append(f"{buy_name}_entry_signal")
+                raw_column_name = f"{buy_name}_raw_entry_signal"
+                if raw_column_name in price_data_frame.columns:
+                    raw_buy_signal_columns.append(raw_column_name)
+                if entry_column_name in price_data_frame.columns:
+                    shifted_buy_signal_columns.append(entry_column_name)
             else:
-                column_name = f"{buy_name}_entry_signal"
-                if column_name in price_data_frame.columns:
-                    buy_signal_columns.append(column_name)
+                if entry_column_name in price_data_frame.columns:
+                    shifted_buy_signal_columns.append(entry_column_name)
 
         sell_signal_columns: list[str] = []
         for sell_name in sell_choice_names:
@@ -1241,14 +1242,49 @@ def compute_signals_for_date(
                     sell_signal_columns.append(column_name)
 
         # Combined columns (OR across choices)
-        buy_signal_columns = list(dict.fromkeys(buy_signal_columns))
+        raw_buy_signal_columns = list(dict.fromkeys(raw_buy_signal_columns))
+        shifted_buy_signal_columns = list(dict.fromkeys(shifted_buy_signal_columns))
         sell_signal_columns = list(dict.fromkeys(sell_signal_columns))
-        if buy_signal_columns:
-            price_data_frame["_combined_buy_entry"] = (
-                price_data_frame[buy_signal_columns].any(axis=1).fillna(False)
+        if use_unshifted_signals:
+            if raw_buy_signal_columns:
+                raw_entry_series = (
+                    price_data_frame[raw_buy_signal_columns]
+                    .any(axis=1)
+                    .fillna(False)
+                    .astype(bool)
+                )
+            else:
+                raw_entry_series = pandas.Series(
+                    False, index=price_data_frame.index
+                )
+            if shifted_buy_signal_columns:
+                shifted_entry_series = (
+                    price_data_frame[shifted_buy_signal_columns]
+                    .any(axis=1)
+                    .fillna(False)
+                    .astype(bool)
+                )
+            else:
+                shifted_entry_series = pandas.Series(
+                    False, index=price_data_frame.index
+                )
+            aligned_shifted_entry_series = shifted_entry_series.shift(
+                -1, fill_value=False
             )
+            combined_entry_series = (
+                raw_entry_series | aligned_shifted_entry_series.astype(bool)
+            )
+            price_data_frame["_combined_buy_entry"] = combined_entry_series
         else:
-            price_data_frame["_combined_buy_entry"] = False
+            if shifted_buy_signal_columns:
+                price_data_frame["_combined_buy_entry"] = (
+                    price_data_frame[shifted_buy_signal_columns]
+                    .any(axis=1)
+                    .fillna(False)
+                    .astype(bool)
+                )
+            else:
+                price_data_frame["_combined_buy_entry"] = False
         if sell_signal_columns:
             price_data_frame["_combined_sell_exit"] = (
                 price_data_frame[sell_signal_columns].any(axis=1).fillna(False)
