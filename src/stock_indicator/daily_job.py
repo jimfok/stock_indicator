@@ -6,7 +6,7 @@ from __future__ import annotations
 import datetime
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 from zoneinfo import ZoneInfo
 
 import pandas
@@ -355,7 +355,7 @@ def filter_debug_values(
     ) = strategy.parse_strategy_name(buy_strategy_name)
     buy_function = strategy.BUY_STRATEGIES.get(buy_base_name)
     if buy_function is not None:
-        buy_arguments: Dict[str, float | tuple[float, float]] = {}
+        buy_arguments: Dict[str, Any] = {"include_raw_signals": True}
         if buy_window_size is not None:
             buy_arguments["window_size"] = buy_window_size
         if buy_angle_range is not None:
@@ -375,7 +375,7 @@ def filter_debug_values(
     ) = strategy.parse_strategy_name(sell_strategy_name)
     sell_function = strategy.SELL_STRATEGIES.get(sell_base_name)
     if sell_function is not None:
-        sell_arguments: Dict[str, float | tuple[float, float]] = {}
+        sell_arguments: Dict[str, Any] = {"include_raw_signals": True}
         if sell_window_size is not None:
             sell_arguments["window_size"] = sell_window_size
         if sell_angle_range is not None:
@@ -398,11 +398,64 @@ def filter_debug_values(
         if column_name in buy_price_history_frame.columns
     ]
     buy_entry_signal_column = f"{buy_base_name}_entry_signal"
+    buy_raw_entry_signal_column = f"{buy_base_name}_raw_entry_signal"
+    combined_entry_series = pandas.Series(
+        False, index=buy_price_history_frame.index
+    )
+    if buy_entry_signal_column in buy_price_history_frame.columns or (
+        buy_raw_entry_signal_column in buy_price_history_frame.columns
+    ):
+        raw_entry_series = (
+            buy_price_history_frame.get(
+                buy_raw_entry_signal_column,
+                pandas.Series(False, index=buy_price_history_frame.index),
+            )
+            .fillna(False)
+            .astype(bool)
+        )
+        shifted_entry_series = (
+            buy_price_history_frame.get(
+                buy_entry_signal_column,
+                pandas.Series(False, index=buy_price_history_frame.index),
+            )
+            .fillna(False)
+            .astype(bool)
+        )
+        aligned_shifted_entry_series = shifted_entry_series.shift(
+            -1, fill_value=False
+        )
+        combined_entry_series = (
+            raw_entry_series | aligned_shifted_entry_series.astype(bool)
+        )
     if buy_entry_signal_column in buy_price_history_frame.columns:
         buy_debug_column_names.append(buy_entry_signal_column)
     debug_frame = buy_price_history_frame[buy_debug_column_names]
 
     sell_exit_signal_column = f"{sell_base_name}_exit_signal"
+    sell_raw_exit_signal_column = f"{sell_base_name}_raw_exit_signal"
+    combined_exit_series = pandas.Series(
+        False, index=sell_price_history_frame.index
+    )
+    if sell_exit_signal_column in sell_price_history_frame.columns or (
+        sell_raw_exit_signal_column in sell_price_history_frame.columns
+    ):
+        raw_exit_series = (
+            sell_price_history_frame.get(
+                sell_raw_exit_signal_column,
+                pandas.Series(False, index=sell_price_history_frame.index),
+            )
+            .fillna(False)
+            .astype(bool)
+        )
+        shifted_exit_series = (
+            sell_price_history_frame.get(
+                sell_exit_signal_column,
+                pandas.Series(False, index=sell_price_history_frame.index),
+            )
+            .fillna(False)
+            .astype(bool)
+        )
+        combined_exit_series = raw_exit_series | shifted_exit_series
     if sell_exit_signal_column in sell_price_history_frame.columns:
         debug_frame = debug_frame.join(
             sell_price_history_frame[[sell_exit_signal_column]], how="outer"
@@ -419,14 +472,22 @@ def filter_debug_values(
                 "entry": False,
                 "exit": False,
             }
-        row = debug_frame.loc[candidate_index[-1]]
+        selected_timestamp = candidate_index[-1]
+        row = debug_frame.loc[selected_timestamp]
     else:
+        selected_timestamp = evaluation_timestamp
         row = debug_frame.loc[evaluation_timestamp]
+    entry_value = False
+    if selected_timestamp in combined_entry_series.index:
+        entry_value = bool(combined_entry_series.loc[selected_timestamp])
+    exit_value = False
+    if selected_timestamp in combined_exit_series.index:
+        exit_value = bool(combined_exit_series.loc[selected_timestamp])
     return {
         "sma_angle": row.get("sma_angle"),
         "near_price_volume_ratio": row.get("near_price_volume_ratio"),
         "above_price_volume_ratio": row.get("above_price_volume_ratio"),
-        "entry": bool(row.get(buy_entry_signal_column, False)),
-        "exit": bool(row.get(sell_exit_signal_column, False)),
+        "entry": entry_value,
+        "exit": exit_value,
     }
 
