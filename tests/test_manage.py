@@ -2560,6 +2560,83 @@ def test_complex_simulation_accepts_take_profit(monkeypatch: pytest.MonkeyPatch,
     assert set_b.take_profit_percentage == 0.2
 
 
+def test_complex_simulation_displays_global_position_counts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Trade detail output should reflect the global concurrent position count."""
+
+    import stock_indicator.manage as manage_module
+
+    entry_detail_a = TradeDetail(
+        date=pandas.Timestamp("2024-01-01"),
+        symbol="AAA",
+        action="open",
+        price=10.0,
+        simple_moving_average_dollar_volume=1_000_000.0,
+        total_simple_moving_average_dollar_volume=2_000_000.0,
+        simple_moving_average_dollar_volume_ratio=0.5,
+        group_total_simple_moving_average_dollar_volume=2_000_000.0,
+        group_simple_moving_average_dollar_volume_ratio=0.4,
+    )
+    entry_detail_a.global_concurrent_position_count = 1
+    entry_detail_a.concurrent_position_count = 99
+
+    entry_detail_b = TradeDetail(
+        date=pandas.Timestamp("2024-01-02"),
+        symbol="BBB",
+        action="open",
+        price=20.0,
+        simple_moving_average_dollar_volume=1_500_000.0,
+        total_simple_moving_average_dollar_volume=3_000_000.0,
+        simple_moving_average_dollar_volume_ratio=0.5,
+        group_total_simple_moving_average_dollar_volume=3_000_000.0,
+        group_simple_moving_average_dollar_volume_ratio=0.6,
+    )
+    entry_detail_b.global_concurrent_position_count = 2
+    entry_detail_b.concurrent_position_count = 88
+
+    total_metrics = _create_empty_metrics()
+    total_metrics.trade_details_by_year = {2024: [entry_detail_a, entry_detail_b]}
+    total_metrics.annual_returns = {2024: 0.0}
+    total_metrics.annual_trade_counts = {2024: 0}
+
+    set_a_metrics = _create_empty_metrics()
+    set_a_metrics.trade_details_by_year = {2024: [entry_detail_a]}
+    set_a_metrics.annual_returns = {2024: 0.0}
+    set_a_metrics.annual_trade_counts = {2024: 0}
+
+    set_b_metrics = _create_empty_metrics()
+    set_b_metrics.trade_details_by_year = {2024: [entry_detail_b]}
+    set_b_metrics.annual_returns = {2024: 0.0}
+    set_b_metrics.annual_trade_counts = {2024: 0}
+
+    def fake_run_complex_simulation(
+        data_directory: Path,
+        set_definitions: dict[str, object],
+        **kwargs: object,
+    ) -> manage_module.strategy.ComplexSimulationMetrics:
+        return manage_module.strategy.ComplexSimulationMetrics(
+            overall_metrics=total_metrics,
+            metrics_by_set={"A": set_a_metrics, "B": set_b_metrics},
+        )
+
+    monkeypatch.setattr(manage_module.strategy, "run_complex_simulation", fake_run_complex_simulation)
+    monkeypatch.setattr(manage_module, "determine_start_date", lambda directory: "2024-01-01")
+    monkeypatch.setattr(manage_module, "STOCK_DATA_DIRECTORY", tmp_path)
+    monkeypatch.setattr(manage_module, "DATA_DIRECTORY", tmp_path)
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd(
+        "complex_simulation 2 dollar_volume>1 ema_sma_cross ema_sma_cross -- "
+        "dollar_volume>1 ema_sma_cross ema_sma_cross true"
+    )
+
+    output_text = output_buffer.getvalue()
+    assert "[A]   2024-01-01 (1) AAA open" in output_text
+    assert "[B]   2024-01-02 (2) BBB open" in output_text
+
+
 def test_complex_simulation_half_cap_for_set_b_rounds_up(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

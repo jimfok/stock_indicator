@@ -446,6 +446,10 @@ class TradeDetail:
     # For an "open" event, includes this position. For a "close" event,
     # excludes the position being closed.
     concurrent_position_count: int = 0
+    # Number of concurrent open positions across all strategy sets at the time of
+    # this trade detail event. This value is populated during complex
+    # simulations where multiple sets share a global position limit.
+    global_concurrent_position_count: int | None = None
     strategy_set_label: str | None = None
     result: str | None = None  # TODO: review
     percentage_change: float | None = None  # TODO: review
@@ -814,6 +818,7 @@ def run_complex_simulation(
     aggregated_trade_details_by_year = _organize_trade_details_by_year(
         aggregated_detail_pairs_with_label
     )
+    _assign_global_concurrent_position_counts(aggregated_detail_pairs_with_label)
     aggregated_maximum_concurrent_positions = calculate_maximum_concurrent_positions(
         aggregated_simulation_results
     )
@@ -2646,6 +2651,43 @@ def _organize_trade_details_by_year(
     for year_details in trade_details_by_year.values():
         year_details.sort(key=lambda detail: detail.date)
     return trade_details_by_year
+
+
+def _assign_global_concurrent_position_counts(
+    detail_pairs: Iterable[Tuple[TradeDetail, TradeDetail]]
+) -> None:
+    """Populate global concurrent position counts for trade detail records."""
+
+    trade_details: List[TradeDetail] = [
+        detail for entry_detail, exit_detail in detail_pairs for detail in (entry_detail, exit_detail)
+    ]
+    if not trade_details:
+        return
+    trade_details.sort(
+        key=lambda detail: (
+            detail.date,
+            0 if detail.action == "close" else 1,
+            detail.symbol,
+            id(detail),
+        )
+    )
+    open_symbols: Dict[str, bool] = {}
+    current_open_count = 0
+    for trade_detail in trade_details:
+        symbol_name = trade_detail.symbol
+        if trade_detail.action == "close":
+            was_open = open_symbols.get(symbol_name, False)
+            if was_open:
+                trade_detail.global_concurrent_position_count = max(0, current_open_count - 1)
+                open_symbols[symbol_name] = False
+                current_open_count = max(0, current_open_count - 1)
+            else:
+                trade_detail.global_concurrent_position_count = current_open_count
+        else:
+            trade_detail.global_concurrent_position_count = current_open_count + 1
+            if not open_symbols.get(symbol_name, False):
+                open_symbols[symbol_name] = True
+                current_open_count += 1
 
 
 def evaluate_combined_strategy(
