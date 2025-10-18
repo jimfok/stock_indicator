@@ -421,6 +421,13 @@ def filter_debug_values(
         strategy.rename_signal_columns(
             buy_price_history_frame, buy_base_name, buy_strategy_name
         )
+        if (
+            "sma_angle" in buy_price_history_frame.columns
+            and "sma_angle_previous" not in buy_price_history_frame.columns
+        ):
+            buy_price_history_frame["sma_angle_previous"] = buy_price_history_frame[
+                "sma_angle"
+            ].shift(1)
 
     (
         sell_base_name,
@@ -444,6 +451,13 @@ def filter_debug_values(
         strategy.rename_signal_columns(
             sell_price_history_frame, sell_base_name, sell_strategy_name
         )
+        if (
+            "sma_angle" in sell_price_history_frame.columns
+            and "sma_angle_previous" not in sell_price_history_frame.columns
+        ):
+            sell_price_history_frame["sma_angle_previous"] = (
+                sell_price_history_frame["sma_angle"].shift(1)
+            )
 
     # TODO: review
     debug_column_names = [
@@ -547,16 +561,29 @@ def filter_debug_values(
     exit_value = False
     if selected_timestamp in combined_exit_series.index:
         exit_value = bool(combined_exit_series.loc[selected_timestamp])
+    def normalize_debug_value(value: Any) -> Any:
+        if value is None:
+            return None
+        if pandas.isna(value):
+            return None
+        return value
+
     return {
-        "sma_angle": row.get("sma_angle"),
-        "sma_angle_previous": row.get("sma_angle_previous"),
-        "near_price_volume_ratio": row.get("near_price_volume_ratio"),
-        "near_price_volume_ratio_previous": row.get(
-            "near_price_volume_ratio_previous"
+        "sma_angle": normalize_debug_value(row.get("sma_angle")),
+        "sma_angle_previous": normalize_debug_value(
+            row.get("sma_angle_previous")
         ),
-        "above_price_volume_ratio": row.get("above_price_volume_ratio"),
-        "above_price_volume_ratio_previous": row.get(
-            "above_price_volume_ratio_previous"
+        "near_price_volume_ratio": normalize_debug_value(
+            row.get("near_price_volume_ratio")
+        ),
+        "near_price_volume_ratio_previous": normalize_debug_value(
+            row.get("near_price_volume_ratio_previous")
+        ),
+        "above_price_volume_ratio": normalize_debug_value(
+            row.get("above_price_volume_ratio")
+        ),
+        "above_price_volume_ratio_previous": normalize_debug_value(
+            row.get("above_price_volume_ratio_previous")
         ),
         "entry": entry_value,
         "exit": exit_value,
