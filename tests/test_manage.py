@@ -630,6 +630,74 @@ def test_filter_debug_values_with_strategy_id(
     assert output_buffer.getvalue() == expected_output + "\n"
 
 
+# TODO: review
+def test_filter_debug_values_strategy_id_with_filter_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Strategy ids should be honored even when extra tokens are provided."""
+
+    import stock_indicator.manage as manage_module
+
+    recorded_arguments: dict[str, object] = {}
+
+    def fake_filter_debug_values(
+        symbol_name: str,
+        date_string: str,
+        buy_name: str,
+        sell_name: str,
+    ) -> dict[str, object]:
+        recorded_arguments["symbol"] = symbol_name
+        recorded_arguments["date"] = date_string
+        recorded_arguments["buy"] = buy_name
+        recorded_arguments["sell"] = sell_name
+        return {
+            "sma_angle": 1.0,
+            "near_price_volume_ratio": 0.2,
+            "above_price_volume_ratio": 0.3,
+            "entry": True,
+            "exit": False,
+        }
+
+    monkeypatch.setattr(
+        manage_module.daily_job,
+        "filter_debug_values",
+        fake_filter_debug_values,
+    )
+
+    def fake_load_mapping() -> dict[str, tuple[str, str]]:
+        return {"TEST": ("ema_sma_cross", "ema_sma_cross")}
+
+    monkeypatch.setattr(
+        manage_module, "load_strategy_set_mapping", fake_load_mapping
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd(
+        "filter_debug_values AAA 2024-01-10 dollar_volume>0.05%,Top20 strategy=TEST"
+    )
+
+    assert recorded_arguments == {
+        "symbol": "AAA",
+        "date": "2024-01-10",
+        "buy": "ema_sma_cross",
+        "sell": "ema_sma_cross",
+    }
+    expected_output = pandas.DataFrame(
+        [
+            {
+                "date": "2024-01-10",
+                "sma_angle": 1.0,
+                "near_price_volume_ratio": 0.2,
+                "above_price_volume_ratio": 0.3,
+                "entry": True,
+                "exit": False,
+            }
+        ]
+    ).to_string(index=False)
+    assert output_buffer.getvalue() == expected_output + "\n"
+
+
     
 
 
