@@ -334,7 +334,7 @@ def filter_debug_values(
     price_history_frame = load_local_history(
         symbol_name, start_date_string, end_date_string, cache_path=csv_file_path
     )
-    if price_history_frame.empty or pandas.Timestamp(evaluation_date_string) not in price_history_frame.index:
+    if price_history_frame.empty:
         return {
             "sma_angle": None,
             "near_price_volume_ratio": None,
@@ -408,7 +408,20 @@ def filter_debug_values(
             sell_price_history_frame[[sell_exit_signal_column]], how="outer"
         )
 
-    row = debug_frame.loc[pandas.Timestamp(evaluation_date_string)]
+    evaluation_timestamp = pandas.Timestamp(evaluation_date_string)
+    if evaluation_timestamp not in debug_frame.index:
+        candidate_index = debug_frame.index[debug_frame.index <= evaluation_timestamp]
+        if len(candidate_index) == 0:
+            return {
+                "sma_angle": None,
+                "near_price_volume_ratio": None,
+                "above_price_volume_ratio": None,
+                "entry": False,
+                "exit": False,
+            }
+        row = debug_frame.loc[candidate_index[-1]]
+    else:
+        row = debug_frame.loc[evaluation_timestamp]
     return {
         "sma_angle": row.get("sma_angle"),
         "near_price_volume_ratio": row.get("near_price_volume_ratio"),
