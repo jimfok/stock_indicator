@@ -454,13 +454,8 @@ def filter_debug_values(
         for column_name in debug_column_names
         if column_name in buy_price_history_frame.columns
     ]
-<<<<<<< HEAD
-    buy_entry_signal_column = f"{buy_base_name}_entry_signal"
-    buy_raw_entry_signal_column = f"{buy_base_name}_raw_entry_signal"
-=======
     buy_entry_signal_column = f"{buy_strategy_name}_entry_signal"
     buy_raw_entry_signal_column = f"{buy_strategy_name}_raw_entry_signal"
->>>>>>> origin/codex/check-filter_debug_values-for-ko-mo7guv
     combined_entry_series = pandas.Series(
         False, index=buy_price_history_frame.index
     )
@@ -493,13 +488,8 @@ def filter_debug_values(
         buy_debug_column_names.append(buy_entry_signal_column)
     debug_frame = buy_price_history_frame[buy_debug_column_names]
 
-<<<<<<< HEAD
-    sell_exit_signal_column = f"{sell_base_name}_exit_signal"
-    sell_raw_exit_signal_column = f"{sell_base_name}_raw_exit_signal"
-=======
     sell_exit_signal_column = f"{sell_strategy_name}_exit_signal"
     sell_raw_exit_signal_column = f"{sell_strategy_name}_raw_exit_signal"
->>>>>>> origin/codex/check-filter_debug_values-for-ko-mo7guv
     combined_exit_series = pandas.Series(
         False, index=sell_price_history_frame.index
     )
@@ -558,12 +548,9 @@ def filter_debug_values(
             "near_price_volume_ratio_previous"
         ),
         "above_price_volume_ratio": row.get("above_price_volume_ratio"),
-<<<<<<< HEAD
-=======
         "above_price_volume_ratio_previous": row.get(
             "above_price_volume_ratio_previous"
         ),
->>>>>>> origin/codex/check-filter_debug_values-for-ko-mo7guv
         "entry": entry_value,
         "exit": exit_value,
     }
