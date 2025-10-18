@@ -6,9 +6,10 @@ from __future__ import annotations
 import datetime
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 from zoneinfo import ZoneInfo
 
+import numpy
 import pandas
 from pandas.tseries.offsets import BDay
 
@@ -327,22 +328,70 @@ def filter_debug_values(
 
     # TODO: review
     csv_file_path = STOCK_DATA_DIRECTORY / f"{symbol_name}.csv"
-    start_date_string = determine_start_date(STOCK_DATA_DIRECTORY)
-    end_date_string = (
-        pandas.Timestamp(evaluation_date_string) + pandas.Timedelta(days=1)
-    ).date().isoformat()
-    price_history_frame = load_local_history(
-        symbol_name, start_date_string, end_date_string, cache_path=csv_file_path
-    )
-    if price_history_frame.empty:
+    if not csv_file_path.exists():
+        LOGGER.warning("Local CSV not found for %s: %s", symbol_name, csv_file_path)
         return {
             "sma_angle": None,
             "near_price_volume_ratio": None,
+            "near_price_volume_ratio_previous": None,
             "above_price_volume_ratio": None,
+            "above_price_volume_ratio_previous": None,
             "entry": False,
             "exit": False,
         }
 
+    price_history_frame = strategy.load_price_data(csv_file_path)
+    if price_history_frame.empty:
+        return {
+            "sma_angle": None,
+            "near_price_volume_ratio": None,
+            "near_price_volume_ratio_previous": None,
+            "above_price_volume_ratio": None,
+            "above_price_volume_ratio_previous": None,
+            "entry": False,
+            "exit": False,
+        }
+
+    evaluation_timestamp = pandas.Timestamp(evaluation_date_string)
+    if evaluation_timestamp in price_history_frame.index:
+        selected_timestamp = evaluation_timestamp
+    else:
+        candidate_index = price_history_frame.index[
+            price_history_frame.index <= evaluation_timestamp
+        ]
+        if len(candidate_index) == 0:
+            return {
+                "sma_angle": None,
+                "near_price_volume_ratio": None,
+                "near_price_volume_ratio_previous": None,
+                "above_price_volume_ratio": None,
+                "above_price_volume_ratio_previous": None,
+                "entry": False,
+                "exit": False,
+            }
+        selected_timestamp = candidate_index[-1]
+
+    selected_position_candidates = numpy.where(
+        price_history_frame.index == selected_timestamp
+    )[0]
+    if selected_position_candidates.size == 0:
+        return {
+            "sma_angle": None,
+            "near_price_volume_ratio": None,
+            "near_price_volume_ratio_previous": None,
+            "above_price_volume_ratio": None,
+            "above_price_volume_ratio_previous": None,
+            "entry": False,
+            "exit": False,
+        }
+    selected_position = int(selected_position_candidates[-1])
+    last_included_position = min(
+        selected_position + 1, len(price_history_frame.index) - 1
+    )
+
+    price_history_frame = price_history_frame.iloc[
+        : last_included_position + 1
+    ].copy()
     buy_price_history_frame = price_history_frame.copy()
     sell_price_history_frame = price_history_frame.copy()
 
@@ -355,7 +404,7 @@ def filter_debug_values(
     ) = strategy.parse_strategy_name(buy_strategy_name)
     buy_function = strategy.BUY_STRATEGIES.get(buy_base_name)
     if buy_function is not None:
-        buy_arguments: Dict[str, float | tuple[float, float]] = {}
+        buy_arguments: Dict[str, Any] = {"include_raw_signals": True}
         if buy_window_size is not None:
             buy_arguments["window_size"] = buy_window_size
         if buy_angle_range is not None:
@@ -365,6 +414,9 @@ def filter_debug_values(
         if buy_above_range is not None:
             buy_arguments["above_range"] = buy_above_range
         buy_function(buy_price_history_frame, **buy_arguments)
+        strategy.rename_signal_columns(
+            buy_price_history_frame, buy_base_name, buy_strategy_name
+        )
 
     (
         sell_base_name,
@@ -375,7 +427,7 @@ def filter_debug_values(
     ) = strategy.parse_strategy_name(sell_strategy_name)
     sell_function = strategy.SELL_STRATEGIES.get(sell_base_name)
     if sell_function is not None:
-        sell_arguments: Dict[str, float | tuple[float, float]] = {}
+        sell_arguments: Dict[str, Any] = {"include_raw_signals": True}
         if sell_window_size is not None:
             sell_arguments["window_size"] = sell_window_size
         if sell_angle_range is not None:
@@ -385,48 +437,121 @@ def filter_debug_values(
         if sell_above_range is not None:
             sell_arguments["above_range"] = sell_above_range
         sell_function(sell_price_history_frame, **sell_arguments)
+        strategy.rename_signal_columns(
+            sell_price_history_frame, sell_base_name, sell_strategy_name
+        )
 
     # TODO: review
     debug_column_names = [
         "sma_angle",
         "near_price_volume_ratio",
+        "near_price_volume_ratio_previous",
         "above_price_volume_ratio",
+        "above_price_volume_ratio_previous",
     ]
     buy_debug_column_names = [
         column_name
         for column_name in debug_column_names
         if column_name in buy_price_history_frame.columns
     ]
-    buy_entry_signal_column = f"{buy_base_name}_entry_signal"
+    buy_entry_signal_column = f"{buy_strategy_name}_entry_signal"
+    buy_raw_entry_signal_column = f"{buy_strategy_name}_raw_entry_signal"
+    combined_entry_series = pandas.Series(
+        False, index=buy_price_history_frame.index
+    )
+    if buy_entry_signal_column in buy_price_history_frame.columns or (
+        buy_raw_entry_signal_column in buy_price_history_frame.columns
+    ):
+        raw_entry_series = (
+            buy_price_history_frame.get(
+                buy_raw_entry_signal_column,
+                pandas.Series(False, index=buy_price_history_frame.index),
+            )
+            .fillna(False)
+            .astype(bool)
+        )
+        shifted_entry_series = (
+            buy_price_history_frame.get(
+                buy_entry_signal_column,
+                pandas.Series(False, index=buy_price_history_frame.index),
+            )
+            .fillna(False)
+            .astype(bool)
+        )
+        aligned_shifted_entry_series = shifted_entry_series.shift(
+            -1, fill_value=False
+        )
+        combined_entry_series = (
+            raw_entry_series | aligned_shifted_entry_series.astype(bool)
+        )
     if buy_entry_signal_column in buy_price_history_frame.columns:
         buy_debug_column_names.append(buy_entry_signal_column)
     debug_frame = buy_price_history_frame[buy_debug_column_names]
 
-    sell_exit_signal_column = f"{sell_base_name}_exit_signal"
+    sell_exit_signal_column = f"{sell_strategy_name}_exit_signal"
+    sell_raw_exit_signal_column = f"{sell_strategy_name}_raw_exit_signal"
+    combined_exit_series = pandas.Series(
+        False, index=sell_price_history_frame.index
+    )
+    if sell_exit_signal_column in sell_price_history_frame.columns or (
+        sell_raw_exit_signal_column in sell_price_history_frame.columns
+    ):
+        raw_exit_series = (
+            sell_price_history_frame.get(
+                sell_raw_exit_signal_column,
+                pandas.Series(False, index=sell_price_history_frame.index),
+            )
+            .fillna(False)
+            .astype(bool)
+        )
+        shifted_exit_series = (
+            sell_price_history_frame.get(
+                sell_exit_signal_column,
+                pandas.Series(False, index=sell_price_history_frame.index),
+            )
+            .fillna(False)
+            .astype(bool)
+        )
+        combined_exit_series = raw_exit_series | shifted_exit_series
     if sell_exit_signal_column in sell_price_history_frame.columns:
         debug_frame = debug_frame.join(
             sell_price_history_frame[[sell_exit_signal_column]], how="outer"
         )
 
-    evaluation_timestamp = pandas.Timestamp(evaluation_date_string)
     if evaluation_timestamp not in debug_frame.index:
         candidate_index = debug_frame.index[debug_frame.index <= evaluation_timestamp]
         if len(candidate_index) == 0:
             return {
                 "sma_angle": None,
                 "near_price_volume_ratio": None,
+                "near_price_volume_ratio_previous": None,
                 "above_price_volume_ratio": None,
+                "above_price_volume_ratio_previous": None,
                 "entry": False,
                 "exit": False,
             }
-        row = debug_frame.loc[candidate_index[-1]]
+        selected_timestamp = candidate_index[-1]
+        row = debug_frame.loc[selected_timestamp]
     else:
+        selected_timestamp = evaluation_timestamp
         row = debug_frame.loc[evaluation_timestamp]
+    entry_value = False
+    if selected_timestamp in combined_entry_series.index:
+        entry_value = bool(combined_entry_series.loc[selected_timestamp])
+    exit_value = False
+    if selected_timestamp in combined_exit_series.index:
+        exit_value = bool(combined_exit_series.loc[selected_timestamp])
     return {
         "sma_angle": row.get("sma_angle"),
         "near_price_volume_ratio": row.get("near_price_volume_ratio"),
+        "near_price_volume_ratio_previous": row.get(
+            "near_price_volume_ratio_previous"
+        ),
         "above_price_volume_ratio": row.get("above_price_volume_ratio"),
-        "entry": bool(row.get(buy_entry_signal_column, False)),
-        "exit": bool(row.get(sell_exit_signal_column, False)),
+        "above_price_volume_ratio_previous": row.get(
+            "above_price_volume_ratio_previous"
+        ),
+        "entry": entry_value,
+        "exit": exit_value,
     }
 
