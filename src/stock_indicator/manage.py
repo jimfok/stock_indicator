@@ -542,19 +542,24 @@ class StockShell(cmd.Cmd):
         symbol_name = argument_parts.pop(0)
         date_string = argument_parts.pop(0)
         strategy_identifier: str | None = None
-        if len(argument_parts) == 1 and argument_parts[0].startswith("strategy="):
-            strategy_identifier = argument_parts[0].split("=", 1)[1].strip()
-        elif len(argument_parts) == 2:
-            buy_strategy_name, sell_strategy_name = argument_parts
-        else:
-            self.stdout.write(usage_message)
-            return  # TODO: review
+        non_strategy_parts: list[str] = []
+        for part in argument_parts:
+            if part.startswith("strategy="):
+                strategy_identifier = part.split("=", 1)[1].strip()
+            elif part:
+                non_strategy_parts.append(part)
+
         if strategy_identifier:
             mapping = load_strategy_set_mapping()
             if strategy_identifier not in mapping:
                 self.stdout.write(f"unknown strategy id: {strategy_identifier}\n")
                 return
             buy_strategy_name, sell_strategy_name = mapping[strategy_identifier]
+        elif len(non_strategy_parts) == 2:
+            buy_strategy_name, sell_strategy_name = non_strategy_parts
+        else:
+            self.stdout.write(usage_message)
+            return  # TODO: review
         result = daily_job.filter_debug_values(
             symbol_name, date_string, buy_strategy_name, sell_strategy_name
         )
