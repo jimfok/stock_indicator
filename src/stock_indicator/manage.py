@@ -309,9 +309,14 @@ def save_trade_details_to_log(
                         f" above_pct={above_ratio_text}"
                         f" node_count={node_count_text}"
                     )
+                position_count = (
+                    trade_detail.global_concurrent_position_count
+                    if trade_detail.global_concurrent_position_count is not None
+                    else trade_detail.concurrent_position_count
+                )
                 line = (
                     f"  {trade_detail.date.date()} "
-                    f"({trade_detail.concurrent_position_count}) "
+                    f"({position_count}) "
                     f"{trade_detail.symbol} {trade_detail.action} {trade_detail.price:.2f} "
                     f"{trade_detail.group_simple_moving_average_dollar_volume_ratio:.4f} "
                     f"{trade_detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
@@ -860,8 +865,13 @@ class StockShell(cmd.Cmd):
                     f" above_pct={above_ratio_text}"
                     f" node_count={node_count_text}"
             )
+            position_count = (
+                detail.global_concurrent_position_count
+                if detail.global_concurrent_position_count is not None
+                else detail.concurrent_position_count
+            )
             return (
-                f"{detail.date.date()} ({detail.concurrent_position_count}) "
+                f"{detail.date.date()} ({position_count}) "
                 f"{detail.symbol} {detail.action} {detail.price:.2f} "
                 f"{detail.group_simple_moving_average_dollar_volume_ratio:.4f} "
                 f"{detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
