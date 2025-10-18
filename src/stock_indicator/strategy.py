@@ -2523,7 +2523,7 @@ def _generate_strategy_evaluation_artifacts(
                     and entry_index_position < len(run_frame.index)
                     and entry_index_position > 0
                 ):
-                    signal_date = price_data_frame.index[entry_index_position - 1]
+                    signal_date = run_frame.index[entry_index_position - 1]
                 else:
                     signal_date = completed_trade.entry_date
             chip_metrics = calculate_chip_concentration_metrics(
