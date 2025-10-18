@@ -162,6 +162,7 @@ def test_filter_debug_values_uses_latest_available_row(
     )
 
     assert debug_values["sma_angle"] == pytest.approx(1.0)
+    assert debug_values["sma_angle_previous"] is None
     assert debug_values["near_price_volume_ratio"] == pytest.approx(0.11)
     assert debug_values["near_price_volume_ratio_previous"] is None
     assert debug_values["above_price_volume_ratio"] == pytest.approx(0.33)
@@ -242,6 +243,7 @@ def test_filter_debug_values_reports_raw_entry_signals(
 
     assert debug_values["entry"] is True
     assert debug_values["exit"] is False
+    assert debug_values["sma_angle_previous"] == pytest.approx(2.0)
     assert debug_values["near_price_volume_ratio_previous"] is None
     assert debug_values["above_price_volume_ratio_previous"] is None
 
@@ -318,5 +320,6 @@ def test_filter_debug_values_includes_shifted_entry_signals(
     assert debug_values["entry"] is True
     assert debug_values["exit"] is False
     assert debug_values["sma_angle"] == pytest.approx(4.0)
+    assert debug_values["sma_angle_previous"] == pytest.approx(3.0)
     assert debug_values["near_price_volume_ratio"] == pytest.approx(0.35)
     assert debug_values["above_price_volume_ratio"] == pytest.approx(0.65)

@@ -526,6 +526,7 @@ def test_filter_debug_values_prints_table(
         recorded_arguments["sell"] = sell_name
         return {
             "sma_angle": 1.0,
+            "sma_angle_previous": None,
             "near_price_volume_ratio": 0.2,
             "above_price_volume_ratio": 0.3,
             "entry": True,
@@ -555,6 +556,7 @@ def test_filter_debug_values_prints_table(
             {
                 "date": "2024-01-10",
                 "sma_angle": 1.0,
+                "sma_angle_previous": None,
                 "near_price_volume_ratio": 0.2,
                 "above_price_volume_ratio": 0.3,
                 "entry": True,
@@ -586,6 +588,7 @@ def test_filter_debug_values_with_strategy_id(
         recorded_arguments["sell"] = sell_name
         return {
             "sma_angle": 1.0,
+            "sma_angle_previous": None,
             "near_price_volume_ratio": 0.2,
             "above_price_volume_ratio": 0.3,
             "entry": True,
@@ -620,6 +623,7 @@ def test_filter_debug_values_with_strategy_id(
             {
                 "date": "2024-01-10",
                 "sma_angle": 1.0,
+                "sma_angle_previous": None,
                 "near_price_volume_ratio": 0.2,
                 "above_price_volume_ratio": 0.3,
                 "entry": True,
@@ -652,6 +656,7 @@ def test_filter_debug_values_strategy_id_with_filter_token(
         recorded_arguments["sell"] = sell_name
         return {
             "sma_angle": 1.0,
+            "sma_angle_previous": None,
             "near_price_volume_ratio": 0.2,
             "above_price_volume_ratio": 0.3,
             "entry": True,
@@ -688,6 +693,7 @@ def test_filter_debug_values_strategy_id_with_filter_token(
             {
                 "date": "2024-01-10",
                 "sma_angle": 1.0,
+                "sma_angle_previous": None,
                 "near_price_volume_ratio": 0.2,
                 "above_price_volume_ratio": 0.3,
                 "entry": True,
