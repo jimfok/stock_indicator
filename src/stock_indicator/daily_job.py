@@ -332,6 +332,7 @@ def filter_debug_values(
         LOGGER.warning("Local CSV not found for %s: %s", symbol_name, csv_file_path)
         return {
             "sma_angle": None,
+            "sma_angle_previous": None,
             "near_price_volume_ratio": None,
             "near_price_volume_ratio_previous": None,
             "above_price_volume_ratio": None,
@@ -344,6 +345,7 @@ def filter_debug_values(
     if price_history_frame.empty:
         return {
             "sma_angle": None,
+            "sma_angle_previous": None,
             "near_price_volume_ratio": None,
             "near_price_volume_ratio_previous": None,
             "above_price_volume_ratio": None,
@@ -362,6 +364,7 @@ def filter_debug_values(
         if len(candidate_index) == 0:
             return {
                 "sma_angle": None,
+                "sma_angle_previous": None,
                 "near_price_volume_ratio": None,
                 "near_price_volume_ratio_previous": None,
                 "above_price_volume_ratio": None,
@@ -377,6 +380,7 @@ def filter_debug_values(
     if selected_position_candidates.size == 0:
         return {
             "sma_angle": None,
+            "sma_angle_previous": None,
             "near_price_volume_ratio": None,
             "near_price_volume_ratio_previous": None,
             "above_price_volume_ratio": None,
@@ -444,6 +448,7 @@ def filter_debug_values(
     # TODO: review
     debug_column_names = [
         "sma_angle",
+        "sma_angle_previous",
         "near_price_volume_ratio",
         "near_price_volume_ratio_previous",
         "above_price_volume_ratio",
@@ -523,6 +528,7 @@ def filter_debug_values(
         if len(candidate_index) == 0:
             return {
                 "sma_angle": None,
+                "sma_angle_previous": None,
                 "near_price_volume_ratio": None,
                 "near_price_volume_ratio_previous": None,
                 "above_price_volume_ratio": None,
@@ -543,6 +549,7 @@ def filter_debug_values(
         exit_value = bool(combined_exit_series.loc[selected_timestamp])
     return {
         "sma_angle": row.get("sma_angle"),
+        "sma_angle_previous": row.get("sma_angle_previous"),
         "near_price_volume_ratio": row.get("near_price_volume_ratio"),
         "near_price_volume_ratio_previous": row.get(
             "near_price_volume_ratio_previous"
