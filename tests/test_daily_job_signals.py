@@ -163,7 +163,9 @@ def test_filter_debug_values_uses_latest_available_row(
 
     assert debug_values["sma_angle"] == pytest.approx(1.0)
     assert debug_values["near_price_volume_ratio"] == pytest.approx(0.11)
+    assert debug_values["near_price_volume_ratio_previous"] is None
     assert debug_values["above_price_volume_ratio"] == pytest.approx(0.33)
+    assert debug_values["above_price_volume_ratio_previous"] is None
     assert debug_values["entry"] is False
     assert debug_values["exit"] is False
 
@@ -240,3 +242,81 @@ def test_filter_debug_values_reports_raw_entry_signals(
 
     assert debug_values["entry"] is True
     assert debug_values["exit"] is False
+    assert debug_values["near_price_volume_ratio_previous"] is None
+    assert debug_values["above_price_volume_ratio_previous"] is None
+
+
+def test_filter_debug_values_includes_shifted_entry_signals(
+    temporary_data_directory: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Shifted entry signals should remain visible for the evaluation date."""
+
+    def buy_strategy_with_shifted_signal(
+        price_frame: pandas.DataFrame,
+        *,
+        include_raw_signals: bool = False,
+        **_: float,
+    ) -> None:
+        index = price_frame.index
+        price_frame["test_strategy_entry_signal"] = pandas.Series(
+            [False, False, True], index=index
+        )
+        price_frame["sma_angle"] = pandas.Series([3.0, 4.0, 5.0], index=index)
+        price_frame["near_price_volume_ratio"] = pandas.Series(
+            [0.25, 0.35, 0.45], index=index
+        )
+        price_frame["above_price_volume_ratio"] = pandas.Series(
+            [0.55, 0.65, 0.75], index=index
+        )
+        if include_raw_signals:
+            price_frame["test_strategy_raw_entry_signal"] = pandas.Series(
+                [False, False, False], index=index
+            )
+
+    def sell_strategy_placeholder(
+        price_frame: pandas.DataFrame,
+        *,
+        include_raw_signals: bool = False,
+        **_: float,
+    ) -> None:
+        index = price_frame.index
+        length = len(index)
+        price_frame["test_strategy_exit_signal"] = pandas.Series(
+            [False] * length, index=index
+        )
+        if include_raw_signals:
+            price_frame["test_strategy_raw_exit_signal"] = pandas.Series(
+                [False] * length, index=index
+            )
+
+    monkeypatch.setitem(
+        strategy.BUY_STRATEGIES, "test_strategy", buy_strategy_with_shifted_signal
+    )
+    monkeypatch.setitem(
+        strategy.SELL_STRATEGIES, "test_strategy", sell_strategy_placeholder
+    )
+
+    csv_path = temporary_data_directory / "KO.csv"
+    frame = pandas.DataFrame(
+        {
+            "Date": pandas.to_datetime(
+                ["2025-10-08", "2025-10-09", "2025-10-10"]
+            ),
+            "Open": [12.0, 12.5, 13.0],
+            "High": [12.5, 13.0, 13.5],
+            "Low": [11.5, 12.0, 12.5],
+            "Close": [12.0, 12.5, 13.0],
+            "Volume": [1_800_000, 1_800_000, 1_800_000],
+        }
+    )
+    frame.to_csv(csv_path, index=False)
+
+    debug_values = daily_job.filter_debug_values(
+        "KO", "2025-10-09", "test_strategy", "test_strategy"
+    )
+
+    assert debug_values["entry"] is True
+    assert debug_values["exit"] is False
+    assert debug_values["sma_angle"] == pytest.approx(4.0)
+    assert debug_values["near_price_volume_ratio"] == pytest.approx(0.35)
+    assert debug_values["above_price_volume_ratio"] == pytest.approx(0.65)
