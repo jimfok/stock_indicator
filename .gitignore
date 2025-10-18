@@ -10,3 +10,4 @@ venv
 cron_logs/cron_stdout.log
 local_data/current_status.json
 .vscode
+src/stock_indicator/__pycache__
