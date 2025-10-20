@@ -2067,6 +2067,131 @@ def test_attach_ema_sma_cross_testing_respects_range_bounds(
         True,
     ]
 
+
+def test_generate_strategy_artifacts_use_run_frame_index_for_signal_date(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Trade details should record chip ratios from the prior run-frame bar."""
+
+    date_index = pandas.to_datetime(
+        [
+            "2025-09-01",
+            "2025-09-02",
+            "2025-09-03",
+            "2025-09-04",
+            "2025-09-05",
+            "2025-09-08",
+        ]
+    )
+    price_rows = pandas.DataFrame(
+        {
+            "Date": date_index,
+            "Open": [100.0, 100.5, 101.0, 101.5, 102.0, 102.5],
+            "High": [101.0, 101.5, 102.0, 102.5, 103.0, 103.5],
+            "Low": [99.5, 100.0, 100.5, 101.0, 101.5, 102.0],
+            "Close": [100.5, 101.0, 101.5, 102.0, 102.5, 103.0],
+            "Volume": [1_000_000, 1_050_000, 1_100_000, 1_150_000, 1_200_000, 1_250_000],
+        }
+    )
+    csv_path = tmp_path / "TEST.csv"
+    price_rows.to_csv(csv_path, index=False)
+
+    metrics_by_date = {
+        pandas.Timestamp("2025-09-01"): {
+            "price_score": 0.41,
+            "near_price_volume_ratio": 0.91,
+            "above_price_volume_ratio": 0.88,
+            "histogram_node_count": 5,
+        },
+        pandas.Timestamp("2025-09-02"): {
+            "price_score": 0.42,
+            "near_price_volume_ratio": 0.82,
+            "above_price_volume_ratio": 0.79,
+            "histogram_node_count": 5,
+        },
+        pandas.Timestamp("2025-09-03"): {
+            "price_score": 0.43,
+            "near_price_volume_ratio": 0.73,
+            "above_price_volume_ratio": 0.7,
+            "histogram_node_count": 5,
+        },
+        pandas.Timestamp("2025-09-04"): {
+            "price_score": 0.31,
+            "near_price_volume_ratio": 0.25,
+            "above_price_volume_ratio": 0.35,
+            "histogram_node_count": 6,
+        },
+        pandas.Timestamp("2025-09-05"): {
+            "price_score": 0.29,
+            "near_price_volume_ratio": 0.92,
+            "above_price_volume_ratio": 0.87,
+            "histogram_node_count": 6,
+        },
+        pandas.Timestamp("2025-09-08"): {
+            "price_score": 0.28,
+            "near_price_volume_ratio": 0.6,
+            "above_price_volume_ratio": 0.58,
+            "histogram_node_count": 6,
+        },
+    }
+
+    def fake_chip_metrics(
+        frame: pandas.DataFrame,
+        lookback_window_size: int = 60,
+        bin_count: int = 50,
+        near_price_band_ratio: float = 0.03,
+        include_volume_profile: bool = False,
+    ) -> dict[str, float | int | None]:
+        last_bar_date = frame.index[-1]
+        metrics = metrics_by_date[last_bar_date]
+        return {
+            "price_score": metrics["price_score"],
+            "near_price_volume_ratio": metrics["near_price_volume_ratio"],
+            "above_price_volume_ratio": metrics["above_price_volume_ratio"],
+            "histogram_node_count": metrics["histogram_node_count"],
+        }
+
+    def fake_simulate_trades(*_: object, **__: object) -> SimulationResult:
+        trade_entry_date = pandas.Timestamp("2025-09-05")
+        trade_exit_date = pandas.Timestamp("2025-09-08")
+        trade = Trade(
+            entry_date=trade_entry_date,
+            exit_date=trade_exit_date,
+            entry_price=102.5,
+            exit_price=103.5,
+            profit=1.0,
+            holding_period=(trade_exit_date - trade_entry_date).days,
+            exit_reason="signal",
+        )
+        return SimulationResult(trades=[trade], total_profit=1.0)
+
+    def simple_sma(series: pandas.Series, window_size: int) -> pandas.Series:
+        return series.rolling(window=window_size, min_periods=1).mean()
+
+    monkeypatch.setattr(strategy, "calculate_chip_concentration_metrics", fake_chip_metrics)
+    monkeypatch.setattr(strategy, "simulate_trades", fake_simulate_trades)
+    monkeypatch.setattr(strategy, "load_symbols_excluded_by_industry", lambda: set())
+    monkeypatch.setattr(strategy, "load_ff12_groups_by_symbol", lambda: {})
+    monkeypatch.setattr(strategy, "sma", simple_sma)
+
+    artifacts = strategy._generate_strategy_evaluation_artifacts(
+        tmp_path,
+        "ema_sma_cross_testing",
+        "ema_sma_cross_testing",
+        start_date=pandas.Timestamp("2025-09-04"),
+    )
+
+    assert artifacts.trade_detail_pairs
+    entry_detail, _ = next(iter(artifacts.trade_detail_pairs.values()))
+    expected_metrics = metrics_by_date[pandas.Timestamp("2025-09-04")]
+
+    assert entry_detail.near_price_volume_ratio == pytest.approx(
+        expected_metrics["near_price_volume_ratio"]
+    )
+    assert entry_detail.above_price_volume_ratio == pytest.approx(
+        expected_metrics["above_price_volume_ratio"]
+    )
+
 def test_attach_ema_sma_cross_with_slope_and_volume_requires_higher_ema_volume(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

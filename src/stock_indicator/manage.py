@@ -196,6 +196,56 @@ def _parse_volume_filter(
     )
 
 
+def _parse_stop_take_show(tokens: list[str]) -> tuple[float, float, bool]:
+    """Parse optional stop-loss, take-profit, and detail flag tokens."""
+
+    stop_loss_percentage = 1.0
+    take_profit_percentage = 0.0
+    show_trade_details = True
+    remaining_tokens = list(tokens)
+
+    if not remaining_tokens:
+        return stop_loss_percentage, take_profit_percentage, show_trade_details
+
+    first_token = remaining_tokens[0].lower()
+    if first_token in {"true", "false"}:
+        show_trade_details = first_token == "true"
+        if len(remaining_tokens) > 1:
+            raise ValueError("too many arguments")
+        return stop_loss_percentage, take_profit_percentage, show_trade_details
+
+    try:
+        stop_loss_percentage = float(remaining_tokens[0])
+    except ValueError as error:
+        raise ValueError("invalid stop loss or take profit") from error
+    remaining_tokens = remaining_tokens[1:]
+
+    if not remaining_tokens:
+        return stop_loss_percentage, take_profit_percentage, show_trade_details
+
+    next_token = remaining_tokens[0].lower()
+    if next_token in {"true", "false"}:
+        show_trade_details = next_token == "true"
+        if len(remaining_tokens) > 1:
+            raise ValueError("too many arguments")
+        return stop_loss_percentage, take_profit_percentage, show_trade_details
+
+    try:
+        take_profit_percentage = float(remaining_tokens[0])
+    except ValueError as error:
+        raise ValueError("invalid stop loss or take profit") from error
+    remaining_tokens = remaining_tokens[1:]
+
+    if not remaining_tokens:
+        return stop_loss_percentage, take_profit_percentage, show_trade_details
+
+    final_token = remaining_tokens[0].lower()
+    if final_token in {"true", "false"} and len(remaining_tokens) == 1:
+        show_trade_details = final_token == "true"
+        return stop_loss_percentage, take_profit_percentage, show_trade_details
+    raise ValueError("too many arguments")
+
+
 def save_trade_details_to_log(
     evaluation_metrics: strategy.StrategyMetrics,
     log_path: Path,
@@ -259,9 +309,14 @@ def save_trade_details_to_log(
                         f" above_pct={above_ratio_text}"
                         f" node_count={node_count_text}"
                     )
+                position_count = (
+                    trade_detail.global_concurrent_position_count
+                    if trade_detail.global_concurrent_position_count is not None
+                    else trade_detail.concurrent_position_count
+                )
                 line = (
                     f"  {trade_detail.date.date()} "
-                    f"({trade_detail.concurrent_position_count}) "
+                    f"({position_count}) "
                     f"{trade_detail.symbol} {trade_detail.action} {trade_detail.price:.2f} "
                     f"{trade_detail.group_simple_moving_average_dollar_volume_ratio:.4f} "
                     f"{trade_detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
@@ -492,19 +547,24 @@ class StockShell(cmd.Cmd):
         symbol_name = argument_parts.pop(0)
         date_string = argument_parts.pop(0)
         strategy_identifier: str | None = None
-        if len(argument_parts) == 1 and argument_parts[0].startswith("strategy="):
-            strategy_identifier = argument_parts[0].split("=", 1)[1].strip()
-        elif len(argument_parts) == 2:
-            buy_strategy_name, sell_strategy_name = argument_parts
-        else:
-            self.stdout.write(usage_message)
-            return  # TODO: review
+        non_strategy_parts: list[str] = []
+        for part in argument_parts:
+            if part.startswith("strategy="):
+                strategy_identifier = part.split("=", 1)[1].strip()
+            elif part:
+                non_strategy_parts.append(part)
+
         if strategy_identifier:
             mapping = load_strategy_set_mapping()
             if strategy_identifier not in mapping:
                 self.stdout.write(f"unknown strategy id: {strategy_identifier}\n")
                 return
             buy_strategy_name, sell_strategy_name = mapping[strategy_identifier]
+        elif len(non_strategy_parts) == 2:
+            buy_strategy_name, sell_strategy_name = non_strategy_parts
+        else:
+            self.stdout.write(usage_message)
+            return  # TODO: review
         result = daily_job.filter_debug_values(
             symbol_name, date_string, buy_strategy_name, sell_strategy_name
         )
@@ -643,6 +703,7 @@ class StockShell(cmd.Cmd):
                 raise ValueError("only one strategy id may be provided")
 
             stop_loss_percentage = 1.0
+            take_profit_percentage = 0.0
             if strategy_identifier:
                 if strategy_identifier not in strategy_mapping:
                     raise ValueError(
@@ -651,13 +712,20 @@ class StockShell(cmd.Cmd):
                 buy_strategy_name, sell_strategy_name = strategy_mapping[
                     strategy_identifier
                 ]
-                if len(remaining_tokens) > 1:
-                    raise ValueError("invalid stop loss")
+                if len(remaining_tokens) > 2:
+                    raise ValueError("invalid stop loss or take profit")
                 if remaining_tokens:
                     try:
                         stop_loss_percentage = float(remaining_tokens[0])
                     except ValueError as error:
-                        raise ValueError("invalid stop loss") from error
+                        raise ValueError("invalid stop loss or take profit") from error
+                    if len(remaining_tokens) == 2:
+                        try:
+                            take_profit_percentage = float(remaining_tokens[1])
+                        except ValueError as error:
+                            raise ValueError(
+                                "invalid stop loss or take profit"
+                            ) from error
             else:
                 if len(remaining_tokens) < 2:
                     raise ValueError(
@@ -672,12 +740,19 @@ class StockShell(cmd.Cmd):
                 ):
                     raise ValueError("unsupported strategies")
                 if remaining_tokens:
-                    if len(remaining_tokens) > 1:
-                        raise ValueError("invalid stop loss")
+                    if len(remaining_tokens) > 2:
+                        raise ValueError("invalid stop loss or take profit")
                     try:
                         stop_loss_percentage = float(remaining_tokens[0])
                     except ValueError as error:
-                        raise ValueError("invalid stop loss") from error
+                        raise ValueError("invalid stop loss or take profit") from error
+                    if len(remaining_tokens) == 2:
+                        try:
+                            take_profit_percentage = float(remaining_tokens[1])
+                        except ValueError as error:
+                            raise ValueError(
+                                "invalid stop loss or take profit"
+                            ) from error
 
             return strategy.ComplexStrategySetDefinition(
                 label=label,
@@ -685,6 +760,7 @@ class StockShell(cmd.Cmd):
                 sell_strategy_name=sell_strategy_name,
                 strategy_identifier=strategy_identifier,
                 stop_loss_percentage=stop_loss_percentage,
+                take_profit_percentage=take_profit_percentage,
                 minimum_average_dollar_volume=minimum_average_dollar_volume,
                 minimum_average_dollar_volume_ratio=
                     minimum_average_dollar_volume_ratio,
@@ -789,8 +865,13 @@ class StockShell(cmd.Cmd):
                     f" above_pct={above_ratio_text}"
                     f" node_count={node_count_text}"
             )
+            position_count = (
+                detail.global_concurrent_position_count
+                if detail.global_concurrent_position_count is not None
+                else detail.concurrent_position_count
+            )
             return (
-                f"{detail.date.date()} ({detail.concurrent_position_count}) "
+                f"{detail.date.date()} ({position_count}) "
                 f"{detail.symbol} {detail.action} {detail.price:.2f} "
                 f"{detail.group_simple_moving_average_dollar_volume_ratio:.4f} "
                 f"{detail.simple_moving_average_dollar_volume / 1_000_000:.2f}M "
@@ -840,15 +921,15 @@ class StockShell(cmd.Cmd):
             "  margin: Optional leverage multiplier (>= 1.0). When greater than 1, a 4.8% annual interest rate is applied.\n"
             "  SHOW_DETAILS: True (default) or False to control trade detail output.\n"
             "Each SET definition must provide a dollar-volume filter followed by either BUY/SELL strategy names or strategy=ID,\n"
-            "optionally followed by a stop-loss value. Separate the two sets with --.\n"
+            "optionally followed by stop-loss and take-profit values. Separate the two sets with --.\n"
         )
 
     # TODO: review
     def do_start_simulate(self, argument_line: str) -> None:  # noqa: D401
-        """start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [SHOW_DETAILS]
+        """start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS]
         Evaluate trading strategies using cached data.
 
-        STOP_LOSS defaults to 1.0 when not provided.
+        STOP_LOSS defaults to 1.0 and TAKE_PROFIT defaults to 0.0 when not provided.
         SHOW_DETAILS defaults to True and controls whether trade details are printed."""
         argument_parts: List[str] = argument_line.split()
         starting_cash_value = 3000.0
@@ -954,22 +1035,30 @@ class StockShell(cmd.Cmd):
         # - FILTER BUY SELL [STOP] [SHOW]
         # - FILTER [STOP] [SHOW] with strategy=ID
         stop_loss_percentage = 1.0
+        take_profit_percentage = 0.0
         show_trade_details = True
         if strategy_id:
-            if len(argument_parts) not in (1, 2, 3):
+            if not argument_parts:
                 self.stdout.write(
-                    "usage: start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER [STOP_LOSS] [SHOW_DETAILS] strategy=ID [group=...] [margin=NUMBER]\n"
+                    "usage: start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS] strategy=ID [group=...] [margin=NUMBER]\n"
                 )
                 return
             volume_filter = argument_parts[0]
-            if len(argument_parts) >= 2:
-                try:
-                    stop_loss_percentage = float(argument_parts[1])
-                except ValueError:
-                    self.stdout.write("invalid stop loss\n")
-                    return
-            if len(argument_parts) == 3:
-                show_trade_details = argument_parts[2].lower() == "true"
+            try:
+                (
+                    stop_loss_percentage,
+                    take_profit_percentage,
+                    show_trade_details,
+                ) = _parse_stop_take_show(argument_parts[1:])
+            except ValueError as error:
+                error_message = str(error)
+                if error_message == "too many arguments":
+                    self.stdout.write(
+                        "usage: start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS] strategy=ID [group=...] [margin=NUMBER]\n"
+                    )
+                else:
+                    self.stdout.write(f"{error_message}\n")
+                return
             mapping = load_strategy_set_mapping()
             if strategy_id not in mapping:
                 self.stdout.write(f"unknown strategy id: {strategy_id}\n")
@@ -979,21 +1068,29 @@ class StockShell(cmd.Cmd):
             # Pass through composite strategy expressions
             # Pass through composite strategy expressions
         else:
-            if len(argument_parts) not in (3, 4, 5):
+            if len(argument_parts) < 3:
                 self.stdout.write(
                     "usage: start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [margin=NUMBER] "
-                    "DOLLAR_VOLUME_FILTER (BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS] [group=1,2,...]\n"
+                    "DOLLAR_VOLUME_FILTER (BUY SELL | [strategy=ID]) [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS] [group=1,2,...]\n"
                 )
                 return
             volume_filter, buy_strategy_name, sell_strategy_name = argument_parts[:3]
-            if len(argument_parts) >= 4:
-                try:
-                    stop_loss_percentage = float(argument_parts[3])
-                except ValueError:
-                    self.stdout.write("invalid stop loss\n")
-                    return
-            if len(argument_parts) == 5:
-                show_trade_details = argument_parts[4].lower() == "true"
+            try:
+                (
+                    stop_loss_percentage,
+                    take_profit_percentage,
+                    show_trade_details,
+                ) = _parse_stop_take_show(argument_parts[3:])
+            except ValueError as error:
+                error_message = str(error)
+                if error_message == "too many arguments":
+                    self.stdout.write(
+                        "usage: start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [margin=NUMBER] "
+                        "DOLLAR_VOLUME_FILTER (BUY SELL | [strategy=ID]) [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS] [group=1,2,...]\n"
+                    )
+                else:
+                    self.stdout.write(f"{error_message}\n")
+                return
         minimum_average_dollar_volume: float | None = None  # TODO: review
         minimum_average_dollar_volume_ratio: float | None = None  # TODO: review
         top_dollar_volume_rank: int | None = None  # TODO: review
@@ -1091,6 +1188,7 @@ class StockShell(cmd.Cmd):
             starting_cash=starting_cash_value,
             withdraw_amount=withdraw_amount,
             stop_loss_percentage=stop_loss_percentage,
+            take_profit_percentage=take_profit_percentage,
             start_date=start_timestamp,
             allowed_fama_french_groups=allowed_group_identifiers,
             **extra_arguments,
@@ -1362,7 +1460,7 @@ class StockShell(cmd.Cmd):
         available_sell = ", ".join(sorted(strategy.SELL_STRATEGIES.keys()))
         self.stdout.write(
             "start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [margin=NUMBER] "
-            "DOLLAR_VOLUME_FILTER (BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS] [group=1,2,...]\n"
+            "DOLLAR_VOLUME_FILTER (BUY SELL | [strategy=ID]) [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS] [group=1,2,...]\n"
             "Evaluate trading strategies using cached data.\n"
             "Parameters:\n"
             "  starting_cash: Initial cash balance for the simulation. Defaults to 3000.\n"
@@ -1381,6 +1479,10 @@ class StockShell(cmd.Cmd):
             "    the stop, exits on the same bar at the stop price; otherwise, if\n"
             "    the close is below the stop, exits on the next day's open.\n"
             "    Defaults to 1.0 (disabled).\n"
+            "  TAKE_PROFIT: Fractional gain for profit targets. If intraday high reaches\n"
+            "    the target, exits on the same bar at the target price; otherwise, if\n"
+            "    the close is above the target, exits on the next day's open.\n"
+            "    Defaults to 0.0 (disabled).\n"
             "  SHOW_DETAILS: 'True' to print individual trades, 'False' to suppress them. Defaults to True.\n"
             "  group: Optional comma-separated FF12 group ids (1-11) to restrict\n"
             "    tradable symbols. Group 12 (Other) is always excluded. Example:\n"
@@ -1395,10 +1497,10 @@ class StockShell(cmd.Cmd):
 
     
     def do_start_simulate_single_symbol(self, argument_line: str) -> None:  # noqa: D401
-        """start_simulate_single_symbol [symbol=SYMBOL] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [SHOW_DETAILS]
+        """start_simulate_single_symbol [symbol=SYMBOL] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS]
         Evaluate strategies on a single symbol using full allocation per position.
 
-        When not provided, STOP_LOSS defaults to 1.0 and SHOW_DETAILS defaults to True.
+        When not provided, STOP_LOSS defaults to 1.0, TAKE_PROFIT defaults to 0.0, and SHOW_DETAILS defaults to True.
         """
         argument_parts: List[str] = argument_line.split()
         symbol_name: str | None = None
@@ -1451,21 +1553,24 @@ class StockShell(cmd.Cmd):
         # - BUY SELL [STOP] [SHOW]
         # - [STOP] [SHOW] with strategy=ID
         stop_loss_percentage = 1.0
+        take_profit_percentage = 0.0
         show_trade_details = True
         if strategy_id:
-            if len(argument_parts) not in (1, 2):
-                self.stdout.write(
-                    "usage: start_simulate_single_symbol [symbol=SYMBOL] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [STOP_LOSS] [SHOW_DETAILS] strategy=ID\n"
-                )
+            try:
+                (
+                    stop_loss_percentage,
+                    take_profit_percentage,
+                    show_trade_details,
+                ) = _parse_stop_take_show(argument_parts)
+            except ValueError as error:
+                error_message = str(error)
+                if error_message == "too many arguments":
+                    self.stdout.write(
+                        "usage: start_simulate_single_symbol [symbol=SYMBOL] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS] strategy=ID\n"
+                    )
+                else:
+                    self.stdout.write(f"{error_message}\n")
                 return
-            if len(argument_parts) >= 1:
-                try:
-                    stop_loss_percentage = float(argument_parts[0])
-                except ValueError:
-                    self.stdout.write("invalid stop loss\n")
-                    return
-            if len(argument_parts) == 2:
-                show_trade_details = argument_parts[1].lower() == "true"
             mapping = load_strategy_set_mapping()
             if strategy_id not in mapping:
                 self.stdout.write(f"unknown strategy id: {strategy_id}\n")
@@ -1473,21 +1578,29 @@ class StockShell(cmd.Cmd):
             buy_strategy_name, sell_strategy_name = mapping[strategy_id]
             # Pass through composite strategy expressions
         else:
-            if len(argument_parts) not in (2, 3, 4):
+            if len(argument_parts) < 2:
                 self.stdout.write(
                     "usage: start_simulate_single_symbol [symbol=SYMBOL] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
-                    "(BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS]\n"
+                    "(BUY SELL | [strategy=ID]) [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS]\n"
                 )
                 return
             buy_strategy_name, sell_strategy_name = argument_parts[:2]
-            if len(argument_parts) >= 3:
-                try:
-                    stop_loss_percentage = float(argument_parts[2])
-                except ValueError:
-                    self.stdout.write("invalid stop loss\n")
-                    return
-            if len(argument_parts) == 4:
-                show_trade_details = argument_parts[3].lower() == "true"
+            try:
+                (
+                    stop_loss_percentage,
+                    take_profit_percentage,
+                    show_trade_details,
+                ) = _parse_stop_take_show(argument_parts[2:])
+            except ValueError as error:
+                error_message = str(error)
+                if error_message == "too many arguments":
+                    self.stdout.write(
+                        "usage: start_simulate_single_symbol [symbol=SYMBOL] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
+                        "(BUY SELL | [strategy=ID]) [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS]\n"
+                    )
+                else:
+                    self.stdout.write(f"{error_message}\n")
+                return
         # Validate strategies; support composite expressions
         if not _has_supported_strategy(buy_strategy_name, strategy.BUY_STRATEGIES) or not _has_supported_strategy(
             sell_strategy_name, strategy.SELL_STRATEGIES
@@ -1516,6 +1629,7 @@ class StockShell(cmd.Cmd):
             starting_cash=starting_cash_value,
             withdraw_amount=withdraw_amount,
             stop_loss_percentage=stop_loss_percentage,
+            take_profit_percentage=take_profit_percentage,
             start_date=start_timestamp,
             maximum_position_count=1,  # full allocation per position
             allowed_symbols={symbol_name},
@@ -1638,7 +1752,7 @@ class StockShell(cmd.Cmd):
         """Display help for the start_simulate_single_symbol command."""
         self.stdout.write(
             "start_simulate_single_symbol [symbol=SYMBOL] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
-            "(BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS]\n"
+            "(BUY SELL | [strategy=ID]) [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS]\n"
             "Simulate strategies on a single symbol using full allocation per position.\n"
             "Parameters:\n"
             "  symbol: Ticker symbol to simulate (required).\n"
@@ -1647,14 +1761,15 @@ class StockShell(cmd.Cmd):
             "  start: Start date in YYYY-MM-DD format. Defaults to earliest available.\n"
             "  BUY/SELL or strategy=ID: Either provide explicit strategy names, or a strategy id defined in data/strategy_sets.csv.\n"
             "  STOP_LOSS: Fractional loss for stop orders (same-bar at stop price when low hits; otherwise next-day open). Defaults to 1.0.\n"
+            "  TAKE_PROFIT: Fractional gain for profit targets (same-bar at target when high reaches it; otherwise next-day open). Defaults to 0.0 (disabled).\n"
             "  SHOW_DETAILS: 'True' to print trade details, 'False' to suppress. Defaults to True.\n"
         )
 
     def do_start_simulate_n_symbol(self, argument_line: str) -> None:  # noqa: D401
-        """start_simulate_n_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [SHOW_DETAILS]
+        """start_simulate_n_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS]
         Evaluate strategies across a provided symbol list. Budget per position uses slot count equal to the number of symbols.
 
-        When not provided, STOP_LOSS defaults to 1.0 and SHOW_DETAILS defaults to True.
+        When not provided, STOP_LOSS defaults to 1.0, TAKE_PROFIT defaults to 0.0, and SHOW_DETAILS defaults to True.
         """
         argument_parts: List[str] = argument_line.split()
         symbol_list_input: str | None = None
@@ -1704,46 +1819,57 @@ class StockShell(cmd.Cmd):
         if symbol_list_input is None:
             self.stdout.write(
                 "usage: start_simulate_n_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
-                "(BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS]\n"
+                "(BUY SELL | [strategy=ID]) [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS]\n"
             )
             return
         stop_loss_percentage = 1.0
+        take_profit_percentage = 0.0
         show_trade_details = True
         if strategy_id:
-            if len(argument_parts) not in (1, 2):
-                self.stdout.write(
-                    "usage: start_simulate_n_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [STOP_LOSS] [SHOW_DETAILS] strategy=ID\n"
-                )
+            try:
+                (
+                    stop_loss_percentage,
+                    take_profit_percentage,
+                    show_trade_details,
+                ) = _parse_stop_take_show(argument_parts)
+            except ValueError as error:
+                error_message = str(error)
+                if error_message == "too many arguments":
+                    self.stdout.write(
+                        "usage: start_simulate_n_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS] strategy=ID\n"
+                    )
+                else:
+                    self.stdout.write(f"{error_message}\n")
                 return
-            if len(argument_parts) >= 1:
-                try:
-                    stop_loss_percentage = float(argument_parts[0])
-                except ValueError:
-                    self.stdout.write("invalid stop loss\n")
-                    return
-            if len(argument_parts) == 2:
-                show_trade_details = argument_parts[1].lower() == "true"
             mapping = load_strategy_set_mapping()
             if strategy_id not in mapping:
                 self.stdout.write(f"unknown strategy id: {strategy_id}\n")
                 return
             buy_strategy_name, sell_strategy_name = mapping[strategy_id]
         else:
-            if len(argument_parts) not in (2, 3, 4):
+            if len(argument_parts) < 2:
                 self.stdout.write(
                     "usage: start_simulate_n_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
-                    "(BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS]\n"
+                    "(BUY SELL | [strategy=ID]) [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS]\n"
                 )
                 return
             buy_strategy_name, sell_strategy_name = argument_parts[:2]
-            if len(argument_parts) >= 3:
-                try:
-                    stop_loss_percentage = float(argument_parts[2])
-                except ValueError:
-                    self.stdout.write("invalid stop loss\n")
-                    return
-            if len(argument_parts) == 4:
-                show_trade_details = argument_parts[3].lower() == "true"
+            try:
+                (
+                    stop_loss_percentage,
+                    take_profit_percentage,
+                    show_trade_details,
+                ) = _parse_stop_take_show(argument_parts[2:])
+            except ValueError as error:
+                error_message = str(error)
+                if error_message == "too many arguments":
+                    self.stdout.write(
+                        "usage: start_simulate_n_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
+                        "(BUY SELL | [strategy=ID]) [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS]\n"
+                    )
+                else:
+                    self.stdout.write(f"{error_message}\n")
+                return
 
         # Validate strategies; support composite expressions
         if not _has_supported_strategy(buy_strategy_name, strategy.BUY_STRATEGIES) or not _has_supported_strategy(
@@ -1782,6 +1908,7 @@ class StockShell(cmd.Cmd):
             starting_cash=starting_cash_value,
             withdraw_amount=withdraw_amount,
             stop_loss_percentage=stop_loss_percentage,
+            take_profit_percentage=take_profit_percentage,
             start_date=start_timestamp,
             maximum_position_count=len(existing_symbols),  # slots = symbol count
             allowed_symbols=set(existing_symbols),
@@ -1904,7 +2031,7 @@ class StockShell(cmd.Cmd):
         """Display help for the start_simulate_n_symbol command."""
         self.stdout.write(
             "start_simulate_n_symbol symbols=AAA,BBB[,CCC...] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] "
-            "(BUY SELL | [strategy=ID]) [STOP_LOSS] [SHOW_DETAILS]\n"
+            "(BUY SELL | [strategy=ID]) [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS]\n"
             "Simulate strategies across a list of symbols; budget per position uses slots equal to the list length.\n"
             "Parameters:\n"
             "  symbols: Comma-separated ticker symbols to simulate (required).\n"
@@ -1913,6 +2040,7 @@ class StockShell(cmd.Cmd):
             "  start: Start date in YYYY-MM-DD format. Defaults to earliest available.\n"
             "  BUY/SELL or strategy=ID: Either provide explicit strategy names, or a strategy id defined in data/strategy_sets.csv.\n"
             "  STOP_LOSS: Fractional loss for stop orders (same-bar at stop price when low hits; otherwise next-day open). Defaults to 1.0.\n"
+            "  TAKE_PROFIT: Fractional gain for profit targets (same-bar at target when high reaches it; otherwise next-day open). Defaults to 0.0 (disabled).\n"
             "  SHOW_DETAILS: 'True' to print trade details, 'False' to suppress. Defaults to True.\n"
         )
 

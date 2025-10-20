@@ -423,7 +423,7 @@ class TradeDetail:
     marks whether a closed trade ended in a win or a loss. For closing trades,
     ``percentage_change`` records the fractional price change between entry and
     exit. The ``exit_reason`` field captures why a trade closed, such as
-    ``"signal"``, ``"stop_loss"``, or ``"end_of_data"``.
+    ``"signal"``, ``"stop_loss"``, ``"take_profit"``, or ``"end_of_data"``.
     """
     # TODO: review
     date: pandas.Timestamp
@@ -446,6 +446,10 @@ class TradeDetail:
     # For an "open" event, includes this position. For a "close" event,
     # excludes the position being closed.
     concurrent_position_count: int = 0
+    # Number of concurrent open positions across all strategy sets at the time of
+    # this trade detail event. This value is populated during complex
+    # simulations where multiple sets share a global position limit.
+    global_concurrent_position_count: int | None = None
     strategy_set_label: str | None = None
     result: str | None = None  # TODO: review
     percentage_change: float | None = None  # TODO: review
@@ -483,6 +487,7 @@ class ComplexStrategySetDefinition:
     sell_strategy_name: str
     strategy_identifier: str | None = None
     stop_loss_percentage: float = 1.0
+    take_profit_percentage: float = 0.0
     minimum_average_dollar_volume: float | None = None
     minimum_average_dollar_volume_ratio: float | None = None
     top_dollar_volume_rank: int | None = None
@@ -562,6 +567,7 @@ def run_complex_simulation(
             allowed_symbols=None,
             exclude_other_ff12=True,
             stop_loss_percentage=definition.stop_loss_percentage,
+            take_profit_percentage=definition.take_profit_percentage,
             margin_multiplier=margin_multiplier,
             margin_interest_annual_rate=effective_interest_rate,
         )
@@ -812,6 +818,7 @@ def run_complex_simulation(
     aggregated_trade_details_by_year = _organize_trade_details_by_year(
         aggregated_detail_pairs_with_label
     )
+    _assign_global_concurrent_position_counts(aggregated_detail_pairs_with_label)
     aggregated_maximum_concurrent_positions = calculate_maximum_concurrent_positions(
         aggregated_simulation_results
     )
@@ -1166,7 +1173,8 @@ def compute_signals_for_date(
     # Build signals and sample the most recent bar at or before evaluation_date
     for csv_file_path, price_data_frame, symbol_mask in selected_symbol_data:
         # Build buy-side signals (support composite expressions)
-        buy_signal_columns: list[str] = []
+        raw_buy_signal_columns: list[str] = []
+        shifted_buy_signal_columns: list[str] = []
         for buy_name in buy_choice_names:
             try:
                 (
@@ -1191,16 +1199,16 @@ def compute_signals_for_date(
                 price_data_frame,
                 include_raw_signals=use_unshifted_signals,
             )
+            entry_column_name = f"{buy_name}_entry_signal"
             if use_unshifted_signals:
-                column_name = f"{buy_name}_raw_entry_signal"
-                if column_name in price_data_frame.columns:
-                    buy_signal_columns.append(column_name)
-                elif f"{buy_name}_entry_signal" in price_data_frame.columns:
-                    buy_signal_columns.append(f"{buy_name}_entry_signal")
+                raw_column_name = f"{buy_name}_raw_entry_signal"
+                if raw_column_name in price_data_frame.columns:
+                    raw_buy_signal_columns.append(raw_column_name)
+                if entry_column_name in price_data_frame.columns:
+                    shifted_buy_signal_columns.append(entry_column_name)
             else:
-                column_name = f"{buy_name}_entry_signal"
-                if column_name in price_data_frame.columns:
-                    buy_signal_columns.append(column_name)
+                if entry_column_name in price_data_frame.columns:
+                    shifted_buy_signal_columns.append(entry_column_name)
 
         sell_signal_columns: list[str] = []
         for sell_name in sell_choice_names:
@@ -1239,14 +1247,49 @@ def compute_signals_for_date(
                     sell_signal_columns.append(column_name)
 
         # Combined columns (OR across choices)
-        buy_signal_columns = list(dict.fromkeys(buy_signal_columns))
+        raw_buy_signal_columns = list(dict.fromkeys(raw_buy_signal_columns))
+        shifted_buy_signal_columns = list(dict.fromkeys(shifted_buy_signal_columns))
         sell_signal_columns = list(dict.fromkeys(sell_signal_columns))
-        if buy_signal_columns:
-            price_data_frame["_combined_buy_entry"] = (
-                price_data_frame[buy_signal_columns].any(axis=1).fillna(False)
+        if use_unshifted_signals:
+            if raw_buy_signal_columns:
+                raw_entry_series = (
+                    price_data_frame[raw_buy_signal_columns]
+                    .any(axis=1)
+                    .fillna(False)
+                    .astype(bool)
+                )
+            else:
+                raw_entry_series = pandas.Series(
+                    False, index=price_data_frame.index
+                )
+            if shifted_buy_signal_columns:
+                shifted_entry_series = (
+                    price_data_frame[shifted_buy_signal_columns]
+                    .any(axis=1)
+                    .fillna(False)
+                    .astype(bool)
+                )
+            else:
+                shifted_entry_series = pandas.Series(
+                    False, index=price_data_frame.index
+                )
+            aligned_shifted_entry_series = shifted_entry_series.shift(
+                -1, fill_value=False
             )
+            combined_entry_series = (
+                raw_entry_series | aligned_shifted_entry_series.astype(bool)
+            )
+            price_data_frame["_combined_buy_entry"] = combined_entry_series
         else:
-            price_data_frame["_combined_buy_entry"] = False
+            if shifted_buy_signal_columns:
+                price_data_frame["_combined_buy_entry"] = (
+                    price_data_frame[shifted_buy_signal_columns]
+                    .any(axis=1)
+                    .fillna(False)
+                    .astype(bool)
+                )
+            else:
+                price_data_frame["_combined_buy_entry"] = False
         if sell_signal_columns:
             price_data_frame["_combined_sell_exit"] = (
                 price_data_frame[sell_signal_columns].any(axis=1).fillna(False)
@@ -2140,6 +2183,7 @@ def _generate_strategy_evaluation_artifacts(
     allowed_symbols: set[str] | None = None,
     exclude_other_ff12: bool = True,
     stop_loss_percentage: float = 1.0,
+    take_profit_percentage: float = 0.0,
     margin_multiplier: float = 1.0,
     margin_interest_annual_rate: float = 0.048,
 ) -> StrategyEvaluationArtifacts:
@@ -2446,6 +2490,7 @@ def _generate_strategy_evaluation_artifacts(
             entry_price_column="open",
             exit_price_column="open",
             stop_loss_percentage=stop_loss_percentage,
+            take_profit_percentage=take_profit_percentage,
             cooldown_bars=cooldown_after_close,
         )
         simulation_results.append(simulation_result)
@@ -2519,7 +2564,7 @@ def _generate_strategy_evaluation_artifacts(
                     and entry_index_position < len(run_frame.index)
                     and entry_index_position > 0
                 ):
-                    signal_date = price_data_frame.index[entry_index_position - 1]
+                    signal_date = run_frame.index[entry_index_position - 1]
                 else:
                     signal_date = completed_trade.entry_date
             chip_metrics = calculate_chip_concentration_metrics(
@@ -2608,6 +2653,43 @@ def _organize_trade_details_by_year(
     return trade_details_by_year
 
 
+def _assign_global_concurrent_position_counts(
+    detail_pairs: Iterable[Tuple[TradeDetail, TradeDetail]]
+) -> None:
+    """Populate global concurrent position counts for trade detail records."""
+
+    trade_details: List[TradeDetail] = [
+        detail for entry_detail, exit_detail in detail_pairs for detail in (entry_detail, exit_detail)
+    ]
+    if not trade_details:
+        return
+    trade_details.sort(
+        key=lambda detail: (
+            detail.date,
+            0 if detail.action == "close" else 1,
+            detail.symbol,
+            id(detail),
+        )
+    )
+    open_symbols: Dict[str, bool] = {}
+    current_open_count = 0
+    for trade_detail in trade_details:
+        symbol_name = trade_detail.symbol
+        if trade_detail.action == "close":
+            was_open = open_symbols.get(symbol_name, False)
+            if was_open:
+                trade_detail.global_concurrent_position_count = max(0, current_open_count - 1)
+                open_symbols[symbol_name] = False
+                current_open_count = max(0, current_open_count - 1)
+            else:
+                trade_detail.global_concurrent_position_count = current_open_count
+        else:
+            trade_detail.global_concurrent_position_count = current_open_count + 1
+            if not open_symbols.get(symbol_name, False):
+                open_symbols[symbol_name] = True
+                current_open_count += 1
+
+
 def evaluate_combined_strategy(
     data_directory: Path,
     buy_strategy_name: str,
@@ -2619,6 +2701,7 @@ def evaluate_combined_strategy(
     starting_cash: float = 3000.0,
     withdraw_amount: float = 0.0,
     stop_loss_percentage: float = 1.0,
+    take_profit_percentage: float = 0.0,
     start_date: pandas.Timestamp | None = None,
     maximum_position_count: int = 3,
     allowed_fama_french_groups: set[int] | None = None,
@@ -2643,6 +2726,7 @@ def evaluate_combined_strategy(
         allowed_symbols=allowed_symbols,
         exclude_other_ff12=exclude_other_ff12,
         stop_loss_percentage=stop_loss_percentage,
+        take_profit_percentage=take_profit_percentage,
         margin_multiplier=margin_multiplier,
         margin_interest_annual_rate=margin_interest_annual_rate,
     )

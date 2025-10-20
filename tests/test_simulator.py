@@ -210,6 +210,72 @@ def test_simulate_trades_applies_stop_loss_next_open() -> None:
     assert completed_trade.holding_period == 2
 
 
+def test_simulate_trades_applies_take_profit_intraday() -> None:
+    """Trades should close immediately when the profit target is reached intraday."""
+
+    price_data_frame = pandas.DataFrame(
+        {
+            "open": [100.0, 102.0],
+            "high": [100.0, 112.0],
+            "close": [100.0, 111.0],
+        }
+    )
+
+    def entry_rule(current_row: pandas.Series) -> bool:
+        return current_row.name == 0
+
+    def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
+        return False
+
+    result = simulate_trades(
+        price_data_frame,
+        entry_rule,
+        exit_rule,
+        entry_price_column="open",
+        exit_price_column="open",
+        take_profit_percentage=0.1,
+    )
+
+    assert len(result.trades) == 1
+    completed_trade = result.trades[0]
+    assert completed_trade.exit_price == pytest.approx(110.0)
+    assert completed_trade.exit_date == price_data_frame.index[1]
+    assert completed_trade.exit_reason == "take_profit"
+
+
+def test_simulate_trades_applies_take_profit_next_open() -> None:
+    """Trades should close on the next open when only the close beats the target."""
+
+    price_data_frame = pandas.DataFrame(
+        {
+            "open": [100.0, 104.0, 115.0],
+            "high": [100.0, 108.0, 120.0],
+            "close": [100.0, 111.0, 118.0],
+        }
+    )
+
+    def entry_rule(current_row: pandas.Series) -> bool:
+        return current_row.name == 0
+
+    def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
+        return False
+
+    result = simulate_trades(
+        price_data_frame,
+        entry_rule,
+        exit_rule,
+        entry_price_column="open",
+        exit_price_column="open",
+        take_profit_percentage=0.1,
+    )
+
+    assert len(result.trades) == 1
+    completed_trade = result.trades[0]
+    assert completed_trade.exit_date == price_data_frame.index[2]
+    assert completed_trade.exit_price == pytest.approx(110.0)
+    assert completed_trade.exit_reason == "take_profit"
+
+
 def test_calculate_maximum_concurrent_positions_counts_overlaps() -> None:
     """Count overlapping trades across multiple simulations."""
     trade_alpha = Trade(
@@ -374,6 +440,7 @@ def test_calculate_annual_returns_computes_yearly_returns() -> None:
         starting_cash=1000.0,
         maximum_position_count=1,
         simulation_start=simulation_start,
+        margin_interest_annual_rate=0.0,
     )
     first_year_end = (
         1000.0 * (110.0 / 100.0)
@@ -445,6 +512,7 @@ def test_simulate_portfolio_balance_applies_withdraw() -> None:
         starting_cash=100.0,
         maximum_position_count=1,
         withdraw_amount=10.0,
+        margin_interest_annual_rate=0.0,
     )
     expected_balance = 89.0
     assert pytest.approx(final_balance, rel=1e-6) == expected_balance
@@ -479,6 +547,7 @@ def test_calculate_annual_returns_applies_withdraw() -> None:
         maximum_position_count=1,
         simulation_start=simulation_start,
         withdraw_amount=10.0,
+        margin_interest_annual_rate=0.0,
     )
     first_year_end = (
         100.0 * (60.0 / 50.0)
@@ -567,6 +636,7 @@ def test_calculate_max_drawdown_marks_to_market() -> None:
         trade_symbol_lookup=trade_symbol_lookup,
         closing_price_series_by_symbol=closing_price_series_by_symbol,
         withdraw_amount=0.0,
+        margin_interest_annual_rate=0.0,
     )
     entry_commission = calc_commission(100, 10.0)
     cash_after_entry = 1000.0 - 100 * 10.0 - entry_commission

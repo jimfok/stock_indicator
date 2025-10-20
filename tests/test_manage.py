@@ -526,6 +526,7 @@ def test_filter_debug_values_prints_table(
         recorded_arguments["sell"] = sell_name
         return {
             "sma_angle": 1.0,
+            "sma_angle_previous": None,
             "near_price_volume_ratio": 0.2,
             "above_price_volume_ratio": 0.3,
             "entry": True,
@@ -555,6 +556,7 @@ def test_filter_debug_values_prints_table(
             {
                 "date": "2024-01-10",
                 "sma_angle": 1.0,
+                "sma_angle_previous": None,
                 "near_price_volume_ratio": 0.2,
                 "above_price_volume_ratio": 0.3,
                 "entry": True,
@@ -586,6 +588,7 @@ def test_filter_debug_values_with_strategy_id(
         recorded_arguments["sell"] = sell_name
         return {
             "sma_angle": 1.0,
+            "sma_angle_previous": None,
             "near_price_volume_ratio": 0.2,
             "above_price_volume_ratio": 0.3,
             "entry": True,
@@ -620,6 +623,77 @@ def test_filter_debug_values_with_strategy_id(
             {
                 "date": "2024-01-10",
                 "sma_angle": 1.0,
+                "sma_angle_previous": None,
+                "near_price_volume_ratio": 0.2,
+                "above_price_volume_ratio": 0.3,
+                "entry": True,
+                "exit": False,
+            }
+        ]
+    ).to_string(index=False)
+    assert output_buffer.getvalue() == expected_output + "\n"
+
+
+# TODO: review
+def test_filter_debug_values_strategy_id_with_filter_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Strategy ids should be honored even when extra tokens are provided."""
+
+    import stock_indicator.manage as manage_module
+
+    recorded_arguments: dict[str, object] = {}
+
+    def fake_filter_debug_values(
+        symbol_name: str,
+        date_string: str,
+        buy_name: str,
+        sell_name: str,
+    ) -> dict[str, object]:
+        recorded_arguments["symbol"] = symbol_name
+        recorded_arguments["date"] = date_string
+        recorded_arguments["buy"] = buy_name
+        recorded_arguments["sell"] = sell_name
+        return {
+            "sma_angle": 1.0,
+            "sma_angle_previous": None,
+            "near_price_volume_ratio": 0.2,
+            "above_price_volume_ratio": 0.3,
+            "entry": True,
+            "exit": False,
+        }
+
+    monkeypatch.setattr(
+        manage_module.daily_job,
+        "filter_debug_values",
+        fake_filter_debug_values,
+    )
+
+    def fake_load_mapping() -> dict[str, tuple[str, str]]:
+        return {"TEST": ("ema_sma_cross", "ema_sma_cross")}
+
+    monkeypatch.setattr(
+        manage_module, "load_strategy_set_mapping", fake_load_mapping
+    )
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd(
+        "filter_debug_values AAA 2024-01-10 dollar_volume>0.05%,Top20 strategy=TEST"
+    )
+
+    assert recorded_arguments == {
+        "symbol": "AAA",
+        "date": "2024-01-10",
+        "buy": "ema_sma_cross",
+        "sell": "ema_sma_cross",
+    }
+    expected_output = pandas.DataFrame(
+        [
+            {
+                "date": "2024-01-10",
+                "sma_angle": 1.0,
+                "sma_angle_previous": None,
                 "near_price_volume_ratio": 0.2,
                 "above_price_volume_ratio": 0.3,
                 "entry": True,
@@ -640,6 +714,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     call_record: dict[str, tuple[str, str]] = {}
     volume_record: dict[str, float] = {}
     stop_loss_record: dict[str, float] = {}
+    take_profit_record: dict[str, float] = {}
 
     from stock_indicator.strategy import StrategyMetrics, TradeDetail
 
@@ -653,6 +728,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
             starting_cash: float = 3000.0,
             withdraw_amount: float = 0.0,
             stop_loss_percentage: float = 1.0,
+            take_profit_percentage: float = 0.0,
             start_date: pandas.Timestamp | None = None,
             allowed_fama_french_groups: set[int] | None = None,
         ) -> StrategyMetrics:
@@ -661,6 +737,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
         if minimum_average_dollar_volume_ratio is not None:
             volume_record["ratio"] = minimum_average_dollar_volume_ratio
         stop_loss_record["value"] = stop_loss_percentage
+        take_profit_record["value"] = take_profit_percentage
         assert starting_cash == 3000.0
         assert withdraw_amount == 0.0
         assert data_directory in (
@@ -764,6 +841,7 @@ def test_start_simulate(monkeypatch: pytest.MonkeyPatch) -> None:
     assert call_record["strategies"] == ("ema_sma_cross", "ema_sma_cross")
     assert volume_record["threshold"] == 500.0
     assert stop_loss_record["value"] == 1.0
+    assert take_profit_record["value"] == 0.0
     assert "Simulation start date: 2019-01-01" in output_buffer.getvalue()
     summary_fragments = [
         "Trades: 3, Win rate: 66.67%",
@@ -807,6 +885,7 @@ def test_start_simulate_suppresses_trade_details(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         **_: object,
     ) -> StrategyMetrics:
@@ -887,6 +966,7 @@ def test_start_simulate_filters_early_googl_trades(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         allowed_fama_french_groups: set[int] | None = None,
     ) -> StrategyMetrics:
@@ -990,6 +1070,7 @@ def test_start_simulate_different_strategies(monkeypatch: pytest.MonkeyPatch) ->
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         allowed_fama_french_groups: set[int] | None = None,
     ) -> StrategyMetrics:
@@ -1051,6 +1132,7 @@ def test_start_simulate_accepts_start_date(monkeypatch: pytest.MonkeyPatch) -> N
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         allowed_fama_french_groups: set[int] | None = None,
     ) -> StrategyMetrics:
@@ -1105,6 +1187,7 @@ def test_start_simulate_dollar_volume_rank(monkeypatch: pytest.MonkeyPatch) -> N
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         **kwargs: object,
     ) -> StrategyMetrics:
@@ -1157,6 +1240,7 @@ def test_start_simulate_dollar_volume_ratio(monkeypatch: pytest.MonkeyPatch) -> 
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         **kwargs: object,
     ) -> StrategyMetrics:
@@ -1209,6 +1293,7 @@ def test_start_simulate_dollar_volume_threshold_and_rank(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         **kwargs: object,
     ) -> StrategyMetrics:
@@ -1267,6 +1352,7 @@ def test_start_simulate_supports_rsi_strategy(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         **kwargs: object,
     ) -> StrategyMetrics:
@@ -1329,6 +1415,7 @@ def test_start_simulate_supports_slope_strategy(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         **kwargs: object,
     ) -> StrategyMetrics:
@@ -1391,6 +1478,7 @@ def test_start_simulate_supports_slope_and_volume_strategy(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         **kwargs: object,
     ) -> StrategyMetrics:
@@ -1453,6 +1541,7 @@ def test_start_simulate_accepts_angle_range_strategy_names(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         **kwargs: object,
     ) -> StrategyMetrics:
@@ -1707,6 +1796,7 @@ def test_start_simulate_supports_20_50_sma_cross_strategy(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         **kwargs: object,
     ) -> StrategyMetrics:
@@ -1766,6 +1856,7 @@ def test_start_simulate_accepts_stop_loss_argument(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         **kwargs: object,
     ) -> StrategyMetrics:
@@ -1802,6 +1893,65 @@ def test_start_simulate_accepts_stop_loss_argument(
     assert stop_loss_record["value"] == 0.5
 
 
+def test_start_simulate_accepts_take_profit_argument(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command should forward the take profit argument to evaluation."""
+
+    import stock_indicator.manage as manage_module
+
+    stop_loss_record: dict[str, float] = {}
+    take_profit_record: dict[str, float] = {}
+
+    from stock_indicator.strategy import StrategyMetrics
+
+    def fake_evaluate(
+        data_directory: Path,
+        buy_strategy_name: str,
+        sell_strategy_name: str,
+        minimum_average_dollar_volume: float | None,
+        top_dollar_volume_rank: int | None = None,
+        minimum_average_dollar_volume_ratio: float | None = None,
+        starting_cash: float = 3000.0,
+        withdraw_amount: float = 0.0,
+        stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
+        start_date: pandas.Timestamp | None = None,
+        **kwargs: object,
+    ) -> StrategyMetrics:
+        stop_loss_record["value"] = stop_loss_percentage
+        take_profit_record["value"] = take_profit_percentage
+        return StrategyMetrics(
+            total_trades=0,
+            win_rate=0.0,
+            mean_profit_percentage=0.0,
+            profit_percentage_standard_deviation=0.0,
+            mean_loss_percentage=0.0,
+            loss_percentage_standard_deviation=0.0,
+            mean_holding_period=0.0,
+            holding_period_standard_deviation=0.0,
+            maximum_concurrent_positions=0,
+            maximum_drawdown=0.0,
+            final_balance=0.0,
+            compound_annual_growth_rate=0.0,
+            annual_returns={},
+            annual_trade_counts={},
+        )
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "evaluate_combined_strategy",
+        fake_evaluate,
+    )
+
+    shell = manage_module.StockShell(stdout=io.StringIO())
+    shell.onecmd(
+        "start_simulate dollar_volume>100 ema_sma_cross ema_sma_cross 0.5 0.2"
+    )
+    assert stop_loss_record["value"] == 0.5
+    assert take_profit_record["value"] == 0.2
+
+
 def test_start_simulate_accepts_cash_and_withdraw(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1822,6 +1972,7 @@ def test_start_simulate_accepts_cash_and_withdraw(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         **kwargs: object,
     ) -> StrategyMetrics:
@@ -1876,6 +2027,7 @@ def test_start_simulate_accepts_strategy_set_with_commas(
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         **_: object,
     ) -> StrategyMetrics:
@@ -1977,6 +2129,7 @@ def test_start_simulate_accepts_windowed_strategy_names(monkeypatch: pytest.Monk
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
         **kwargs: object,
     ) -> StrategyMetrics:
@@ -2360,6 +2513,128 @@ def test_complex_simulation_strategy_id_resolution(
     assert "[Total] Trades: 0" in output_text
     assert "[A] Trades: 0" in output_text
     assert "[B] Trades: 0" in output_text
+
+
+def test_complex_simulation_accepts_take_profit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The complex command should forward take-profit values to the strategy layer."""
+
+    import stock_indicator.manage as manage_module
+
+    mapping = {"alpha": ("ema_sma_cross", "ema_sma_cross")}
+    monkeypatch.setattr(manage_module, "load_strategy_set_mapping", lambda: mapping)
+    monkeypatch.setattr(manage_module, "determine_start_date", lambda directory: "2005-01-01")
+    monkeypatch.setattr(manage_module, "STOCK_DATA_DIRECTORY", tmp_path)
+    monkeypatch.setattr(manage_module, "DATA_DIRECTORY", tmp_path)
+
+    recorded_sets: dict[str, manage_module.strategy.ComplexStrategySetDefinition] = {}
+
+    def fake_run_complex_simulation(
+        data_directory: Path,
+        set_definitions: dict[str, manage_module.strategy.ComplexStrategySetDefinition],
+        **_: object,
+    ) -> manage_module.strategy.ComplexSimulationMetrics:
+        recorded_sets.update(set_definitions)
+        empty_metrics = _create_empty_metrics()
+        return manage_module.strategy.ComplexSimulationMetrics(
+            overall_metrics=empty_metrics,
+            metrics_by_set={"A": empty_metrics, "B": empty_metrics},
+        )
+
+    monkeypatch.setattr(
+        manage_module.strategy,
+        "run_complex_simulation",
+        fake_run_complex_simulation,
+    )
+
+    shell = manage_module.StockShell(stdout=io.StringIO())
+    shell.onecmd(
+        "complex_simulation 3 dollar_volume>1 strategy=alpha 0.25 0.1 -- "
+        "dollar_volume>2 ema_sma_cross ema_sma_cross 0.3 0.2 False"
+    )
+
+    set_a = recorded_sets["A"]
+    set_b = recorded_sets["B"]
+    assert set_a.stop_loss_percentage == 0.25
+    assert set_a.take_profit_percentage == 0.1
+    assert set_b.stop_loss_percentage == 0.3
+    assert set_b.take_profit_percentage == 0.2
+
+
+def test_complex_simulation_displays_global_position_counts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Trade detail output should reflect the global concurrent position count."""
+
+    import stock_indicator.manage as manage_module
+
+    entry_detail_a = TradeDetail(
+        date=pandas.Timestamp("2024-01-01"),
+        symbol="AAA",
+        action="open",
+        price=10.0,
+        simple_moving_average_dollar_volume=1_000_000.0,
+        total_simple_moving_average_dollar_volume=2_000_000.0,
+        simple_moving_average_dollar_volume_ratio=0.5,
+        group_total_simple_moving_average_dollar_volume=2_000_000.0,
+        group_simple_moving_average_dollar_volume_ratio=0.4,
+    )
+    entry_detail_a.global_concurrent_position_count = 1
+    entry_detail_a.concurrent_position_count = 99
+
+    entry_detail_b = TradeDetail(
+        date=pandas.Timestamp("2024-01-02"),
+        symbol="BBB",
+        action="open",
+        price=20.0,
+        simple_moving_average_dollar_volume=1_500_000.0,
+        total_simple_moving_average_dollar_volume=3_000_000.0,
+        simple_moving_average_dollar_volume_ratio=0.5,
+        group_total_simple_moving_average_dollar_volume=3_000_000.0,
+        group_simple_moving_average_dollar_volume_ratio=0.6,
+    )
+    entry_detail_b.global_concurrent_position_count = 2
+    entry_detail_b.concurrent_position_count = 88
+
+    total_metrics = _create_empty_metrics()
+    total_metrics.trade_details_by_year = {2024: [entry_detail_a, entry_detail_b]}
+    total_metrics.annual_returns = {2024: 0.0}
+    total_metrics.annual_trade_counts = {2024: 0}
+
+    set_a_metrics = _create_empty_metrics()
+    set_a_metrics.trade_details_by_year = {2024: [entry_detail_a]}
+    set_a_metrics.annual_returns = {2024: 0.0}
+    set_a_metrics.annual_trade_counts = {2024: 0}
+
+    set_b_metrics = _create_empty_metrics()
+    set_b_metrics.trade_details_by_year = {2024: [entry_detail_b]}
+    set_b_metrics.annual_returns = {2024: 0.0}
+    set_b_metrics.annual_trade_counts = {2024: 0}
+
+    def fake_run_complex_simulation(
+        data_directory: Path,
+        set_definitions: dict[str, object],
+        **kwargs: object,
+    ) -> manage_module.strategy.ComplexSimulationMetrics:
+        return manage_module.strategy.ComplexSimulationMetrics(
+            overall_metrics=total_metrics,
+            metrics_by_set={"A": set_a_metrics, "B": set_b_metrics},
+        )
+
+    monkeypatch.setattr(manage_module.strategy, "run_complex_simulation", fake_run_complex_simulation)
+    monkeypatch.setattr(manage_module, "determine_start_date", lambda directory: "2024-01-01")
+    monkeypatch.setattr(manage_module, "STOCK_DATA_DIRECTORY", tmp_path)
+    monkeypatch.setattr(manage_module, "DATA_DIRECTORY", tmp_path)
+
+    output_buffer = io.StringIO()
+    shell = manage_module.StockShell(stdout=output_buffer)
+    shell.onecmd(
+        "complex_simulation 2 dollar_volume>1 ema_sma_cross ema_sma_cross -- "
+        "dollar_volume>1 ema_sma_cross ema_sma_cross true"
+    )
+
+    output_text = output_buffer.getvalue()
+    assert "[A]   2024-01-01 (1) AAA open" in output_text
+    assert "[B]   2024-01-02 (2) BBB open" in output_text
 
 
 def test_complex_simulation_half_cap_for_set_b_rounds_up(
