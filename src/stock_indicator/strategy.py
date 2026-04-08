@@ -190,6 +190,7 @@ def load_symbols_excluded_by_industry() -> set[str]:
         excluded_symbols = set()
     else:
         mask_other = sector_frame["ff12"] == 12
+
         tickers_series = sector_frame.loc[mask_other, "ticker"].dropna().astype(str)
         excluded_symbols = set(tickers_series.str.upper().tolist())
 
