@@ -184,12 +184,19 @@ def load_symbols_excluded_by_industry() -> set[str]:
             return excluded_symbols
     except Exception:  # noqa: BLE001
         return excluded_symbols
-    # Normalize expected columns and filter ff12==12
+    # Normalize expected columns and filter ff12==12 plus non-stock SIC codes
     sector_frame.columns = [str(c).strip().lower() for c in sector_frame.columns]
     if "ticker" not in sector_frame.columns or "ff12" not in sector_frame.columns:
         excluded_symbols = set()
     else:
         mask_other = sector_frame["ff12"] == 12
+        # Exclude SIC codes that represent non-stock instruments:
+        # 6221 = Commodity/crypto ETFs (GLD, SLV, USO, IBIT, GBTC, ...)
+        # 6770 = SPACs / blank-check companies
+        _excluded_sic_codes = {6221, 6770}
+        if "sic" in sector_frame.columns:
+            mask_sic = sector_frame["sic"].isin(_excluded_sic_codes)
+            mask_other = mask_other | mask_sic
         tickers_series = sector_frame.loc[mask_other, "ticker"].dropna().astype(str)
         excluded_symbols = set(tickers_series.str.upper().tolist())
 
@@ -1251,35 +1258,20 @@ def compute_signals_for_date(
         shifted_buy_signal_columns = list(dict.fromkeys(shifted_buy_signal_columns))
         sell_signal_columns = list(dict.fromkeys(sell_signal_columns))
         if use_unshifted_signals:
+            # Use raw (unshifted) signals directly.  The raw signal on day T
+            # captures the same condition as the shifted signal on T+1, so
+            # there is no need to realign via shift(-1).  The previous
+            # shift(-1, fill_value=False) approach silently dropped the signal
+            # when the evaluation date was the last bar in the data frame.
             if raw_buy_signal_columns:
-                raw_entry_series = (
+                price_data_frame["_combined_buy_entry"] = (
                     price_data_frame[raw_buy_signal_columns]
                     .any(axis=1)
                     .fillna(False)
                     .astype(bool)
                 )
             else:
-                raw_entry_series = pandas.Series(
-                    False, index=price_data_frame.index
-                )
-            if shifted_buy_signal_columns:
-                shifted_entry_series = (
-                    price_data_frame[shifted_buy_signal_columns]
-                    .any(axis=1)
-                    .fillna(False)
-                    .astype(bool)
-                )
-            else:
-                shifted_entry_series = pandas.Series(
-                    False, index=price_data_frame.index
-                )
-            aligned_shifted_entry_series = shifted_entry_series.shift(
-                -1, fill_value=False
-            )
-            combined_entry_series = (
-                raw_entry_series | aligned_shifted_entry_series.astype(bool)
-            )
-            price_data_frame["_combined_buy_entry"] = combined_entry_series
+                price_data_frame["_combined_buy_entry"] = False
         else:
             if shifted_buy_signal_columns:
                 price_data_frame["_combined_buy_entry"] = (
