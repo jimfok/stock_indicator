@@ -105,3 +105,57 @@ def test_calculate_chip_concentration_metrics_excludes_volume_profile_by_default
     assert metrics["below_volume_ratio_vp"] is None
     assert metrics["hvn_count"] is None
     assert metrics["lvn_depth"] is None
+
+
+def test_calculate_chip_concentration_metrics_with_limited_history() -> None:
+    """Metrics should be calculated when fewer rows than the lookback are available."""
+
+    date_index = pandas.date_range("2020-01-01", periods=10, freq="D")
+    close_values = [float(value) for value in range(10, 20)]
+    high_values = [value + 0.5 for value in close_values]
+    low_values = [value - 0.5 for value in close_values]
+    volume_values = [50 for _ in range(10)]
+    ohlcv = pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": close_values,
+            "high": high_values,
+            "low": low_values,
+            "close": close_values,
+            "volume": volume_values,
+        }
+    )
+
+    metrics = calculate_chip_concentration_metrics(ohlcv, lookback_window_size=60)
+
+    assert metrics["price_score"] is not None
+    assert metrics["near_price_volume_ratio"] is not None
+    assert metrics["above_price_volume_ratio"] is not None
+    assert metrics["histogram_node_count"] is not None
+
+
+def test_calculate_chip_concentration_metrics_handles_flat_prices() -> None:
+    """Metrics should remain finite when prices do not change within the window."""
+
+    date_index = pandas.date_range("2020-01-01", periods=5, freq="D")
+    close_values = [100.0 for _ in range(5)]
+    high_values = [100.0 for _ in range(5)]
+    low_values = [100.0 for _ in range(5)]
+    volume_values = [75 for _ in range(5)]
+    ohlcv = pandas.DataFrame(
+        {
+            "Date": date_index,
+            "open": close_values,
+            "high": high_values,
+            "low": low_values,
+            "close": close_values,
+            "volume": volume_values,
+        }
+    )
+
+    metrics = calculate_chip_concentration_metrics(ohlcv, lookback_window_size=60)
+
+    assert metrics["price_score"] is not None
+    assert metrics["near_price_volume_ratio"] is not None
+    assert metrics["above_price_volume_ratio"] is not None
+    assert metrics["histogram_node_count"] > 0

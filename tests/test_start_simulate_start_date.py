@@ -35,6 +35,7 @@ def test_start_simulate_accepts_start_date(monkeypatch: pytest.MonkeyPatch, tmp_
         starting_cash: float = 3000.0,
         withdraw_amount: float = 0.0,
         stop_loss_percentage: float = 1.0,
+        take_profit_percentage: float = 0.0,
         start_date: pandas.Timestamp | None = None,
     ) -> StrategyMetrics:
         recorded_arguments["start_date"] = start_date

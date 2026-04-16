@@ -190,6 +190,8 @@ def run_daily_tasks(
     allowed_fama_french_groups: set[int] | None = None,
     maximum_symbols_per_group: int = 1,
     use_unshifted_signals: bool = False,
+    near_delta_range: tuple[float, float] | None = None,
+    price_tightness_range: tuple[float, float] | None = None,
 ) -> Dict[str, List[str]]:
     """Execute the daily workflow using simulation-grade selection logic.
 
@@ -258,6 +260,8 @@ def run_daily_tasks(
         exclude_other_ff12=True,
         maximum_symbols_per_group=maximum_symbols_per_group,
         use_unshifted_signals=use_unshifted_signals,
+        near_delta_range=near_delta_range,
+        price_tightness_range=price_tightness_range,
     )
 
 

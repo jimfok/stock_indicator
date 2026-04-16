@@ -189,6 +189,71 @@ def test_run_complex_simulation_enforces_shared_cap(
     assert metrics.overall_metrics.maximum_concurrent_positions == 2
 
 
+def test_run_complex_simulation_assigns_global_position_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Global position counts should reflect open positions across all sets."""
+
+    trade_a = _build_trade("2024-01-01", "2024-01-04", symbol="AAA")
+    trade_b = _build_trade("2024-01-02", "2024-01-05", symbol="BBB")
+
+    artifacts_a = _build_artifacts([trade_a])
+    artifacts_b = _build_artifacts([trade_b])
+
+    artifact_map = {
+        "set_a": artifacts_a,
+        "set_b": artifacts_b,
+    }
+
+    def fake_generate(*args: object, **kwargs: object) -> strategy.StrategyEvaluationArtifacts:
+        buy_name = kwargs.get("buy_strategy_name") or args[1]
+        return artifact_map[str(buy_name)]
+
+    monkeypatch.setattr(strategy, "_generate_strategy_evaluation_artifacts", fake_generate)
+    _stub_metrics_functions(monkeypatch)
+
+    definitions = {
+        "A": strategy.ComplexStrategySetDefinition(
+            label="A",
+            buy_strategy_name="set_a",
+            sell_strategy_name="set_a",
+        ),
+        "B": strategy.ComplexStrategySetDefinition(
+            label="B",
+            buy_strategy_name="set_b",
+            sell_strategy_name="set_b",
+        ),
+    }
+
+    metrics = strategy.run_complex_simulation(
+        Path("/tmp"),
+        definitions,
+        maximum_position_count=4,
+    )
+
+    overall_details = [
+        detail
+        for detail_list in metrics.overall_metrics.trade_details_by_year.values()
+        for detail in detail_list
+    ]
+    assert overall_details, "expected trade details for global count verification"
+
+    def find_count(symbol: str, action: str, date: str) -> int | None:
+        for detail in overall_details:
+            if (
+                detail.symbol == symbol
+                and detail.action == action
+                and detail.date == pandas.Timestamp(date)
+            ):
+                return detail.global_concurrent_position_count
+        return None
+
+    assert find_count("AAA", "open", "2024-01-01") == 1
+    assert find_count("BBB", "open", "2024-01-02") == 2
+    assert find_count("AAA", "close", "2024-01-04") == 1
+    assert find_count("BBB", "close", "2024-01-05") == 0
+
+
 def test_run_complex_simulation_allows_two_b_positions_when_limit_rounds_up(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

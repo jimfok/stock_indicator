@@ -135,8 +135,8 @@ def calculate_volume_profile_features(
 def calculate_chip_concentration_metrics(
     ohlcv: pandas.DataFrame,
     lookback_window_size: int = 60,
-    bin_count: int = 50,
-    near_price_band_ratio: float = 0.03,
+    bin_count: int = 100,
+    near_bin_span: int = 1,
     include_volume_profile: bool = False,
 ) -> dict[str, float | int | None]:
     """Calculate chip concentration metrics for a price series.
@@ -149,8 +149,9 @@ def calculate_chip_concentration_metrics(
         Number of rows to include in the calculation window.
     bin_count : int, default 50
         Number of price bins used for the histogram.
-    near_price_band_ratio : float, default 0.03
-        Fractional width around the current price for the near-price band.
+    near_bin_span : int, default 1
+        Number of histogram bins on each side of the current-price bin to
+        include in the near-price band (total bins = 2 * span + 1).
     include_volume_profile : bool, default False
         When ``True``, calculate volume profile metrics. When ``False``,
         volume profile metrics will be ``None``.
@@ -168,17 +169,25 @@ def calculate_chip_concentration_metrics(
             "price_score": None,
             "near_price_volume_ratio": None,
             "above_price_volume_ratio": None,
+            "below_price_volume_ratio": None,
             "histogram_node_count": None,
         }
     window_frame = ohlcv.tail(lookback_window_size).copy()
-    if (
-        len(window_frame) < max(lookback_window_size, 30)
-        or float(window_frame["volume"].sum()) <= 0.0
-    ):
+    if window_frame.empty:
         return {
             "price_score": None,
             "near_price_volume_ratio": None,
             "above_price_volume_ratio": None,
+            "below_price_volume_ratio": None,
+            "histogram_node_count": None,
+        }
+
+    if float(window_frame["volume"].sum()) <= 0.0:
+        return {
+            "price_score": None,
+            "near_price_volume_ratio": None,
+            "above_price_volume_ratio": None,
+            "below_price_volume_ratio": None,
             "histogram_node_count": None,
         }
     typical_price_series = (
@@ -187,6 +196,9 @@ def calculate_chip_concentration_metrics(
     volume_array = window_frame["volume"].astype(float).to_numpy()
     lowest_price = float(window_frame["low"].min())
     highest_price = float(window_frame["high"].max())
+    if numpy.isclose(highest_price, lowest_price):
+        price_epsilon = max(abs(highest_price) * 1e-6, 1e-6)
+        highest_price = lowest_price + price_epsilon
     bin_edges = numpy.linspace(lowest_price, highest_price, bin_count + 1)
     bin_indices = numpy.clip(
         numpy.digitize(typical_price_series, bin_edges) - 1, 0, bin_count - 1
@@ -199,6 +211,7 @@ def calculate_chip_concentration_metrics(
             "price_score": None,
             "near_price_volume_ratio": None,
             "above_price_volume_ratio": None,
+            "below_price_volume_ratio": None,
             "histogram_node_count": None,
         }
     probabilities = histogram / total_volume
@@ -207,13 +220,22 @@ def calculate_chip_concentration_metrics(
         (herfindahl_index - 1.0 / bin_count) / (1.0 - 1.0 / bin_count)
     )
     current_price = float(window_frame["close"].iloc[-1])
-    near_mask = typical_price_series.between(
-        current_price * (1 - near_price_band_ratio),
-        current_price * (1 + near_price_band_ratio),
-    ).to_numpy()
-    near_volume_ratio = float(volume_array[near_mask].sum() / total_volume)
+    current_bin = int(
+        numpy.clip(
+            numpy.digitize([current_price], bin_edges)[0] - 1, 0, bin_count - 1
+        )
+    )
+    near_bin_lower = max(current_bin - near_bin_span, 0)
+    near_bin_upper = min(current_bin + near_bin_span, bin_count - 1)
+    near_volume_ratio = float(
+        histogram[near_bin_lower : near_bin_upper + 1].sum() / total_volume
+    )
     above_volume_ratio = float(
         volume_array[(typical_price_series > current_price).to_numpy()].sum()
+        / total_volume
+    )
+    below_volume_ratio = float(
+        volume_array[(typical_price_series < current_price).to_numpy()].sum()
         / total_volume
     )
     peak_mask = (histogram > numpy.median(histogram)) & (histogram > 0)
@@ -252,6 +274,7 @@ def calculate_chip_concentration_metrics(
         "price_score": price_score,
         "near_price_volume_ratio": near_volume_ratio,
         "above_price_volume_ratio": above_volume_ratio,
+        "below_price_volume_ratio": below_volume_ratio,
         "histogram_node_count": histogram_node_count,
         **volume_profile_metrics,
     }
