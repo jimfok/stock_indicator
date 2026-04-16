@@ -11,8 +11,8 @@ SOURCE_DIRECTORY="${SRC:-$REPOSITORY_ROOT/src}"
 VIRTUAL_ENVIRONMENT_DIRECTORY="${VENV:-$REPOSITORY_ROOT/venv}"
 
 # Your daily_job argument line
-ARG_LINE_1='dollar_volume>0.05%,Top50,Pick2 strategy=s4 1.0'
-ARG_LINE_2='dollar_volume>0.05%,Top20,Pick7 strategy=s6 1.0'
+ARG_LINE_1='dollar_volume>0.05%,Top50,Pick3 0.03 strategy=buy3'
+ARG_LINE_2='dollar_volume>0.05%,Top200,Pick5 0.0 strategy=near_close'
 
 # Set up logging directories
 LOG_DIRECTORY="$REPOSITORY_ROOT/cron_logs"

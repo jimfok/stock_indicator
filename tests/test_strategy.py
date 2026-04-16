@@ -1356,7 +1356,7 @@ def test_evaluate_combined_strategy_trade_details_use_signal_day_chip_metrics(
         frame: pandas.DataFrame,
         lookback_window_size: int = 60,
         bin_count: int = 50,
-        near_price_band_ratio: float = 0.03,
+        near_bin_span: int = 1,
         include_volume_profile: bool = False,
     ) -> dict[str, float | int | None]:
         nonlocal recorded_frame_end
@@ -1871,7 +1871,7 @@ def test_attach_ema_sma_cross_testing_filters_by_angle_and_chip(
         frame: pandas.DataFrame,
         lookback_window_size: int = 60,
         bin_count: int = 50,
-        near_price_band_ratio: float = 0.03,
+        near_bin_span: int = 1,
         include_volume_profile: bool = False,
     ) -> dict[str, float | int | None]:
         return metrics_queue.pop(0)
@@ -1976,7 +1976,7 @@ def test_attach_ema_sma_cross_testing_uses_previous_day_ratios_on_gap(
         frame: pandas.DataFrame,
         lookback_window_size: int = 60,
         bin_count: int = 50,
-        near_price_band_ratio: float = 0.03,
+        near_bin_span: int = 1,
         include_volume_profile: bool = False,
     ) -> dict[str, float | int | None]:
         return metrics_queue.pop(0)
@@ -2139,7 +2139,7 @@ def test_generate_strategy_artifacts_use_run_frame_index_for_signal_date(
         frame: pandas.DataFrame,
         lookback_window_size: int = 60,
         bin_count: int = 50,
-        near_price_band_ratio: float = 0.03,
+        near_bin_span: int = 1,
         include_volume_profile: bool = False,
     ) -> dict[str, float | int | None]:
         last_bar_date = frame.index[-1]

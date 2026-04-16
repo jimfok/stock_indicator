@@ -7,6 +7,7 @@ from __future__ import annotations
 import cmd
 import datetime
 import gc  # TODO: review
+import json
 import logging
 import re
 import sys  # TODO: review
@@ -20,7 +21,8 @@ import yfinance  # TODO: review
 from pandas import DataFrame
 
 from . import data_loader, symbols, strategy, daily_job
-from .strategy_sets import load_strategy_set_mapping
+from .simulator import calc_commission
+from .strategy_sets import load_strategy_set_mapping, load_strategy_entry_filters
 from .daily_job import determine_start_date
 from .symbols import SP500_SYMBOL
 from stock_indicator.sector_pipeline.overrides import (
@@ -303,11 +305,41 @@ def save_trade_details_to_log(
                         if trade_detail.histogram_node_count is not None
                         else "N/A"
                     )
+                    sma_angle_text = (
+                        f"{trade_detail.sma_angle:.2f}"
+                        if trade_detail.sma_angle is not None
+                        else "N/A"
+                    )
+                    d_sma_angle_text = (
+                        f"{trade_detail.d_sma_angle:.2f}"
+                        if trade_detail.d_sma_angle is not None
+                        else "N/A"
+                    )
+                    ema_angle_text = (
+                        f"{trade_detail.ema_angle:.2f}"
+                        if trade_detail.ema_angle is not None
+                        else "N/A"
+                    )
+                    d_ema_angle_text = (
+                        f"{trade_detail.d_ema_angle:.2f}"
+                        if trade_detail.d_ema_angle is not None
+                        else "N/A"
+                    )
+                    signal_bar_open_text = (
+                        f"{trade_detail.signal_bar_open:.2f}"
+                        if trade_detail.signal_bar_open is not None
+                        else "N/A"
+                    )
                     open_metrics = (
+                        f" signal_open={signal_bar_open_text}"
                         f" price_score={price_score_text}"
                         f" near_pct={near_ratio_text}"
                         f" above_pct={above_ratio_text}"
                         f" node_count={node_count_text}"
+                        f" sma_angle={sma_angle_text}"
+                        f" d_sma_angle={d_sma_angle_text}"
+                        f" ema_angle={ema_angle_text}"
+                        f" d_ema_angle={d_ema_angle_text}"
                     )
                 position_count = (
                     trade_detail.global_concurrent_position_count
@@ -619,13 +651,28 @@ class StockShell(cmd.Cmd):
         withdraw_amount = 0.0
         start_date_string: str | None = None
         margin_multiplier = 1.0
+        minimum_holding_bars = 0
+        use_confirmation_angle = False
+        confirmation_entry_mode = "limit"
         while (
             argument_parts
             and argument_parts[0] != "--"
-            and argument_parts[0].startswith(
-                ("starting_cash=", "withdraw=", "start=", "margin=")
+            and (
+                argument_parts[0].startswith(
+                    ("starting_cash=", "withdraw=", "start=", "margin=", "min_hold=")
+                )
+                or argument_parts[0] in {"angle_confirmation_using_limit", "angle_confirmation_using_market"}
             )
         ):
+            if argument_parts[0] == "angle_confirmation_using_limit":
+                use_confirmation_angle = True
+                argument_parts.pop(0)
+                continue
+            if argument_parts[0] == "angle_confirmation_using_market":
+                use_confirmation_angle = True
+                confirmation_entry_mode = "market"
+                argument_parts.pop(0)
+                continue
             parameter_part = argument_parts.pop(0)
             name, value = parameter_part.split("=", 1)
             if name == "start":
@@ -644,6 +691,16 @@ class StockShell(cmd.Cmd):
                     return
                 if margin_multiplier < 1.0:
                     self.stdout.write("margin must be >= 1.0\n")
+                    return
+                continue
+            if name == "min_hold":
+                try:
+                    minimum_holding_bars = int(value)
+                except ValueError:
+                    self.stdout.write("invalid min_hold\n")
+                    return
+                if minimum_holding_bars < 0:
+                    self.stdout.write("min_hold must be >= 0\n")
                     return
                 continue
             try:
@@ -671,6 +728,7 @@ class StockShell(cmd.Cmd):
             return
 
         strategy_mapping = load_strategy_set_mapping()
+        entry_filters_mapping = load_strategy_entry_filters()
 
         def build_set_definition(
             label: str, tokens: list[str]
@@ -754,6 +812,31 @@ class StockShell(cmd.Cmd):
                                 "invalid stop loss or take profit"
                             ) from error
 
+            d_sma_range = None
+            ema_range = None
+            d_ema_range = None
+            price_score_min_value = None
+            price_score_max_value = None
+            if strategy_identifier and strategy_identifier in entry_filters_mapping:
+                ef = entry_filters_mapping[strategy_identifier]
+                if ef.d_sma_min is not None or ef.d_sma_max is not None:
+                    d_sma_range = (
+                        ef.d_sma_min if ef.d_sma_min is not None else -99.0,
+                        ef.d_sma_max if ef.d_sma_max is not None else 99.0,
+                    )
+                if ef.ema_min is not None or ef.ema_max is not None:
+                    ema_range = (
+                        ef.ema_min if ef.ema_min is not None else -99.0,
+                        ef.ema_max if ef.ema_max is not None else 99.0,
+                    )
+                if ef.d_ema_min is not None or ef.d_ema_max is not None:
+                    d_ema_range = (
+                        ef.d_ema_min if ef.d_ema_min is not None else -99.0,
+                        ef.d_ema_max if ef.d_ema_max is not None else 99.0,
+                    )
+                price_score_min_value = ef.price_score_min
+                price_score_max_value = ef.price_score_max
+
             return strategy.ComplexStrategySetDefinition(
                 label=label,
                 buy_strategy_name=buy_strategy_name,
@@ -766,6 +849,11 @@ class StockShell(cmd.Cmd):
                     minimum_average_dollar_volume_ratio,
                 top_dollar_volume_rank=top_dollar_volume_rank,
                 maximum_symbols_per_group=maximum_symbols_per_group,
+                d_sma_range=d_sma_range,
+                ema_range=ema_range,
+                d_ema_range=d_ema_range,
+                price_score_min=price_score_min_value,
+                price_score_max=price_score_max_value,
             )
 
         try:
@@ -795,6 +883,9 @@ class StockShell(cmd.Cmd):
                 start_date=start_timestamp,
                 margin_multiplier=margin_multiplier,
                 margin_interest_annual_rate=0.048,
+                use_confirmation_angle=use_confirmation_angle,
+                confirmation_entry_mode=confirmation_entry_mode,
+                minimum_holding_bars=minimum_holding_bars,
             )
         except ValueError as error:
             self.stdout.write(f"{error}\n")
@@ -859,11 +950,41 @@ class StockShell(cmd.Cmd):
                     if detail.histogram_node_count is not None
                     else "N/A"
                 )
+                sma_angle_text = (
+                    f"{detail.sma_angle:.2f}"
+                    if detail.sma_angle is not None
+                    else "N/A"
+                )
+                d_sma_angle_text = (
+                    f"{detail.d_sma_angle:.2f}"
+                    if detail.d_sma_angle is not None
+                    else "N/A"
+                )
+                ema_angle_text = (
+                    f"{detail.ema_angle:.2f}"
+                    if detail.ema_angle is not None
+                    else "N/A"
+                )
+                d_ema_angle_text = (
+                    f"{detail.d_ema_angle:.2f}"
+                    if detail.d_ema_angle is not None
+                    else "N/A"
+                )
+                signal_bar_open_text = (
+                    f"{detail.signal_bar_open:.2f}"
+                    if detail.signal_bar_open is not None
+                    else "N/A"
+                )
                 open_metrics = (
+                    f" signal_open={signal_bar_open_text}"
                     f" price_score={price_score_text}"
                     f" near_pct={near_ratio_text}"
                     f" above_pct={above_ratio_text}"
                     f" node_count={node_count_text}"
+                    f" sma_angle={sma_angle_text}"
+                    f" d_sma_angle={d_sma_angle_text}"
+                    f" ema_angle={ema_angle_text}"
+                    f" d_ema_angle={d_ema_angle_text}"
             )
             position_count = (
                 detail.global_concurrent_position_count
@@ -905,6 +1026,118 @@ class StockShell(cmd.Cmd):
                             f"[{set_label}]   {formatted_detail}\n"
                         )
 
+        # Export trade details to CSV
+        trade_records: List[Dict[str, object]] = []
+        for set_label in ("A", "B"):
+            metrics = simulation_metrics.metrics_by_set.get(set_label)
+            if metrics is None:
+                continue
+            all_details: List[strategy.TradeDetail] = []
+            for year in sorted((metrics.trade_details_by_year or {}).keys()):
+                all_details.extend(metrics.trade_details_by_year.get(year, []))
+            open_events: Dict[str, strategy.TradeDetail] = {}
+            for detail in all_details:
+                if detail.action == "open":
+                    open_events[detail.symbol] = detail
+                elif detail.action == "close":
+                    entry_detail = open_events.pop(detail.symbol, None)
+                    if entry_detail is None:
+                        continue
+                    # Commission % from actual portfolio simulation
+                    if (
+                        detail.total_commission is not None
+                        and detail.share_count is not None
+                        and detail.share_count > 0
+                        and entry_detail.price > 0
+                    ):
+                        position_value = detail.share_count * entry_detail.price
+                        commission_pct = detail.total_commission / position_value
+                    else:
+                        commission_pct = None
+                    trade_records.append(
+                        {
+                            "set": set_label,
+                            "year": detail.date.year,
+                            "entry_date": entry_detail.date.date(),
+                            "concurrent_position_index": (
+                                entry_detail.global_concurrent_position_count
+                                if entry_detail.global_concurrent_position_count is not None
+                                else entry_detail.concurrent_position_count
+                            ),
+                            "symbol": entry_detail.symbol,
+                            "price_concentration_score": entry_detail.price_concentration_score,
+                            "near_price_volume_ratio": entry_detail.near_price_volume_ratio,
+                            "above_price_volume_ratio": entry_detail.above_price_volume_ratio,
+                            "below_price_volume_ratio": entry_detail.below_price_volume_ratio,
+                            "near_delta": entry_detail.near_delta,
+                            "price_tightness": entry_detail.price_tightness,
+                            "histogram_node_count": entry_detail.histogram_node_count,
+                            "sma_angle": entry_detail.sma_angle,
+                            "d_sma_angle": entry_detail.d_sma_angle,
+                            "ema_angle": entry_detail.ema_angle,
+                            "d_ema_angle": entry_detail.d_ema_angle,
+                            "signal_bar_open": entry_detail.signal_bar_open,
+                            "entry_price": entry_detail.price,
+                            "exit_date": detail.date.date(),
+                            "exit_price": detail.price,
+                            "result": detail.result,
+                            "percentage_change": detail.percentage_change,
+                            "max_favorable_excursion_pct": detail.max_favorable_excursion_pct,
+                            "max_adverse_excursion_pct": detail.max_adverse_excursion_pct,
+                            "max_favorable_excursion_date": (
+                                detail.max_favorable_excursion_date.date()
+                                if detail.max_favorable_excursion_date is not None
+                                else None
+                            ),
+                            "max_adverse_excursion_date": (
+                                detail.max_adverse_excursion_date.date()
+                                if detail.max_adverse_excursion_date is not None
+                                else None
+                            ),
+                            "commission_pct": commission_pct,
+                            "exit_reason": detail.exit_reason,
+                        }
+                    )
+        if trade_records:
+            output_directory = Path("logs") / "complex_simulation_result"
+            output_directory.mkdir(parents=True, exist_ok=True)
+            timestamp_string = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = output_directory / f"complex_simulation_{timestamp_string}.csv"
+            pandas.DataFrame(
+                trade_records,
+                columns=[
+                    "set",
+                    "year",
+                    "entry_date",
+                    "concurrent_position_index",
+                    "symbol",
+                    "price_concentration_score",
+                    "near_price_volume_ratio",
+                    "above_price_volume_ratio",
+                    "below_price_volume_ratio",
+                    "near_delta",
+                    "price_tightness",
+                    "histogram_node_count",
+                    "sma_angle",
+                    "d_sma_angle",
+                    "ema_angle",
+                    "d_ema_angle",
+                    "signal_bar_open",
+                    "entry_price",
+                    "exit_date",
+                    "exit_price",
+                    "result",
+                    "percentage_change",
+                    "max_favorable_excursion_pct",
+                    "max_adverse_excursion_pct",
+                    "max_favorable_excursion_date",
+                    "max_adverse_excursion_date",
+                    "commission_pct",
+                    "exit_reason",
+                ],
+            ).to_csv(output_file, index=False)
+            self.stdout.write(f"Trade details saved to {output_file}\n")
+
     # TODO: review
     def help_complex_simulation(self) -> None:
         """Display help for the complex_simulation command."""
@@ -924,9 +1157,552 @@ class StockShell(cmd.Cmd):
             "optionally followed by stop-loss and take-profit values. Separate the two sets with --.\n"
         )
 
+    def do_multi_bucket_simulation(self, argument_line: str) -> None:  # noqa: D401
+        """multi_bucket_simulation CONFIG_PATH
+        Run a simulation over N parallel strategy buckets defined in a JSON file."""
+
+        config_path_text = argument_line.strip()
+        if not config_path_text:
+            self.stdout.write(
+                "usage: multi_bucket_simulation CONFIG_PATH\n"
+                "See help multi_bucket_simulation for the JSON format.\n"
+            )
+            return
+        config_path = Path(config_path_text).expanduser()
+        if not config_path.exists():
+            self.stdout.write(f"config file not found: {config_path}\n")
+            return
+        try:
+            with config_path.open("r", encoding="utf-8") as config_file:
+                config_document = json.load(config_file)
+        except (OSError, json.JSONDecodeError) as error:
+            self.stdout.write(f"failed to load config: {error}\n")
+            return
+
+        if not isinstance(config_document, dict):
+            self.stdout.write("config root must be a JSON object\n")
+            return
+        raw_buckets = config_document.get("buckets")
+        if not isinstance(raw_buckets, list) or not raw_buckets:
+            self.stdout.write("config must contain a non-empty 'buckets' array\n")
+            return
+
+        try:
+            maximum_position_count = int(
+                config_document.get("max_position_count", 0)
+            )
+        except (TypeError, ValueError):
+            self.stdout.write("max_position_count must be an integer\n")
+            return
+        if maximum_position_count <= 0:
+            self.stdout.write("max_position_count must be positive\n")
+            return
+
+        starting_cash_value = float(config_document.get("starting_cash", 3000.0))
+        withdraw_amount = float(config_document.get("withdraw", 0.0))
+        margin_multiplier = float(config_document.get("margin", 1.0))
+        if margin_multiplier < 1.0:
+            self.stdout.write("margin must be >= 1.0\n")
+            return
+        minimum_holding_bars = int(config_document.get("min_hold", 0))
+        if minimum_holding_bars < 0:
+            self.stdout.write("min_hold must be >= 0\n")
+            return
+        show_trade_details = bool(config_document.get("show_trade_details", False))
+
+        start_date_string = config_document.get("start_date")
+        if start_date_string is not None:
+            try:
+                datetime.date.fromisoformat(start_date_string)
+            except ValueError:
+                self.stdout.write("invalid start_date; expected YYYY-MM-DD\n")
+                return
+
+        confirmation_mode = config_document.get("confirmation_mode")
+        use_confirmation_angle = False
+        confirmation_entry_mode = "limit"
+        if confirmation_mode in (None, "", False):
+            pass
+        elif confirmation_mode == "market":
+            use_confirmation_angle = True
+            confirmation_entry_mode = "market"
+        elif confirmation_mode == "limit":
+            use_confirmation_angle = True
+            confirmation_entry_mode = "limit"
+        else:
+            self.stdout.write(
+                f"invalid confirmation_mode: {confirmation_mode} "
+                "(expected 'market', 'limit', or null)\n"
+            )
+            return
+
+        # Optional override of the B-layer T+1 sma_angle confirmation range.
+        # Defaults to strategy.CONFIRMATION_SMA_ANGLE_RANGE when not provided
+        # in the JSON config.
+        confirmation_sma_angle_range: tuple[float, float] | None = None
+        raw_confirmation_min = config_document.get("confirmation_sma_angle_min")
+        raw_confirmation_max = config_document.get("confirmation_sma_angle_max")
+        if raw_confirmation_min is not None or raw_confirmation_max is not None:
+            default_min, default_max = strategy.CONFIRMATION_SMA_ANGLE_RANGE
+            try:
+                resolved_min = (
+                    float(raw_confirmation_min)
+                    if raw_confirmation_min is not None
+                    else default_min
+                )
+                resolved_max = (
+                    float(raw_confirmation_max)
+                    if raw_confirmation_max is not None
+                    else default_max
+                )
+            except (TypeError, ValueError):
+                self.stdout.write(
+                    "confirmation_sma_angle_min/max must be numbers\n"
+                )
+                return
+            if resolved_min > resolved_max:
+                self.stdout.write(
+                    "confirmation_sma_angle_min must be <= max\n"
+                )
+                return
+            confirmation_sma_angle_range = (resolved_min, resolved_max)
+
+        strategy_mapping = load_strategy_set_mapping()
+        entry_filters_mapping = load_strategy_entry_filters()
+
+        bucket_definitions: Dict[str, strategy.ComplexStrategySetDefinition] = {}
+        seen_labels: set[str] = set()
+        for bucket_index, raw_bucket in enumerate(raw_buckets):
+            if not isinstance(raw_bucket, dict):
+                self.stdout.write(
+                    f"bucket[{bucket_index}] must be a JSON object\n"
+                )
+                return
+            label = str(raw_bucket.get("label") or f"bucket{bucket_index+1}")
+            if label in seen_labels:
+                self.stdout.write(f"duplicate bucket label: {label}\n")
+                return
+            seen_labels.add(label)
+            strategy_identifier = raw_bucket.get("strategy_id")
+            if not strategy_identifier:
+                self.stdout.write(
+                    f"bucket {label} requires 'strategy_id'\n"
+                )
+                return
+            if strategy_identifier not in strategy_mapping:
+                self.stdout.write(
+                    f"bucket {label}: unknown strategy_id '{strategy_identifier}'\n"
+                )
+                return
+            buy_strategy_name, sell_strategy_name = strategy_mapping[
+                strategy_identifier
+            ]
+            volume_filter_text = raw_bucket.get("dollar_volume_filter")
+            if not volume_filter_text:
+                self.stdout.write(
+                    f"bucket {label} requires 'dollar_volume_filter'\n"
+                )
+                return
+            try:
+                (
+                    minimum_average_dollar_volume,
+                    minimum_average_dollar_volume_ratio,
+                    top_dollar_volume_rank,
+                    maximum_symbols_per_group,
+                ) = _parse_volume_filter(volume_filter_text)
+            except ValueError as error:
+                self.stdout.write(
+                    f"bucket {label} volume filter: {error}\n"
+                )
+                return
+
+            try:
+                stop_loss_percentage = float(raw_bucket.get("stop_loss", 1.0))
+                take_profit_percentage = float(
+                    raw_bucket.get("take_profit", 0.0)
+                )
+            except (TypeError, ValueError):
+                self.stdout.write(
+                    f"bucket {label}: stop_loss/take_profit must be numbers\n"
+                )
+                return
+            try:
+                entry_priority = int(raw_bucket.get("priority", 0))
+            except (TypeError, ValueError):
+                self.stdout.write(
+                    f"bucket {label}: priority must be an integer\n"
+                )
+                return
+            raw_max_positions = raw_bucket.get("max_positions")
+            if raw_max_positions is None:
+                bucket_maximum_positions: int | None = None
+            else:
+                try:
+                    bucket_maximum_positions = int(raw_max_positions)
+                except (TypeError, ValueError):
+                    self.stdout.write(
+                        f"bucket {label}: max_positions must be an integer or null\n"
+                    )
+                    return
+                if bucket_maximum_positions <= 0:
+                    self.stdout.write(
+                        f"bucket {label}: max_positions must be positive\n"
+                    )
+                    return
+
+            d_sma_range = None
+            ema_range = None
+            d_ema_range = None
+            price_score_min_value = None
+            price_score_max_value = None
+            if strategy_identifier in entry_filters_mapping:
+                entry_filters = entry_filters_mapping[strategy_identifier]
+                if (
+                    entry_filters.d_sma_min is not None
+                    or entry_filters.d_sma_max is not None
+                ):
+                    d_sma_range = (
+                        entry_filters.d_sma_min
+                        if entry_filters.d_sma_min is not None
+                        else -99.0,
+                        entry_filters.d_sma_max
+                        if entry_filters.d_sma_max is not None
+                        else 99.0,
+                    )
+                if (
+                    entry_filters.ema_min is not None
+                    or entry_filters.ema_max is not None
+                ):
+                    ema_range = (
+                        entry_filters.ema_min
+                        if entry_filters.ema_min is not None
+                        else -99.0,
+                        entry_filters.ema_max
+                        if entry_filters.ema_max is not None
+                        else 99.0,
+                    )
+                if (
+                    entry_filters.d_ema_min is not None
+                    or entry_filters.d_ema_max is not None
+                ):
+                    d_ema_range = (
+                        entry_filters.d_ema_min
+                        if entry_filters.d_ema_min is not None
+                        else -99.0,
+                        entry_filters.d_ema_max
+                        if entry_filters.d_ema_max is not None
+                        else 99.0,
+                    )
+                price_score_min_value = entry_filters.price_score_min
+                price_score_max_value = entry_filters.price_score_max
+
+            raw_exit_alpha_factor = raw_bucket.get("exit_alpha_factor")
+            exit_alpha_factor_value: float | None = None
+            if raw_exit_alpha_factor is not None:
+                try:
+                    exit_alpha_factor_value = float(raw_exit_alpha_factor)
+                except (TypeError, ValueError):
+                    self.stdout.write(
+                        f"bucket {label}: exit_alpha_factor must be a number\n"
+                    )
+                    return
+
+            near_delta_range_value: tuple[float, float] | None = None
+            raw_near_delta = raw_bucket.get("near_delta_range")
+            if raw_near_delta is not None:
+                try:
+                    near_delta_range_value = (
+                        float(raw_near_delta[0]),
+                        float(raw_near_delta[1]),
+                    )
+                except (TypeError, ValueError, IndexError):
+                    self.stdout.write(
+                        f"bucket {label}: near_delta_range must be [min, max]\n"
+                    )
+                    return
+
+            price_tightness_range_value: tuple[float, float] | None = None
+            raw_price_tightness = raw_bucket.get("price_tightness_range")
+            if raw_price_tightness is not None:
+                try:
+                    price_tightness_range_value = (
+                        float(raw_price_tightness[0]),
+                        float(raw_price_tightness[1]),
+                    )
+                except (TypeError, ValueError, IndexError):
+                    self.stdout.write(
+                        f"bucket {label}: price_tightness_range must be [min, max]\n"
+                    )
+                    return
+
+            bucket_definitions[label] = strategy.ComplexStrategySetDefinition(
+                label=label,
+                buy_strategy_name=buy_strategy_name,
+                sell_strategy_name=sell_strategy_name,
+                strategy_identifier=strategy_identifier,
+                stop_loss_percentage=stop_loss_percentage,
+                take_profit_percentage=take_profit_percentage,
+                minimum_average_dollar_volume=minimum_average_dollar_volume,
+                minimum_average_dollar_volume_ratio=
+                    minimum_average_dollar_volume_ratio,
+                top_dollar_volume_rank=top_dollar_volume_rank,
+                maximum_symbols_per_group=maximum_symbols_per_group,
+                d_sma_range=d_sma_range,
+                ema_range=ema_range,
+                d_ema_range=d_ema_range,
+                near_delta_range=near_delta_range_value,
+                price_tightness_range=price_tightness_range_value,
+                price_score_min=price_score_min_value,
+                price_score_max=price_score_max_value,
+                entry_priority=entry_priority,
+                maximum_positions=bucket_maximum_positions,
+                fill_remaining=bool(raw_bucket.get("fill_remaining", False)),
+                exit_alpha_factor=exit_alpha_factor_value,
+            )
+
+        if start_date_string is None:
+            start_date_string = determine_start_date(DATA_DIRECTORY)
+        start_timestamp = pandas.Timestamp(start_date_string)
+        data_directory = (
+            STOCK_DATA_DIRECTORY
+            if STOCK_DATA_DIRECTORY.exists()
+            else DATA_DIRECTORY
+        )
+
+        try:
+            simulation_metrics = strategy.run_complex_simulation(
+                data_directory,
+                bucket_definitions,
+                maximum_position_count=maximum_position_count,
+                starting_cash=starting_cash_value,
+                withdraw_amount=withdraw_amount,
+                start_date=start_timestamp,
+                margin_multiplier=margin_multiplier,
+                margin_interest_annual_rate=0.048,
+                use_confirmation_angle=use_confirmation_angle,
+                confirmation_entry_mode=confirmation_entry_mode,
+                minimum_holding_bars=minimum_holding_bars,
+                multi_bucket_mode=True,
+                confirmation_sma_angle_range=confirmation_sma_angle_range,
+            )
+        except ValueError as error:
+            self.stdout.write(f"{error}\n")
+            return
+
+        self.stdout.write(
+            f"Simulation start date: {start_date_string}\n"
+            f"Buckets: {', '.join(bucket_definitions.keys())}\n"
+        )
+
+        def format_summary_line(
+            label: str, metrics: strategy.StrategyMetrics
+        ) -> str:
+            profit_loss_ratio = (
+                metrics.mean_profit_percentage / metrics.mean_loss_percentage
+                if metrics.mean_loss_percentage
+                else 0.0
+            )
+            return (
+                f"[{label}] Trades: {metrics.total_trades}, "
+                f"Win rate: {metrics.win_rate:.2%}, "
+                f"Mean profit %: {metrics.mean_profit_percentage:.2%}, "
+                f"Profit % Std Dev: {metrics.profit_percentage_standard_deviation:.2%}, "
+                f"Mean loss %: {metrics.mean_loss_percentage:.2%}, "
+                f"Loss % Std Dev: {metrics.loss_percentage_standard_deviation:.2%}, "
+                f"P/L: {profit_loss_ratio:.2f}, "
+                f"Mean holding period: {metrics.mean_holding_period:.2f} bars, "
+                f"Holding period Std Dev: {metrics.holding_period_standard_deviation:.2f} bars, "
+                f"Max concurrent positions: {metrics.maximum_concurrent_positions}, "
+                f"Final balance: {metrics.final_balance:.2f}, "
+                f"CAGR: {metrics.compound_annual_growth_rate:.2%}, "
+                f"Max drawdown: {metrics.maximum_drawdown:.2%}\n"
+            )
+
+        total_metrics = simulation_metrics.overall_metrics
+        self.stdout.write(format_summary_line("Total", total_metrics))
+        for year, annual_return in sorted(total_metrics.annual_returns.items()):
+            total_trade_count = total_metrics.annual_trade_counts.get(year, 0)
+            self.stdout.write(
+                f"[Total] Year {year}: {annual_return:.2%}, trade: {total_trade_count}\n"
+            )
+
+        for label in bucket_definitions.keys():
+            metrics = simulation_metrics.metrics_by_set.get(label)
+            if metrics is None:
+                continue
+            self.stdout.write(format_summary_line(label, metrics))
+            for year, annual_return in sorted(metrics.annual_returns.items()):
+                trade_count = metrics.annual_trade_counts.get(year, 0)
+                self.stdout.write(
+                    f"[{label}] Year {year}: {annual_return:.2%}, trade: {trade_count}\n"
+                )
+
+        # Export trade details to CSV (generalised to N buckets)
+        trade_records: List[Dict[str, object]] = []
+        for label in bucket_definitions.keys():
+            metrics = simulation_metrics.metrics_by_set.get(label)
+            if metrics is None:
+                continue
+            all_details: List[strategy.TradeDetail] = []
+            for year in sorted((metrics.trade_details_by_year or {}).keys()):
+                all_details.extend(metrics.trade_details_by_year.get(year, []))
+            open_events: Dict[str, strategy.TradeDetail] = {}
+            for detail in all_details:
+                if detail.action == "open":
+                    open_events[detail.symbol] = detail
+                elif detail.action == "close":
+                    entry_detail = open_events.pop(detail.symbol, None)
+                    if entry_detail is None:
+                        continue
+                    if (
+                        detail.total_commission is not None
+                        and detail.share_count is not None
+                        and detail.share_count > 0
+                        and entry_detail.price > 0
+                    ):
+                        position_value = detail.share_count * entry_detail.price
+                        commission_pct = detail.total_commission / position_value
+                    else:
+                        commission_pct = None
+                    trade_records.append(
+                        {
+                            "bucket": label,
+                            "year": detail.date.year,
+                            "entry_date": entry_detail.date.date(),
+                            "concurrent_position_index": (
+                                entry_detail.global_concurrent_position_count
+                                if entry_detail.global_concurrent_position_count is not None
+                                else entry_detail.concurrent_position_count
+                            ),
+                            "symbol": entry_detail.symbol,
+                            "price_concentration_score": entry_detail.price_concentration_score,
+                            "near_price_volume_ratio": entry_detail.near_price_volume_ratio,
+                            "above_price_volume_ratio": entry_detail.above_price_volume_ratio,
+                            "below_price_volume_ratio": entry_detail.below_price_volume_ratio,
+                            "near_delta": entry_detail.near_delta,
+                            "price_tightness": entry_detail.price_tightness,
+                            "histogram_node_count": entry_detail.histogram_node_count,
+                            "sma_angle": entry_detail.sma_angle,
+                            "sma_angle_confirmation": entry_detail.sma_angle_confirmation,
+                            "d_sma_angle": entry_detail.d_sma_angle,
+                            "ema_angle": entry_detail.ema_angle,
+                            "d_ema_angle": entry_detail.d_ema_angle,
+                            "signal_bar_open": entry_detail.signal_bar_open,
+                            "entry_price": entry_detail.price,
+                            "exit_date": detail.date.date(),
+                            "exit_price": detail.price,
+                            "result": detail.result,
+                            "percentage_change": detail.percentage_change,
+                            "max_favorable_excursion_pct": detail.max_favorable_excursion_pct,
+                            "max_adverse_excursion_pct": detail.max_adverse_excursion_pct,
+                            "max_favorable_excursion_date": (
+                                detail.max_favorable_excursion_date.date()
+                                if detail.max_favorable_excursion_date is not None
+                                else None
+                            ),
+                            "max_adverse_excursion_date": (
+                                detail.max_adverse_excursion_date.date()
+                                if detail.max_adverse_excursion_date is not None
+                                else None
+                            ),
+                            "commission_pct": commission_pct,
+                            "exit_reason": detail.exit_reason,
+                        }
+                    )
+        if trade_records:
+            output_directory = Path("logs") / "multi_bucket_simulation_result"
+            output_directory.mkdir(parents=True, exist_ok=True)
+            timestamp_string = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = (
+                output_directory / f"multi_bucket_simulation_{timestamp_string}.csv"
+            )
+            pandas.DataFrame(
+                trade_records,
+                columns=[
+                    "bucket",
+                    "year",
+                    "entry_date",
+                    "concurrent_position_index",
+                    "symbol",
+                    "price_concentration_score",
+                    "near_price_volume_ratio",
+                    "above_price_volume_ratio",
+                    "below_price_volume_ratio",
+                    "near_delta",
+                    "price_tightness",
+                    "histogram_node_count",
+                    "sma_angle",
+                    "sma_angle_confirmation",
+                    "d_sma_angle",
+                    "ema_angle",
+                    "d_ema_angle",
+                    "signal_bar_open",
+                    "entry_price",
+                    "exit_date",
+                    "exit_price",
+                    "result",
+                    "percentage_change",
+                    "max_favorable_excursion_pct",
+                    "max_adverse_excursion_pct",
+                    "max_favorable_excursion_date",
+                    "max_adverse_excursion_date",
+                    "commission_pct",
+                    "exit_reason",
+                ],
+            ).to_csv(output_file, index=False)
+            self.stdout.write(f"Trade details saved to {output_file}\n")
+
+        if show_trade_details:
+            self.stdout.write(
+                "(trade-detail stdout dump not implemented for multi_bucket; "
+                "see the CSV file above)\n"
+            )
+
+    def help_multi_bucket_simulation(self) -> None:
+        """Display help for the multi_bucket_simulation command."""
+
+        self.stdout.write(
+            "multi_bucket_simulation CONFIG_PATH\n"
+            "Run a portfolio simulation over N strategy buckets defined in a JSON file.\n"
+            "Each bucket has its own SL/TP, dollar-volume filter, priority, and optional per-bucket cap.\n"
+            "All buckets share a global max_position_count and compete for slots first-come-first-served,\n"
+            "with bucket priority as the tiebreaker (lower number = higher priority).\n"
+            "\n"
+            "JSON format:\n"
+            '{\n'
+            '  "max_position_count": 4,\n'
+            '  "starting_cash": 300000,\n'
+            '  "start_date": "2014-01-01",\n'
+            '  "withdraw": 0,\n'
+            '  "min_hold": 5,\n'
+            '  "margin": 1.0,\n'
+            '  "confirmation_mode": "market",\n'
+            '  "show_trade_details": false,\n'
+            '  "buckets": [\n'
+            '    {\n'
+            '      "label": "B1_nearPV",\n'
+            '      "strategy_id": "s51",\n'
+            '      "dollar_volume_filter": "dollar_volume>0.05%,Top50,Pick2",\n'
+            '      "stop_loss": 0.109,\n'
+            '      "take_profit": 0.084,\n'
+            '      "priority": 1,\n'
+            '      "max_positions": null\n'
+            '    },\n'
+            '    ...\n'
+            '  ]\n'
+            '}\n'
+            "\n"
+            "Notes:\n"
+            "  - confirmation_mode: 'market', 'limit', or null (no confirmation)\n"
+            "  - priority: lower = higher; ties broken by within-bucket quality then insertion order\n"
+            "  - max_positions per bucket is optional; null means no per-bucket cap\n"
+            "  - strategy_id must exist in data/strategy_sets.csv\n"
+            "  - output CSV: logs/multi_bucket_simulation_result/multi_bucket_simulation_*.csv\n"
+        )
+
     # TODO: review
     def do_start_simulate(self, argument_line: str) -> None:  # noqa: D401
-        """start_simulate [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS]
+        """start_simulate [max_positions=NUMBER] [starting_cash=NUMBER] [withdraw=NUMBER] [start=YYYY-MM-DD] DOLLAR_VOLUME_FILTER BUY_STRATEGY SELL_STRATEGY [STOP_LOSS] [TAKE_PROFIT] [SHOW_DETAILS]
         Evaluate trading strategies using cached data.
 
         STOP_LOSS defaults to 1.0 and TAKE_PROFIT defaults to 0.0 when not provided.
@@ -938,6 +1714,10 @@ class StockShell(cmd.Cmd):
         allowed_group_identifiers: set[int] | None = None
         margin_multiplier: float = 1.0
         strategy_id: str | None = None
+        maximum_position_count: int = 3
+        minimum_holding_bars: int = 0
+        use_confirmation_angle: bool = False
+        confirmation_entry_mode: str = "limit"
         while argument_parts and (
             argument_parts[0].startswith("starting_cash=")
             or argument_parts[0].startswith("withdraw=")
@@ -945,9 +1725,39 @@ class StockShell(cmd.Cmd):
             or argument_parts[0].startswith("group=")
             or argument_parts[0].startswith("margin=")
             or argument_parts[0].startswith("strategy=")
+            or argument_parts[0].startswith("max_positions=")
+            or argument_parts[0].startswith("min_hold=")
+            or argument_parts[0] in {"angle_confirmation_using_limit", "angle_confirmation_using_market"}
         ):
             parameter_part = argument_parts.pop(0)
+            if parameter_part == "angle_confirmation_using_limit":
+                use_confirmation_angle = True
+                continue
+            if parameter_part == "angle_confirmation_using_market":
+                use_confirmation_angle = True
+                confirmation_entry_mode = "market"
+                continue
             name, value = parameter_part.split("=", 1)
+            if name == "min_hold":
+                try:
+                    minimum_holding_bars = int(value)
+                except ValueError:
+                    self.stdout.write("invalid min_hold\n")
+                    return
+                if minimum_holding_bars < 0:
+                    self.stdout.write("min_hold must be >= 0\n")
+                    return
+                continue
+            if name == "max_positions":
+                try:
+                    maximum_position_count = int(value)
+                except ValueError:
+                    self.stdout.write("invalid max_positions\n")
+                    return
+                if maximum_position_count < 1:
+                    self.stdout.write("max_positions must be >= 1\n")
+                    return
+                continue
             if name == "start":
                 try:
                     datetime.date.fromisoformat(value)
@@ -1028,6 +1838,37 @@ class StockShell(cmd.Cmd):
                 if margin_multiplier < 1.0:
                     self.stdout.write("margin must be >= 1.0\n")
                     return
+                argument_parts.pop(post_scan_index)
+                continue
+            if token.startswith("max_positions="):
+                try:
+                    maximum_position_count = int(token.split("=", 1)[1])
+                except ValueError:
+                    self.stdout.write("invalid max_positions\n")
+                    return
+                if maximum_position_count < 1:
+                    self.stdout.write("max_positions must be >= 1\n")
+                    return
+                argument_parts.pop(post_scan_index)
+                continue
+            if token.startswith("min_hold="):
+                try:
+                    minimum_holding_bars = int(token.split("=", 1)[1])
+                except ValueError:
+                    self.stdout.write("invalid min_hold\n")
+                    return
+                if minimum_holding_bars < 0:
+                    self.stdout.write("min_hold must be >= 0\n")
+                    return
+                argument_parts.pop(post_scan_index)
+                continue
+            if token == "angle_confirmation_using_limit":
+                use_confirmation_angle = True
+                argument_parts.pop(post_scan_index)
+                continue
+            if token == "angle_confirmation_using_market":
+                use_confirmation_angle = True
+                confirmation_entry_mode = "market"
                 argument_parts.pop(post_scan_index)
                 continue
             post_scan_index += 1
@@ -1189,7 +2030,11 @@ class StockShell(cmd.Cmd):
             withdraw_amount=withdraw_amount,
             stop_loss_percentage=stop_loss_percentage,
             take_profit_percentage=take_profit_percentage,
+            minimum_holding_bars=minimum_holding_bars,
+            use_confirmation_angle=use_confirmation_angle,
+            confirmation_entry_mode=confirmation_entry_mode,
             start_date=start_timestamp,
+            maximum_position_count=maximum_position_count,
             allowed_fama_french_groups=allowed_group_identifiers,
             **extra_arguments,
         )
@@ -1328,16 +2173,39 @@ class StockShell(cmd.Cmd):
                     {
                         "year": detail.date.year,
                         "entry_date": entry_detail.date.date(),
-                        "concurrent_position_index": entry_detail.concurrent_position_count,
+                        "concurrent_position_index": (
+                            entry_detail.global_concurrent_position_count
+                            if entry_detail.global_concurrent_position_count is not None
+                            else entry_detail.concurrent_position_count
+                        ),
                         "symbol": entry_detail.symbol,
                         "price_concentration_score": entry_detail.price_concentration_score,
                         "near_price_volume_ratio": entry_detail.near_price_volume_ratio,
                         "above_price_volume_ratio": entry_detail.above_price_volume_ratio,
+                        "below_price_volume_ratio": entry_detail.below_price_volume_ratio,
+                        "near_delta": entry_detail.near_delta,
+                        "price_tightness": entry_detail.price_tightness,
                         "histogram_node_count": entry_detail.histogram_node_count,
                         "sma_angle": entry_detail.sma_angle,
+                        "d_sma_angle": entry_detail.d_sma_angle,
+                        "ema_angle": entry_detail.ema_angle,
+                        "d_ema_angle": entry_detail.d_ema_angle,
+                        "signal_bar_open": entry_detail.signal_bar_open,
                         "exit_date": detail.date.date(),
                         "result": detail.result,
                         "percentage_change": detail.percentage_change,
+                        "max_favorable_excursion_pct": detail.max_favorable_excursion_pct,
+                        "max_adverse_excursion_pct": detail.max_adverse_excursion_pct,
+                        "max_favorable_excursion_date": (
+                            detail.max_favorable_excursion_date.date()
+                            if detail.max_favorable_excursion_date is not None
+                            else None
+                        ),
+                        "max_adverse_excursion_date": (
+                            detail.max_adverse_excursion_date.date()
+                            if detail.max_adverse_excursion_date is not None
+                            else None
+                        ),
                         "exit_reason": detail.exit_reason,
                     }
                 )
@@ -1355,11 +2223,22 @@ class StockShell(cmd.Cmd):
                 "price_concentration_score",
                 "near_price_volume_ratio",
                 "above_price_volume_ratio",
+                "below_price_volume_ratio",
+                "near_delta",
+                "price_tightness",
                 "histogram_node_count",
                 "sma_angle",
+                "d_sma_angle",
+                "ema_angle",
+                "d_ema_angle",
+                "signal_bar_open",
                 "exit_date",
                 "result",
                 "percentage_change",
+                "max_favorable_excursion_pct",
+                "max_adverse_excursion_pct",
+                "max_favorable_excursion_date",
+                "max_adverse_excursion_date",
                 "exit_reason",
             ],
         ).to_csv(output_file, index=False)
