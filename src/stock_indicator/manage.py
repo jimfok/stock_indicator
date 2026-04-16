@@ -37,6 +37,31 @@ DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "data"
 # with other project CSVs (e.g., sector exports).
 STOCK_DATA_DIRECTORY = DATA_DIRECTORY / "stock_data"
 
+# Named data sources for backtesting.  The cron job always uses "stock_data"
+# (daily 6-month cache).  Research and full backtests select a source via the
+# data_source= token in simulation commands.
+DATA_SOURCE_PATHS: dict[str, Path] = {
+    "daily": DATA_DIRECTORY / "stock_data",
+    "2014": DATA_DIRECTORY / "stock_data_2014",
+    "1989": DATA_DIRECTORY / "stock_data_1989",
+}
+
+
+def resolve_data_source(source_name: str | None) -> Path:
+    """Return the stock data directory for the given source name.
+
+    Falls back to ``stock_data_2014`` when *source_name* is ``None``.
+    """
+    if source_name is None:
+        source_name = "2014"
+    path = DATA_SOURCE_PATHS.get(source_name)
+    if path is None:
+        raise ValueError(
+            f"unknown data source '{source_name}', "
+            f"choose from: {', '.join(sorted(DATA_SOURCE_PATHS))}"
+        )
+    return path
+
 
 def _resolve_strategy_choice(raw_name: str, allowed: dict) -> str:
     """Return the first supported strategy token from ``raw_name``.
@@ -867,11 +892,8 @@ class StockShell(cmd.Cmd):
             start_date_string = determine_start_date(DATA_DIRECTORY)
         start_timestamp = pandas.Timestamp(start_date_string)
 
-        data_directory = (
-            STOCK_DATA_DIRECTORY
-            if STOCK_DATA_DIRECTORY.exists()
-            else DATA_DIRECTORY
-        )
+        data_directory = resolve_data_source(None)
+        self.stdout.write(f"Data source: {data_directory.name}\n")
 
         try:
             simulation_metrics = strategy.run_complex_simulation(
@@ -1463,11 +1485,18 @@ class StockShell(cmd.Cmd):
         if start_date_string is None:
             start_date_string = determine_start_date(DATA_DIRECTORY)
         start_timestamp = pandas.Timestamp(start_date_string)
-        data_directory = (
-            STOCK_DATA_DIRECTORY
-            if STOCK_DATA_DIRECTORY.exists()
-            else DATA_DIRECTORY
-        )
+        data_source_name = config_document.get("data_source")
+        try:
+            data_directory = resolve_data_source(data_source_name)
+        except ValueError as source_error:
+            self.stdout.write(f"{source_error}\n")
+            return
+        if not data_directory.exists():
+            self.stdout.write(
+                f"data source directory not found: {data_directory}\n"
+            )
+            return
+        self.stdout.write(f"Data source: {data_directory.name}\n")
 
         try:
             simulation_metrics = strategy.run_complex_simulation(
@@ -2019,8 +2048,9 @@ class StockShell(cmd.Cmd):
         if margin_multiplier != 1.0:
             extra_arguments["margin_multiplier"] = margin_multiplier
             extra_arguments["margin_interest_annual_rate"] = 0.048
+        self.stdout.write(f"Data source: {resolve_data_source(None).name}\n")
         evaluation_metrics = strategy.evaluate_combined_strategy(
-            STOCK_DATA_DIRECTORY if STOCK_DATA_DIRECTORY.exists() else DATA_DIRECTORY,
+            resolve_data_source(None),
             buy_strategy_name,
             sell_strategy_name,
             minimum_average_dollar_volume=minimum_average_dollar_volume,
@@ -2488,7 +2518,8 @@ class StockShell(cmd.Cmd):
             return
 
         # Determine data directory and ensure the symbol file exists
-        base_directory = STOCK_DATA_DIRECTORY if STOCK_DATA_DIRECTORY.exists() else DATA_DIRECTORY
+        base_directory = resolve_data_source(None)
+        self.stdout.write(f"Data source: {base_directory.name}\n")
         if symbol_name is None:
             self.stdout.write("symbol is required: provide symbol=SYMBOL\n")
             return
@@ -2757,7 +2788,8 @@ class StockShell(cmd.Cmd):
             self.stdout.write("unsupported strategies\n")
             return
 
-        base_directory = STOCK_DATA_DIRECTORY if STOCK_DATA_DIRECTORY.exists() else DATA_DIRECTORY
+        base_directory = resolve_data_source(None)
+        self.stdout.write(f"Data source: {base_directory.name}\n")
         requested_symbols = [
             token.strip().upper()
             for token in symbol_list_input.split(",")
