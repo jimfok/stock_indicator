@@ -291,6 +291,33 @@ The resulting table is written to
 The ticker universe is always derived from the SEC `company_tickers.json`
 dataset and cannot be overridden with a custom list.
 
+### Automating Sector Refreshes
+
+Two helper scripts under `scripts/` wrap the management shell for automated data updates:
+
+- `scripts/init_sector.sh` — one-time or manual rebuild that accepts a mapping source URL (or file path) and optional output path. The script activates the virtual environment, exports a default `SEC_USER_AGENT`, and runs `python -m stock_indicator.manage update_sector_data --ff-map-url=URL OUTPUT_PATH`.
+- `scripts/update_data_cron.sh` — cron-oriented wrapper that replays the cached sector configuration, refreshes `data/symbols.txt`, and downloads historical price data. By default it reloads the prior calendar year's history (rolling window). Export `HISTORICAL_START_DATE=1990-01-01` to trigger the full backtest range, and optionally override `HISTORICAL_END_DATE`. Each run is appended to `logs/update_data_pipeline.log`, and the log notes which mode ran.
+
+Example cron entry that refreshes the dataset every five minutes:
+
+```
+*/5 * * * * /Users/you/JimGit/stock_indicator/scripts/update_data_cron.sh
+```
+
+Adjust the schedule to suit your environment and make sure `SEC_USER_AGENT` contains a valid contact per SEC guidance.
+
+### Justfile Shortcuts
+
+Frequently used workflows are captured in the repository `justfile`. Run `just` to list recipes such as:
+
+- `just build` — synchronize dependencies with `uv sync`.
+- `just test` — execute the pytest suite through `uv`.
+- `just manage CMD="update_symbols"` — run a single management-shell command without entering the REPL.
+- `just sector-refresh` — invoke the cron pipeline wrapper (prior-year rolling window).
+- `just data-full-backfill` — run the full 1990-to-today refresh by exporting the backtest start date automatically.
+
+Extend the `lint` recipe once project-wide linting is enabled.
+
 ## Contribution Guidelines
 1. Fork the repository and create a new branch for each feature or bug fix.
 2. Ensure your code passes all tests by running `pytest` before submitting.

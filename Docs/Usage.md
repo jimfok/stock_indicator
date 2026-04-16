@@ -6,6 +6,30 @@ cache that the management shell maintains. Running commands such as
 the symbols whose data has been downloaded, so no manual copying between text
 files is required.
 
+## Data maintenance scripts
+
+Run `scripts/init_sector.sh` manually to build the sector dataset with a specific
+SIC to Fama–French mapping source. For recurring refreshes, schedule
+`scripts/update_data_cron.sh`; it sequentially invokes `update_sector_data`,
+`update_symbols`, and `update_all_data_from_yf` and logs progress to
+`logs/update_data_pipeline.log`. Weekly executions run in a rolling “prior year”
+mode so the download covers January 1 of last year through today. For a full
+backtest refresh, export `HISTORICAL_START_DATE=1990-01-01` (and optionally adjust
+`HISTORICAL_END_DATE`) before invoking the script; the log spells out which range
+was used so operators can confirm the intent.
+
+### Shortcut commands
+
+A `justfile` bundles the most common maintenance tasks:
+
+* `just build` — run `uv sync` with the virtual environment activated.
+* `just test` — execute the test suite via `uv run pytest`.
+* `just manage CMD="update_symbols"` — execute a single management command and exit.
+* `just sector-refresh` — apply the weekly prior-year update pipeline.
+* `just data-full-backfill` — refresh history from 1990-01-01 through today.
+
+Use `just` with no arguments to list all available recipes.
+
 To evaluate the FTD EMA and SMA cross strategy in the management shell, call:
 
 ```
