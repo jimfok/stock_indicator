@@ -18,6 +18,12 @@ This document defines **rules and guidelines for AI coding agents** working in t
     * ✅ Example: use `soldier_index` instead of `i`, `total_soldiers` instead of `n`.
   * Use `snake_case` for variables and functions, `PascalCase` for classes, and `UPPER_CASE` for constants.
   * Keep functions short and focused; one function should ideally do one thing.
+  * **Names must carry correct information on their own.** A reader should understand what a name represents without needing to look up its definition or trace through the code. This reduces reasoning pressure for both humans and AI models working with the codebase.
+
+    * ❌ `confirm_angle` — ambiguous: confirm what? confirm how?
+    * ✅ `angle_confirmation_using_limit` — clear: the angle is used as confirmation, entry via limit order.
+    * ❌ `use_flag` — generic, says nothing about behavior.
+    * ✅ `pending_limit_entry` — describes the mechanism directly.
   * **Logic must be straightforward and easy to follow.**
 
     * Code should read top-to-bottom without hidden tricks.

@@ -42,6 +42,23 @@ DEFAULT_SHIFTED_EMA_ANGLE_RANGE: tuple[float, float] = (
     math.degrees(math.atan(1.0)),
 )
 
+# Two-layer signal architecture for ema_sma_cross_testing:
+#   A-layer (T, signal-day):  filters evaluate signal-day quality.
+#     - buy_name's ``angle_range``           → sma_angle[T]
+#     - buy_name's ``near_range``            → near_price_volume_ratio[T]
+#     - buy_name's ``above_range``           → above_price_volume_ratio[T]
+#     - CSV ``d_sma_min/max``                → d_sma_angle[T]
+#     - CSV ``ema_min/max``                  → ema_angle[T]
+#     - CSV ``d_ema_min/max``                → d_ema_angle[T]
+#     - CSV ``price_score_min/max``          → price_concentration_score[T]
+#
+#   B-layer (T+1, confirmation-day):  applied only when
+#   ``use_confirmation_angle=True`` and is a single hardcoded check on
+#   ``sma_angle`` at the execution-confirmation bar. This is the
+#   "is the trend still supportive at execution time" gate; it is
+#   independent of the bucket-specific A-layer filters.
+CONFIRMATION_SMA_ANGLE_RANGE: tuple[float, float] = (-0.01, 65.0)
+
 
 def _split_strategy_choices(strategy_name: str) -> list[str]:
     """Split a strategy expression by recognized OR separators.
@@ -184,13 +201,19 @@ def load_symbols_excluded_by_industry() -> set[str]:
             return excluded_symbols
     except Exception:  # noqa: BLE001
         return excluded_symbols
-    # Normalize expected columns and filter ff12==12
+    # Normalize expected columns and filter ff12==12 plus non-stock SIC codes
     sector_frame.columns = [str(c).strip().lower() for c in sector_frame.columns]
     if "ticker" not in sector_frame.columns or "ff12" not in sector_frame.columns:
         excluded_symbols = set()
     else:
         mask_other = sector_frame["ff12"] == 12
-
+        # Exclude SIC codes that represent non-stock instruments:
+        # 6221 = Commodity/crypto ETFs (GLD, SLV, USO, IBIT, GBTC, ...)
+        # 6770 = SPACs / blank-check companies
+        _excluded_sic_codes = {6221, 6770}
+        if "sic" in sector_frame.columns:
+            mask_sic = sector_frame["sic"].isin(_excluded_sic_codes)
+            mask_other = mask_other | mask_sic
         tickers_series = sector_frame.loc[mask_other, "ticker"].dropna().astype(str)
         excluded_symbols = set(tickers_series.str.upper().tolist())
 
@@ -441,8 +464,21 @@ class TradeDetail:
     price_concentration_score: float | None = None
     near_price_volume_ratio: float | None = None
     above_price_volume_ratio: float | None = None
+    below_price_volume_ratio: float | None = None
+    near_delta: float | None = None
+    price_tightness: float | None = None
     histogram_node_count: int | None = None
     sma_angle: float | None = None
+    d_sma_angle: float | None = None
+    ema_angle: float | None = None
+    d_ema_angle: float | None = None
+    # B-layer confirmation-day (T+1) sma_angle value. Recorded alongside the
+    # signal-date (T) ``sma_angle`` so you can inspect what the confirmation
+    # gate actually saw for each trade.
+    sma_angle_confirmation: float | None = None
+    # Signal bar open price (T+1 open) used as risk reference for SL/TP.
+    # Only populated when pending market entry is used.
+    signal_bar_open: float | None = None
     # Number of concurrent open positions at this event.
     # For an "open" event, includes this position. For a "close" event,
     # excludes the position being closed.
@@ -455,6 +491,15 @@ class TradeDetail:
     result: str | None = None  # TODO: review
     percentage_change: float | None = None  # TODO: review
     exit_reason: str = "signal"
+    total_commission: float | None = None
+    share_count: int | None = None
+    # Intra-trade excursion statistics, populated on the exit detail only.
+    # Expressed as a fraction of the trade's entry_price (e.g. +0.05 = bar
+    # high reached 5% above entry; -0.03 = bar low reached 3% below entry).
+    max_favorable_excursion_pct: float | None = None
+    max_adverse_excursion_pct: float | None = None
+    max_favorable_excursion_date: pandas.Timestamp | None = None
+    max_adverse_excursion_date: pandas.Timestamp | None = None
 
 
 @dataclass
@@ -493,6 +538,26 @@ class ComplexStrategySetDefinition:
     minimum_average_dollar_volume_ratio: float | None = None
     top_dollar_volume_rank: int | None = None
     maximum_symbols_per_group: int = 1
+    d_sma_range: tuple[float, float] | None = None
+    ema_range: tuple[float, float] | None = None
+    d_ema_range: tuple[float, float] | None = None
+    near_delta_range: tuple[float, float] | None = None
+    price_tightness_range: tuple[float, float] | None = None
+    price_score_min: float | None = None
+    price_score_max: float | None = None
+    exit_alpha_factor: float | None = None
+    # Multi-bucket extensions (ignored by run_complex_simulation A/B path):
+    # - entry_priority: lower number = wins entry contention first (used by
+    #   run_multi_bucket_simulation as a tiebreaker in the event sort key).
+    # - maximum_positions: per-bucket position cap; when None, the bucket is
+    #   only limited by the global maximum_position_count.
+    # - fill_remaining: when True, this bucket can only open when the TOTAL
+    #   open position count (across all buckets) is below its maximum_positions.
+    #   This mimics the complex simulation B-set behaviour where B fills
+    #   positions that A didn't use, rather than having its own independent cap.
+    entry_priority: int = 0
+    maximum_positions: int | None = None
+    fill_remaining: bool = False
 
 
 @dataclass
@@ -525,8 +590,27 @@ def run_complex_simulation(
     start_date: pandas.Timestamp | None = None,
     margin_multiplier: float = 1.0,
     margin_interest_annual_rate: float = 0.048,
+    use_confirmation_angle: bool = False,
+    confirmation_entry_mode: str = "limit",
+    minimum_holding_bars: int = 0,
+    multi_bucket_mode: bool = False,
+    confirmation_sma_angle_range: tuple[float, float] | None = None,
 ) -> ComplexSimulationMetrics:
-    """Evaluate multiple strategy sets under a shared configuration."""
+    """Evaluate multiple strategy sets under a shared configuration.
+
+    When ``multi_bucket_mode`` is ``False`` (default), the A/B legacy
+    semantics apply: set B is automatically capped at half of the global
+    ``maximum_position_count`` and is blocked from opening when the total
+    open positions already meet B's cap. This matches the original
+    complex_simulation behaviour.
+
+    When ``multi_bucket_mode`` is ``True``, each set may declare its own
+    ``maximum_positions`` (via ``ComplexStrategySetDefinition``) and an
+    ``entry_priority`` integer (lower = higher priority) that breaks ties in
+    the event sort order. The B-specific hardcoding is disabled so any number
+    of buckets can share a global slot pool on a first-come-first-served
+    basis, with priority as the secondary ordering key.
+    """
 
     if maximum_position_count <= 0:
         raise ValueError("maximum_position_count must be positive")
@@ -540,11 +624,18 @@ def run_complex_simulation(
     position_limits_by_set: Dict[str, int] = {}
     priority_mode_by_set: Dict[str, str] = {}
     for label, definition in set_definitions.items():
-        maximum_positions_for_set = maximum_position_count
-        if label.upper() == "B":
-            maximum_positions_for_set = max(
-                1, math.ceil(maximum_position_count / 2)
+        if multi_bucket_mode:
+            maximum_positions_for_set = (
+                definition.maximum_positions
+                if definition.maximum_positions is not None
+                else maximum_position_count
             )
+        else:
+            maximum_positions_for_set = maximum_position_count
+            if label.upper() == "B":
+                maximum_positions_for_set = max(
+                    1, math.ceil(maximum_position_count / 2)
+                )
         position_limits_by_set[label] = maximum_positions_for_set
         strategy_identifier = (
             definition.strategy_identifier.lower()
@@ -569,8 +660,20 @@ def run_complex_simulation(
             exclude_other_ff12=True,
             stop_loss_percentage=definition.stop_loss_percentage,
             take_profit_percentage=definition.take_profit_percentage,
+            minimum_holding_bars=minimum_holding_bars,
+            use_confirmation_angle=use_confirmation_angle,
+            confirmation_entry_mode=confirmation_entry_mode,
             margin_multiplier=margin_multiplier,
             margin_interest_annual_rate=effective_interest_rate,
+            d_sma_range=definition.d_sma_range,
+            ema_range=definition.ema_range,
+            d_ema_range=definition.d_ema_range,
+            near_delta_range=definition.near_delta_range,
+            price_tightness_range=definition.price_tightness_range,
+            price_score_min=definition.price_score_min,
+            price_score_max=definition.price_score_max,
+            confirmation_sma_angle_range=confirmation_sma_angle_range,
+            exit_alpha_factor=definition.exit_alpha_factor,
         )
 
     accepted_trades_by_set: Dict[str, List[Trade]] = {
@@ -579,12 +682,20 @@ def run_complex_simulation(
     open_position_counts_by_set: Dict[str, int] = {label: 0 for label in set_definitions}
     open_trade_keys: Dict[Tuple[str, int], str] = {}
     accepted_trade_keys: set[Tuple[str, int]] = set()
+    # Event tuple layout:
+    #   (date, event_type, bucket_priority, entry_priority, insertion_counter,
+    #    label, trade)
+    # Sort key uses the first five fields in order, so bucket_priority wins
+    # over within-bucket quality (entry_priority) and insertion order.
     events: List[
-        tuple[pandas.Timestamp, int, float, int, str, Trade]
+        tuple[pandas.Timestamp, int, int, float, int, str, Trade]
     ] = []
     event_insertion_counter = 0
     for label, artifacts in artifacts_by_set.items():
         priority_mode = priority_mode_by_set.get(label)
+        bucket_priority_value = (
+            set_definitions[label].entry_priority if multi_bucket_mode else 0
+        )
         for trade in artifacts.trades:
             entry_priority = 0.0
             trade_detail_pair = artifacts.trade_detail_pairs.get(trade)
@@ -608,6 +719,7 @@ def run_complex_simulation(
                 (
                     trade.entry_date,
                     1,
+                    bucket_priority_value,
                     entry_priority,
                     event_insertion_counter,
                     label,
@@ -619,6 +731,7 @@ def run_complex_simulation(
                 (
                     trade.exit_date,
                     0,
+                    0,
                     0.0,
                     event_insertion_counter,
                     label,
@@ -626,11 +739,14 @@ def run_complex_simulation(
                 )
             )
             event_insertion_counter += 1
-    events.sort(key=lambda event: (event[0], event[1], event[2], event[3]))
+    events.sort(
+        key=lambda event: (event[0], event[1], event[2], event[3], event[4])
+    )
 
     for (
         event_date,
         event_type,
+        _bucket_priority,
         _event_priority,
         _insertion_counter,
         label,
@@ -652,11 +768,17 @@ def run_complex_simulation(
             if current_open_total >= maximum_position_count:
                 continue
             if (
-                normalized_label == "B"
+                not multi_bucket_mode
+                and normalized_label == "B"
                 and current_open_total >= position_limits_by_set[label]
             ):
                 continue
-            if open_position_counts_by_set[label] >= position_limits_by_set[label]:
+            if multi_bucket_mode and set_definitions[label].fill_remaining:
+                # fill_remaining bucket: can only open when total open
+                # positions (across all buckets) is below this bucket's max.
+                if current_open_total >= position_limits_by_set[label]:
+                    continue
+            elif open_position_counts_by_set[label] >= position_limits_by_set[label]:
                 continue
             accepted_trade_keys.add(trade_key)
             open_trade_keys[trade_key] = label
@@ -757,6 +879,14 @@ def run_complex_simulation(
             margin_multiplier=margin_multiplier,
             margin_interest_annual_rate=effective_interest_rate,
         )
+        # Propagate commission data from Trade objects (set by
+        # simulate_portfolio_balance) back to the corresponding TradeDetails.
+        for trade in trades_for_set:
+            if trade in artifacts.trade_detail_pairs:
+                _, exit_detail = artifacts.trade_detail_pairs[trade]
+                exit_detail.total_commission = trade.total_commission
+                exit_detail.share_count = trade.share_count
+
         maximum_drawdown = calculate_max_drawdown(
             trades_for_set,
             starting_cash,
@@ -918,6 +1048,8 @@ def compute_signals_for_date(
     exclude_other_ff12: bool = True,
     maximum_symbols_per_group: int = 1,
     use_unshifted_signals: bool = False,
+    near_delta_range: tuple[float, float] | None = None,
+    price_tightness_range: tuple[float, float] | None = None,
 ) -> Dict[str, List[str]]:
     """Compute entry/exit signals on ``evaluation_date`` using simulation filters.
 
@@ -1156,6 +1288,11 @@ def compute_signals_for_date(
             ):
                 kwargs["near_range"] = near_range
                 kwargs["above_range"] = above_range
+            if base_name == "ema_sma_cross_testing":
+                if near_delta_range is not None:
+                    kwargs["near_delta_range"] = near_delta_range
+                if price_tightness_range is not None:
+                    kwargs["price_tightness_range"] = price_tightness_range
         table[base_name](frame, include_raw_signals=include_raw_signals, **kwargs)
         if base_name != full_name:
             rename_mapping = {
@@ -1252,35 +1389,20 @@ def compute_signals_for_date(
         shifted_buy_signal_columns = list(dict.fromkeys(shifted_buy_signal_columns))
         sell_signal_columns = list(dict.fromkeys(sell_signal_columns))
         if use_unshifted_signals:
+            # Use raw (unshifted) signals directly.  The raw signal on day T
+            # captures the same condition as the shifted signal on T+1, so
+            # there is no need to realign via shift(-1).  The previous
+            # shift(-1, fill_value=False) approach silently dropped the signal
+            # when the evaluation date was the last bar in the data frame.
             if raw_buy_signal_columns:
-                raw_entry_series = (
+                price_data_frame["_combined_buy_entry"] = (
                     price_data_frame[raw_buy_signal_columns]
                     .any(axis=1)
                     .fillna(False)
                     .astype(bool)
                 )
             else:
-                raw_entry_series = pandas.Series(
-                    False, index=price_data_frame.index
-                )
-            if shifted_buy_signal_columns:
-                shifted_entry_series = (
-                    price_data_frame[shifted_buy_signal_columns]
-                    .any(axis=1)
-                    .fillna(False)
-                    .astype(bool)
-                )
-            else:
-                shifted_entry_series = pandas.Series(
-                    False, index=price_data_frame.index
-                )
-            aligned_shifted_entry_series = shifted_entry_series.shift(
-                -1, fill_value=False
-            )
-            combined_entry_series = (
-                raw_entry_series | aligned_shifted_entry_series.astype(bool)
-            )
-            price_data_frame["_combined_buy_entry"] = combined_entry_series
+                price_data_frame["_combined_buy_entry"] = False
         else:
             if shifted_buy_signal_columns:
                 price_data_frame["_combined_buy_entry"] = (
@@ -1627,10 +1749,11 @@ def attach_ema_sma_cross_with_slope_signals(
         price_data_frame["sma_value"] - price_data_frame["sma_previous"]
     ) / price_data_frame["sma_previous"]
     price_data_frame["sma_angle"] = numpy.degrees(numpy.arctan(relative_change))
+    sma_angle_previous = price_data_frame["sma_angle"].shift(1)
     price_data_frame["ema_sma_cross_with_slope_entry_signal"] = (
         price_data_frame["ema_sma_cross_entry_signal"]
-        & (price_data_frame["sma_angle"] >= angle_lower_bound)
-        & (price_data_frame["sma_angle"] <= angle_upper_bound)
+        & (sma_angle_previous >= angle_lower_bound)
+        & (sma_angle_previous <= angle_upper_bound)
     )
     price_data_frame["ema_sma_cross_with_slope_exit_signal"] = price_data_frame[
         "ema_sma_cross_exit_signal"
@@ -1655,6 +1778,16 @@ def attach_ema_sma_cross_testing_signals(
     sma_window_factor: float | None = None,
     bounds_as_tangent: bool = False,
     include_raw_signals: bool = False,
+    use_confirmation_angle: bool = False,
+    d_sma_range: tuple[float, float] | None = None,
+    ema_range: tuple[float, float] | None = None,
+    d_ema_range: tuple[float, float] | None = None,
+    near_delta_range: tuple[float, float] | None = None,
+    price_tightness_range: tuple[float, float] | None = None,
+    price_score_min: float | None = None,
+    price_score_max: float | None = None,
+    confirmation_sma_angle_range: tuple[float, float] | None = None,
+    exit_alpha_factor: float | None = None,
 ) -> None:
     """Attach EMA/SMA cross testing signals with angle and chip filters.
 
@@ -1724,6 +1857,8 @@ def attach_ema_sma_cross_testing_signals(
 
     near_ratios: List[float | None] = []
     above_ratios: List[float | None] = []
+    below_ratios: List[float | None] = []
+    price_scores: List[float | None] = []
     for row_index in range(len(price_data_frame)):
         chip_metrics = calculate_chip_concentration_metrics(
             price_data_frame.iloc[: row_index + 1],
@@ -1732,12 +1867,29 @@ def attach_ema_sma_cross_testing_signals(
         )
         near_ratios.append(chip_metrics["near_price_volume_ratio"])
         above_ratios.append(chip_metrics["above_price_volume_ratio"])
+        below_ratios.append(chip_metrics["below_price_volume_ratio"])
+        price_scores.append(chip_metrics["price_score"])
     price_data_frame["near_price_volume_ratio"] = pandas.Series(
         near_ratios, index=price_data_frame.index
     )
     price_data_frame["above_price_volume_ratio"] = pandas.Series(
         above_ratios, index=price_data_frame.index
     )
+    price_data_frame["below_price_volume_ratio"] = pandas.Series(
+        below_ratios, index=price_data_frame.index
+    )
+
+    # VCP footprint metrics: supply dry-up leaves two traces over 60 bars.
+    # near_delta = near_now - near_60_bars_ago.  Negative = near declining
+    #   (floating supply being absorbed while price stays).
+    # price_tightness = (rolling_high - rolling_low) / close.  Small value =
+    #   price confined to a narrow range (base tightening).
+    near_series = price_data_frame["near_price_volume_ratio"]
+    price_data_frame["near_delta"] = near_series - near_series.shift(60)
+    price_data_frame["price_tightness"] = (
+        price_data_frame["high"].rolling(window=60, min_periods=1).max()
+        - price_data_frame["low"].rolling(window=60, min_periods=1).min()
+    ) / price_data_frame["close"]
 
     price_data_frame["near_price_volume_ratio_previous"] = price_data_frame[
         "near_price_volume_ratio"
@@ -1755,18 +1907,133 @@ def attach_ema_sma_cross_testing_signals(
         & price_data_frame["above_price_volume_ratio_previous"].le(above_upper_bound)
     )
 
-    price_data_frame["ema_sma_cross_testing_entry_signal"] = (
+    # A-layer (signal-day, T): sma_angle filter ALWAYS uses the shifted
+    # (previous-row) value so that at row T+1 we check sma_angle[T]. This
+    # is the signal-quality check decoupled from execution confirmation.
+    sma_angle_previous = price_data_frame["sma_angle"].shift(1)
+    entry_conditions = (
         price_data_frame["ema_sma_cross_entry_signal"]
-        & (price_data_frame["sma_angle"] >= angle_lower_bound)
-        & (price_data_frame["sma_angle"] <= angle_upper_bound)
+        & (sma_angle_previous >= angle_lower_bound)
+        & (sma_angle_previous <= angle_upper_bound)
         & (
             near_price_ratio_previous_ok.fillna(False)
             & above_price_ratio_previous_ok.fillna(False)
         )
     )
-    price_data_frame["ema_sma_cross_testing_exit_signal"] = price_data_frame[
-        "ema_sma_cross_exit_signal"
-    ]
+    # B-layer (confirmation-day, T+1): when confirmation mode is enabled,
+    # apply an ADDITIONAL sma_angle check on the execution bar. Paired
+    # with pending_limit_entry / pending_market_entry in the simulator so
+    # that actual entry is delayed to T+2 via limit or market order,
+    # avoiding lookahead. The range defaults to
+    # CONFIRMATION_SMA_ANGLE_RANGE but can be overridden per-run via the
+    # ``confirmation_sma_angle_range`` parameter.
+    if use_confirmation_angle:
+        confirmation_range = (
+            confirmation_sma_angle_range
+            if confirmation_sma_angle_range is not None
+            else CONFIRMATION_SMA_ANGLE_RANGE
+        )
+        confirmation_lower, confirmation_upper = confirmation_range
+        entry_conditions = entry_conditions & (
+            price_data_frame["sma_angle"].ge(confirmation_lower).fillna(False)
+            & price_data_frame["sma_angle"].le(confirmation_upper).fillna(False)
+        )
+
+    # Optional d_sma_angle filter — always uses T (the signal date) since
+    # the derivative sma_angle[T] - sma_angle[T-1] is known at T close,
+    # before the T+1 open decision point.
+    if d_sma_range is not None:
+        d_sma = price_data_frame["sma_angle"].diff()
+        d_sma_series = d_sma.shift(1)
+        entry_conditions = entry_conditions & (
+            d_sma_series.ge(d_sma_range[0]).fillna(False)
+            & d_sma_series.le(d_sma_range[1]).fillna(False)
+        )
+
+    # Optional ema_angle filter — always uses T (the signal date) to assess
+    # signal quality.  The value ema_angle[T] is known at T close, before the
+    # T+1 open decision point.
+    if ema_range is not None:
+        if "ema_value" in price_data_frame.columns:
+            ema_prev = price_data_frame["ema_value"].shift(1)
+            ema_rel_change = (price_data_frame["ema_value"] - ema_prev) / ema_prev
+            ema_angle = numpy.degrees(numpy.arctan(ema_rel_change))
+            ema_series = ema_angle.shift(1)
+            entry_conditions = entry_conditions & (
+                ema_series.ge(ema_range[0]).fillna(False)
+                & ema_series.le(ema_range[1]).fillna(False)
+            )
+
+    # Optional d_ema_angle filter — always uses T (signal date). The
+    # derivative d_ema[T] = ema_angle[T] - ema_angle[T-1] is known at T close.
+    if d_ema_range is not None:
+        if "ema_value" in price_data_frame.columns:
+            ema_prev_for_d = price_data_frame["ema_value"].shift(1)
+            ema_rel_change_for_d = (
+                price_data_frame["ema_value"] - ema_prev_for_d
+            ) / ema_prev_for_d
+            ema_angle_for_d = numpy.degrees(numpy.arctan(ema_rel_change_for_d))
+            d_ema_series = ema_angle_for_d.diff().shift(1)
+            entry_conditions = entry_conditions & (
+                d_ema_series.ge(d_ema_range[0]).fillna(False)
+                & d_ema_series.le(d_ema_range[1]).fillna(False)
+            )
+
+    # Optional near_delta filter — uses T (signal date).  near_delta[T] is
+    # known at T close (computed from near[T] - near[T-60]).
+    if near_delta_range is not None:
+        nd_series = price_data_frame["near_delta"].shift(1)
+        entry_conditions = entry_conditions & (
+            nd_series.ge(near_delta_range[0]).fillna(False)
+            & nd_series.le(near_delta_range[1]).fillna(False)
+        )
+
+    # Optional price_tightness filter — uses T (signal date).
+    # price_tightness[T] = (rolling_high - rolling_low) / close over 60 bars.
+    if price_tightness_range is not None:
+        pt_series = price_data_frame["price_tightness"].shift(1)
+        entry_conditions = entry_conditions & (
+            pt_series.ge(price_tightness_range[0]).fillna(False)
+            & pt_series.le(price_tightness_range[1]).fillna(False)
+        )
+
+    # Optional price_concentration_score filter (checked on T, the signal date)
+    if price_score_min is not None or price_score_max is not None:
+        price_score_series = pandas.Series(
+            price_scores, index=price_data_frame.index
+        ).shift(1)  # Use T (previous bar)
+        if price_score_min is not None:
+            entry_conditions = entry_conditions & (
+                price_score_series.ge(price_score_min).fillna(False)
+            )
+        if price_score_max is not None:
+            entry_conditions = entry_conditions & (
+                price_score_series.le(price_score_max).fillna(False)
+            )
+
+    price_data_frame["ema_sma_cross_testing_entry_signal"] = entry_conditions
+
+    # Exit signal: heavy-alpha EMA cross down SMA, or default cross exit
+    if exit_alpha_factor is not None and exit_alpha_factor > 0:
+        # CustomEMA(α_heavy) crosses below SMA — same structure as Level 1
+        # entry (EMA up-cross SMA) but with heavier α for faster response
+        _close_r3 = price_data_frame["close"].round(3)
+        heavy_alpha = exit_alpha_factor / (window_size + 1)
+        heavy_alpha = min(heavy_alpha, 1.0)  # clamp to valid range
+        ema_heavy = _close_r3.ewm(alpha=heavy_alpha, adjust=False).mean()
+        ema_heavy_previous = ema_heavy.shift(1)
+        sma_current = price_data_frame["sma_value"]
+        sma_previous = price_data_frame["sma_previous"]
+        # Fire when heavy EMA crosses below SMA
+        heavy_cross_down = (ema_heavy_previous >= sma_previous) & (ema_heavy < sma_current)
+        price_data_frame["ema_sma_cross_testing_exit_signal"] = (
+            heavy_cross_down.shift(1, fill_value=False)
+        )
+    else:
+        price_data_frame["ema_sma_cross_testing_exit_signal"] = price_data_frame[
+            "ema_sma_cross_exit_signal"
+        ]
+
     if include_raw_signals:
         near_price_ratio_raw_ok = (
             price_data_frame["near_price_volume_ratio"].ge(near_lower_bound)
@@ -1871,10 +2138,11 @@ def attach_ema_shift_cross_with_slope_signals(
     base_entry = crosses_up.shift(1, fill_value=False)
     base_exit = crosses_down.shift(1, fill_value=False)
 
+    shifted_ema_angle_previous = price_data_frame["shifted_ema_angle"].shift(1)
     price_data_frame["ema_shift_cross_with_slope_entry_signal"] = (
         base_entry
-        & (price_data_frame["shifted_ema_angle"] >= angle_lower_bound)
-        & (price_data_frame["shifted_ema_angle"] <= angle_upper_bound)
+        & (shifted_ema_angle_previous >= angle_lower_bound)
+        & (shifted_ema_angle_previous <= angle_upper_bound)
     )
     price_data_frame["ema_shift_cross_with_slope_exit_signal"] = base_exit
     if include_raw_signals:
@@ -2185,8 +2453,20 @@ def _generate_strategy_evaluation_artifacts(
     exclude_other_ff12: bool = True,
     stop_loss_percentage: float = 1.0,
     take_profit_percentage: float = 0.0,
+    minimum_holding_bars: int = 0,
+    use_confirmation_angle: bool = False,
+    confirmation_entry_mode: str = "limit",
     margin_multiplier: float = 1.0,
     margin_interest_annual_rate: float = 0.048,
+    d_sma_range: tuple[float, float] | None = None,
+    ema_range: tuple[float, float] | None = None,
+    d_ema_range: tuple[float, float] | None = None,
+    near_delta_range: tuple[float, float] | None = None,
+    price_tightness_range: tuple[float, float] | None = None,
+    price_score_min: float | None = None,
+    price_score_max: float | None = None,
+    confirmation_sma_angle_range: tuple[float, float] | None = None,
+    exit_alpha_factor: float | None = None,
 ) -> StrategyEvaluationArtifacts:
     """Build intermediate artifacts for strategy evaluation.
 
@@ -2383,6 +2663,30 @@ def _generate_strategy_evaluation_artifacts(
                 ):
                     kwargs["near_range"] = near_range
                     kwargs["above_range"] = above_range
+                if (
+                    base_name == "ema_sma_cross_testing"
+                    and use_confirmation_angle
+                ):
+                    kwargs["use_confirmation_angle"] = True
+                if base_name == "ema_sma_cross_testing":
+                    if d_sma_range is not None:
+                        kwargs["d_sma_range"] = d_sma_range
+                    if ema_range is not None:
+                        kwargs["ema_range"] = ema_range
+                    if d_ema_range is not None:
+                        kwargs["d_ema_range"] = d_ema_range
+                    if near_delta_range is not None:
+                        kwargs["near_delta_range"] = near_delta_range
+                    if price_tightness_range is not None:
+                        kwargs["price_tightness_range"] = price_tightness_range
+                    if price_score_min is not None:
+                        kwargs["price_score_min"] = price_score_min
+                    if price_score_max is not None:
+                        kwargs["price_score_max"] = price_score_max
+                    if confirmation_sma_angle_range is not None:
+                        kwargs["confirmation_sma_angle_range"] = confirmation_sma_angle_range
+                    if exit_alpha_factor is not None:
+                        kwargs["exit_alpha_factor"] = exit_alpha_factor
             buy_function(price_data_frame, **kwargs)
             rename_signal_columns(price_data_frame, base_name, buy_name)
             entry_column_name = f"{buy_name}_entry_signal"
@@ -2438,6 +2742,8 @@ def _generate_strategy_evaluation_artifacts(
                 ):
                     kwargs["near_range"] = near_range
                     kwargs["above_range"] = above_range
+                if base_name == "ema_sma_cross_testing" and exit_alpha_factor is not None:
+                    kwargs["exit_alpha_factor"] = exit_alpha_factor
             sell_function(sell_price_data_frame, **kwargs)
             rename_signal_columns(sell_price_data_frame, base_name, sell_name)
             entry_column_name = f"{sell_name}_entry_signal"
@@ -2470,6 +2776,9 @@ def _generate_strategy_evaluation_artifacts(
         def exit_rule(current_row: pandas.Series, entry_row: pandas.Series) -> bool:
             return bool(current_row["_combined_sell_exit"])
 
+        def cancel_rule(current_row: pandas.Series) -> bool:
+            return bool(current_row["_combined_sell_exit"])
+
         cooldown_after_close = 5 if any(
             base in {"ema_sma_cross", "ema_sma_cross_with_slope", "ema_shift_cross_with_slope"}
             for base in buy_bases_for_cooldown
@@ -2493,6 +2802,10 @@ def _generate_strategy_evaluation_artifacts(
             stop_loss_percentage=stop_loss_percentage,
             take_profit_percentage=take_profit_percentage,
             cooldown_bars=cooldown_after_close,
+            minimum_holding_bars=minimum_holding_bars,
+            pending_limit_entry=use_confirmation_angle and confirmation_entry_mode == "limit",
+            pending_market_entry=use_confirmation_angle and confirmation_entry_mode == "market",
+            cancel_pending_rule=cancel_rule if use_confirmation_angle else None,
         )
         simulation_results.append(simulation_result)
         all_trades.extend(simulation_result.trades)
@@ -2557,6 +2870,12 @@ def _generate_strategy_evaluation_artifacts(
             entry_index_position = run_frame.index.get_indexer_for(
                 [completed_trade.entry_date]
             )
+            # In pending market entry mode the timeline is:
+            #   T   = signal fires (chip metrics should reflect this bar)
+            #   T+1 = confirmation bar (angle values checked here)
+            #   T+2 = market fill (entry_date)
+            # Without pending entry, entry_date = T+1 and signal_date = T.
+            confirmation_date = completed_trade.entry_date
             signal_date = completed_trade.entry_date
             if entry_index_position.size == 1:
                 entry_index_position = int(entry_index_position[0])
@@ -2565,8 +2884,13 @@ def _generate_strategy_evaluation_artifacts(
                     and entry_index_position < len(run_frame.index)
                     and entry_index_position > 0
                 ):
-                    signal_date = run_frame.index[entry_index_position - 1]
+                    confirmation_date = run_frame.index[entry_index_position - 1]
+                    if entry_index_position > 1:
+                        signal_date = run_frame.index[entry_index_position - 2]
+                    else:
+                        signal_date = confirmation_date
                 else:
+                    confirmation_date = completed_trade.entry_date
                     signal_date = completed_trade.entry_date
             chip_metrics = calculate_chip_concentration_metrics(
                 price_data_frame.loc[: signal_date],
@@ -2574,13 +2898,65 @@ def _generate_strategy_evaluation_artifacts(
                 include_volume_profile=False,
             )
             sma_angle_for_signal: float | None = None
-            if "sma_angle" in price_data_frame.columns:
-                for angle_date in (signal_date, completed_trade.entry_date):
-                    if angle_date in price_data_frame.index:
-                        angle_value = price_data_frame.at[angle_date, "sma_angle"]
-                        if pandas.notna(angle_value):
-                            sma_angle_for_signal = float(angle_value)
-                            break
+            d_sma_angle_for_signal: float | None = None
+            ema_angle_for_signal: float | None = None
+            d_ema_angle_for_signal: float | None = None
+
+            def _lookup_signal_value(column_name: str) -> float | None:
+                """Return the column's value at the filter decision time.
+
+                All A-layer filters (sma_angle, ema_angle, d_sma_angle,
+                d_ema_angle, chip metrics) evaluate at the signal date T.
+                trade_detail records the SAME values so that post-hoc
+                bucket analysis matches what the live filter sees.
+
+                Lookup order: signal_date (T) first, then confirmation_date
+                (T+1), then the trade's entry_date (T+2) as a final
+                fallback. The fallbacks only take effect when T is not in
+                the frame's index (edge cases at the very start of data).
+                """
+                if column_name not in price_data_frame.columns:
+                    return None
+                for candidate_date in (
+                    signal_date,
+                    confirmation_date,
+                    completed_trade.entry_date,
+                ):
+                    if candidate_date in price_data_frame.index:
+                        val = price_data_frame.at[candidate_date, column_name]
+                        if pandas.notna(val):
+                            return float(val)
+                return None
+
+            def _lookup_confirmation_value(column_name: str) -> float | None:
+                """Return the column's value at the B-layer confirmation
+                bar (T+1). Used to record what the confirmation gate
+                actually saw for this trade, independently of the A-layer
+                signal-date lookup above.
+                """
+                if column_name not in price_data_frame.columns:
+                    return None
+                if confirmation_date in price_data_frame.index:
+                    val = price_data_frame.at[confirmation_date, column_name]
+                    if pandas.notna(val):
+                        return float(val)
+                return None
+
+            # Compute ema_angle and derivatives if not already in the frame
+            if "ema_value" in price_data_frame.columns and "ema_angle" not in price_data_frame.columns:
+                ema_prev = price_data_frame["ema_value"].shift(1)
+                ema_rel_change = (price_data_frame["ema_value"] - ema_prev) / ema_prev
+                price_data_frame["ema_angle"] = numpy.degrees(numpy.arctan(ema_rel_change))
+            if "sma_angle" in price_data_frame.columns and "d_sma_angle" not in price_data_frame.columns:
+                price_data_frame["d_sma_angle"] = price_data_frame["sma_angle"].diff()
+            if "ema_angle" in price_data_frame.columns and "d_ema_angle" not in price_data_frame.columns:
+                price_data_frame["d_ema_angle"] = price_data_frame["ema_angle"].diff()
+
+            sma_angle_for_signal = _lookup_signal_value("sma_angle")
+            d_sma_angle_for_signal = _lookup_signal_value("d_sma_angle")
+            ema_angle_for_signal = _lookup_signal_value("ema_angle")
+            d_ema_angle_for_signal = _lookup_signal_value("d_ema_angle")
+            sma_angle_confirmation_value = _lookup_confirmation_value("sma_angle")
             entry_detail = TradeDetail(
                 date=completed_trade.entry_date,
                 symbol=symbol_name,
@@ -2594,8 +2970,16 @@ def _generate_strategy_evaluation_artifacts(
                 price_concentration_score=chip_metrics["price_score"],
                 near_price_volume_ratio=chip_metrics["near_price_volume_ratio"],
                 above_price_volume_ratio=chip_metrics["above_price_volume_ratio"],
+                below_price_volume_ratio=chip_metrics["below_price_volume_ratio"],
+                near_delta=_lookup_signal_value("near_delta"),
+                price_tightness=_lookup_signal_value("price_tightness"),
                 histogram_node_count=chip_metrics["histogram_node_count"],
                 sma_angle=sma_angle_for_signal,
+                d_sma_angle=d_sma_angle_for_signal,
+                ema_angle=ema_angle_for_signal,
+                d_ema_angle=d_ema_angle_for_signal,
+                sma_angle_confirmation=sma_angle_confirmation_value,
+                signal_bar_open=completed_trade.signal_bar_open,
             )
             trade_result = "win" if completed_trade.profit > 0 else "lose"
             group_exit_total = 0.0
@@ -2627,6 +3011,12 @@ def _generate_strategy_evaluation_artifacts(
                 group_total_simple_moving_average_dollar_volume=group_exit_total,
                 group_simple_moving_average_dollar_volume_ratio=group_exit_ratio,
                 exit_reason=completed_trade.exit_reason,
+                total_commission=completed_trade.total_commission,
+                share_count=completed_trade.share_count,
+                max_favorable_excursion_pct=completed_trade.max_favorable_excursion_pct,
+                max_adverse_excursion_pct=completed_trade.max_adverse_excursion_pct,
+                max_favorable_excursion_date=completed_trade.max_favorable_excursion_date,
+                max_adverse_excursion_date=completed_trade.max_adverse_excursion_date,
             )
             trade_detail_pairs[completed_trade] = (entry_detail, exit_detail)
 
@@ -2703,6 +3093,9 @@ def evaluate_combined_strategy(
     withdraw_amount: float = 0.0,
     stop_loss_percentage: float = 1.0,
     take_profit_percentage: float = 0.0,
+    minimum_holding_bars: int = 0,
+    use_confirmation_angle: bool = False,
+    confirmation_entry_mode: str = "limit",
     start_date: pandas.Timestamp | None = None,
     maximum_position_count: int = 3,
     allowed_fama_french_groups: set[int] | None = None,
@@ -2728,15 +3121,48 @@ def evaluate_combined_strategy(
         exclude_other_ff12=exclude_other_ff12,
         stop_loss_percentage=stop_loss_percentage,
         take_profit_percentage=take_profit_percentage,
+        minimum_holding_bars=minimum_holding_bars,
+        use_confirmation_angle=use_confirmation_angle,
+        confirmation_entry_mode=confirmation_entry_mode,
         margin_multiplier=margin_multiplier,
         margin_interest_annual_rate=margin_interest_annual_rate,
     )
+
+    # Filter trades by portfolio-level position cap so that metrics, trade
+    # details and simulation logs only reflect trades that would actually be
+    # executed under the position limit.
+    accepted_trade_ids: set[int] = set()
+    open_trade_ids: set[int] = set()
+    entry_exit_events: List[tuple[pandas.Timestamp, int, Trade]] = []
+    for completed_trade in artifacts.trades:
+        entry_exit_events.append((completed_trade.entry_date, 1, completed_trade))
+        entry_exit_events.append((completed_trade.exit_date, 0, completed_trade))
+    entry_exit_events.sort(key=lambda e: (e[0], e[1]))
+    for _event_date, event_type, completed_trade in entry_exit_events:
+        trade_id = id(completed_trade)
+        if event_type == 0:
+            open_trade_ids.discard(trade_id)
+        else:
+            if trade_id in accepted_trade_ids:
+                continue
+            if len(open_trade_ids) >= maximum_position_count:
+                continue
+            accepted_trade_ids.add(trade_id)
+            open_trade_ids.add(trade_id)
+    filtered_trades = [
+        t for t in artifacts.trades if id(t) in accepted_trade_ids
+    ]
+    filtered_trade_detail_pairs = {
+        t: artifacts.trade_detail_pairs[t]
+        for t in filtered_trades
+        if t in artifacts.trade_detail_pairs
+    }
 
     trade_profit_list: List[float] = []
     profit_percentage_list: List[float] = []
     loss_percentage_list: List[float] = []
     holding_period_list: List[int] = []
-    for completed_trade in artifacts.trades:
+    for completed_trade in filtered_trades:
         trade_profit_list.append(completed_trade.profit)
         holding_period_list.append(completed_trade.holding_period)
         percentage_change = completed_trade.profit / completed_trade.entry_price
@@ -2745,17 +3171,18 @@ def evaluate_combined_strategy(
         elif percentage_change < 0:
             loss_percentage_list.append(abs(percentage_change))
 
-    maximum_concurrent_positions = calculate_maximum_concurrent_positions(
-        artifacts.simulation_results
+    maximum_concurrent_positions = min(
+        maximum_position_count,
+        calculate_maximum_concurrent_positions(artifacts.simulation_results),
     )
     trade_details_by_year = _organize_trade_details_by_year(
-        artifacts.trade_detail_pairs.values()
+        filtered_trade_detail_pairs.values()
     )
     simulation_start_date = artifacts.simulation_start_date
     if simulation_start_date is None:
         simulation_start_date = pandas.Timestamp.now()
     annual_returns = calculate_annual_returns(
-        artifacts.trades,
+        filtered_trades,
         starting_cash,
         maximum_position_count,
         simulation_start_date,
@@ -2766,9 +3193,9 @@ def evaluate_combined_strategy(
         closing_price_series_by_symbol=artifacts.closing_price_series_by_symbol,
         settlement_lag_days=1,
     )
-    annual_trade_counts = calculate_annual_trade_counts(artifacts.trades)
+    annual_trade_counts = calculate_annual_trade_counts(filtered_trades)
     final_balance = simulate_portfolio_balance(
-        artifacts.trades,
+        filtered_trades,
         starting_cash,
         maximum_position_count,
         withdraw_amount,
@@ -2776,7 +3203,7 @@ def evaluate_combined_strategy(
         margin_interest_annual_rate=margin_interest_annual_rate,
     )
     maximum_drawdown = calculate_max_drawdown(
-        artifacts.trades,
+        filtered_trades,
         starting_cash,
         maximum_position_count,
         artifacts.trade_symbol_lookup,
@@ -2785,9 +3212,9 @@ def evaluate_combined_strategy(
         margin_multiplier=margin_multiplier,
         margin_interest_annual_rate=margin_interest_annual_rate,
     )
-    if artifacts.trades:
+    if filtered_trades:
         last_trade_exit_date = max(
-            completed_trade.exit_date for completed_trade in artifacts.trades
+            completed_trade.exit_date for completed_trade in filtered_trades
         )
     else:
         last_trade_exit_date = simulation_start_date

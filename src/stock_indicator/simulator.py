@@ -10,8 +10,11 @@ from typing import Callable, Dict, Iterable, List
 import pandas
 
 
-def calc_commission(shares: float, price: float) -> float:
-    """Calculate the commission for a trade.
+def calc_commission(shares: float, price: float, is_sell: bool = False) -> float:
+    """Calculate trading fees for a Futu HK US stock trade.
+
+    Includes broker commission, platform fee, settlement fee, and
+    sell-only regulatory fees (SEC fee, TAF).
 
     Parameters
     ----------
@@ -19,20 +22,41 @@ def calc_commission(shares: float, price: float) -> float:
         Number of shares traded.
     price:
         Price per share.
+    is_sell:
+        Whether this is a sell (exit) trade.  SEC regulatory fee and
+        FINRA trading activity fee apply only to sells.
 
     Returns
     -------
     float
-        Commission charged for the trade side. The commission is ``0.0049``
-        dollars per share with a minimum charge of ``0.99`` dollars and a
-        maximum of ``0.5`` percent of the trade value.
+        Total fees charged for this trade side.
     """
-    basic_commission = shares * 0.0049
-    commission_with_minimum = max(0.99, basic_commission)
-    commission_cap = 0.005 * shares * price
-    return min(commission_with_minimum, commission_cap)
+    trade_value = shares * price
 
-@dataclass(frozen=True)
+    # Broker commission: $0.0049/share, min $0.99
+    broker_commission = max(0.99, shares * 0.0049)
+    # Platform fee: $0.005/share, min $1
+    platform_fee = max(1.0, shares * 0.005)
+    # Combined cap: commission + platform fee capped at 0.5% of trade value,
+    # but minimum charges still apply.
+    combined_cap = 0.005 * trade_value
+    broker_and_platform = min(broker_commission + platform_fee, max(combined_cap, 0.99 + 1.0))
+
+    # Settlement fee: $0.003/share (always)
+    settlement_fee = shares * 0.003
+
+    # Sell-only fees
+    sec_fee = 0.0
+    taf_fee = 0.0
+    if is_sell:
+        # SEC regulatory fee: 0.00206% of trade value, min $0.01
+        sec_fee = max(0.01, trade_value * 0.0000206)
+        # FINRA trading activity fee: $0.000195/share, min $0.01, max $9.79
+        taf_fee = min(9.79, max(0.01, shares * 0.000195))
+
+    return broker_and_platform + settlement_fee + sec_fee + taf_fee
+
+@dataclass(eq=False)
 class Trade:
     """Record details for a completed trade."""
 
@@ -43,6 +67,19 @@ class Trade:
     profit: float
     holding_period: int
     exit_reason: str = "signal"
+    signal_bar_open: float | None = None
+    # Round-trip commission (buy + sell) set by simulate_portfolio_balance
+    # using actual share count. None until portfolio simulation runs.
+    total_commission: float | None = None
+    share_count: int | None = None
+    # Maximum favorable / adverse excursion while the trade was open,
+    # expressed as a fraction of entry_price. Tracked across bars from the
+    # iteration AFTER entry through the exit bar, using each bar's high/low.
+    # The entry bar itself is not scanned (matches SL/TP scanning convention).
+    max_favorable_excursion_pct: float | None = None
+    max_adverse_excursion_pct: float | None = None
+    max_favorable_excursion_date: pandas.Timestamp | None = None
+    max_adverse_excursion_date: pandas.Timestamp | None = None
 
 
 @dataclass
@@ -72,6 +109,10 @@ def simulate_trades(
     stop_loss_percentage: float = 1.0,
     take_profit_percentage: float = 0.0,
     cooldown_bars: int = 0,
+    minimum_holding_bars: int = 0,
+    pending_limit_entry: bool = False,
+    pending_market_entry: bool = False,
+    cancel_pending_rule: Callable[[pandas.Series], bool] | None = None,
 ) -> SimulationResult:
     """Simulate trades using supplied entry and exit rules.
 
@@ -107,7 +148,9 @@ def simulate_trades(
         next five bars following the exit bar.
 
     Commissions are calculated separately on entry and exit using
-    :func:`calc_commission` and deducted from each trade's profit.
+    Commission is not included in trade-level profit. It is applied at
+    the portfolio level by :func:`simulate_portfolio_balance` using actual
+    share counts.
 
     Returns
     -------
@@ -121,11 +164,69 @@ def simulate_trades(
     stop_loss_pending = False
     take_profit_pending = False
     last_exit_index: int | None = None
+    # Pending limit order state
+    has_pending_limit = False
+    pending_limit_price: float = 0.0
+    pending_signal_row: pandas.Series | None = None
+    # Reference price for stop-loss / take-profit when using pending market
+    # entry.  This captures the signal bar's price (T+1 open) so that risk
+    # management is based on the price visible when the decision was made,
+    # not the actual fill price (T+2 open).
+    sl_tp_reference_price: float | None = None
+    # Intra-trade excursion state (reset on every entry, read on every exit).
+    current_mfe_pct: float | None = None
+    current_mae_pct: float | None = None
+    current_mfe_date: pandas.Timestamp | None = None
+    current_mae_date: pandas.Timestamp | None = None
     for row_index in range(len(data)):
         current_row = data.iloc[row_index]
         is_last_row = row_index == len(data) - 1
         if not in_position:
             if is_last_row:
+                # Cancel any pending limit on last row
+                has_pending_limit = False
+                continue
+            # Check pending order (limit or market) first
+            if has_pending_limit:
+                # Cancel if sell signal fires
+                if cancel_pending_rule is not None and cancel_pending_rule(current_row):
+                    has_pending_limit = False
+                    pending_signal_row = None
+                elif pending_market_entry:
+                    # Market order: enter at this bar's open unconditionally
+                    in_position = True
+                    entry_row = current_row
+                    entry_row_index = row_index
+                    sl_tp_reference_price = pending_limit_price
+                    stop_loss_pending = False
+                    take_profit_pending = False
+                    has_pending_limit = False
+                    pending_signal_row = None
+                    current_mfe_pct = None
+                    current_mae_pct = None
+                    current_mfe_date = None
+                    current_mae_date = None
+                # Limit order: check if limit is hit (low <= limit price)
+                elif "low" in data.columns and float(current_row["low"]) <= pending_limit_price:
+                    fill_price = min(float(current_row[entry_price_column]), pending_limit_price)
+                    in_position = True
+                    entry_row = current_row
+                    entry_row_index = row_index
+                    entry_row = current_row.copy()
+                    entry_row["_limit_fill_price"] = fill_price
+                    sl_tp_reference_price = None
+                    stop_loss_pending = False
+                    take_profit_pending = False
+                    has_pending_limit = False
+                    pending_signal_row = None
+                    current_mfe_pct = None
+                    current_mae_pct = None
+                    current_mfe_date = None
+                    current_mae_date = None
+                # A new entry signal supersedes the old pending order
+                elif entry_rule(current_row):
+                    pending_limit_price = float(current_row[entry_price_column])
+                    pending_signal_row = current_row
                 continue
             # Enforce cool-down window after the most recent exit
             if (
@@ -135,15 +236,51 @@ def simulate_trades(
                     and (row_index - last_exit_index) <= max(0, cooldown_bars)
                 )
             ):
-                in_position = True
-                entry_row = current_row
-                entry_row_index = row_index
-                stop_loss_pending = False
-                take_profit_pending = False
+                if pending_limit_entry or pending_market_entry:
+                    # Don't enter now; defer to next bar via limit or market order
+                    has_pending_limit = True
+                    pending_limit_price = float(current_row[entry_price_column])
+                    pending_signal_row = current_row
+                else:
+                    in_position = True
+                    entry_row = current_row
+                    entry_row_index = row_index
+                    sl_tp_reference_price = None
+                    stop_loss_pending = False
+                    take_profit_pending = False
+                    current_mfe_pct = None
+                    current_mae_pct = None
+                    current_mfe_date = None
+                    current_mae_date = None
         else:
             if entry_row is None or entry_row_index is None:
                 continue
-            entry_price = float(entry_row[entry_price_column])
+            if pending_limit_entry and "_limit_fill_price" in entry_row.index:
+                entry_price = float(entry_row["_limit_fill_price"])
+            else:
+                entry_price = float(entry_row[entry_price_column])
+            # Update intra-trade excursion using this bar's high/low before any
+            # exit checks run, so the recorded MFE/MAE reflects the same bar
+            # that may trigger an SL/TP exit below.
+            if entry_price > 0:
+                if "high" in data.columns:
+                    bar_high_value = float(current_row["high"])
+                    if not math.isnan(bar_high_value):
+                        high_excursion_pct = (bar_high_value - entry_price) / entry_price
+                        if current_mfe_pct is None or high_excursion_pct > current_mfe_pct:
+                            current_mfe_pct = high_excursion_pct
+                            current_mfe_date = data.index[row_index]
+                if "low" in data.columns:
+                    bar_low_value = float(current_row["low"])
+                    if not math.isnan(bar_low_value):
+                        low_excursion_pct = (bar_low_value - entry_price) / entry_price
+                        if current_mae_pct is None or low_excursion_pct < current_mae_pct:
+                            current_mae_pct = low_excursion_pct
+                            current_mae_date = data.index[row_index]
+            # For stop-loss / take-profit triggers, use the signal bar's price
+            # (T+1 open) when a pending market entry was used, since risk
+            # management is set at decision time, not at fill time.
+            risk_price = sl_tp_reference_price if sl_tp_reference_price is not None else entry_price
             price_column_name = (
                 exit_price_column if exit_price_column is not None else entry_price_column
             )
@@ -151,14 +288,10 @@ def simulate_trades(
             has_high = "high" in data.columns
 
             if 0 < stop_loss_percentage < 1:
-                stop_price = entry_price * (1 - stop_loss_percentage)
+                stop_price = risk_price * (1 - stop_loss_percentage)
                 if has_low and float(current_row["low"]) <= stop_price:
                     exit_price = float(stop_price)
-                    entry_commission = calc_commission(1, entry_price)
-                    exit_commission = calc_commission(1, exit_price)
-                    profit_value = (
-                        exit_price - entry_price - entry_commission - exit_commission
-                    )
+                    profit_value = exit_price - entry_price
                     holding_period_value = row_index - entry_row_index
                     trades.append(
                         Trade(
@@ -169,24 +302,30 @@ def simulate_trades(
                             profit=profit_value,
                             holding_period=holding_period_value,
                             exit_reason="stop_loss",
+                            signal_bar_open=sl_tp_reference_price,
+                            max_favorable_excursion_pct=current_mfe_pct,
+                            max_adverse_excursion_pct=current_mae_pct,
+                            max_favorable_excursion_date=current_mfe_date,
+                            max_adverse_excursion_date=current_mae_date,
                         )
                     )
                     in_position = False
                     entry_row = None
                     entry_row_index = None
+                    sl_tp_reference_price = None
                     stop_loss_pending = False
                     take_profit_pending = False
+                    current_mfe_pct = None
+                    current_mae_pct = None
+                    current_mfe_date = None
+                    current_mae_date = None
                     last_exit_index = row_index
                     continue
             if 0 < take_profit_percentage < 1:
-                target_price = entry_price * (1 + take_profit_percentage)
+                target_price = risk_price * (1 + take_profit_percentage)
                 if has_high and float(current_row["high"]) >= target_price:
                     exit_price = float(target_price)
-                    entry_commission = calc_commission(1, entry_price)
-                    exit_commission = calc_commission(1, exit_price)
-                    profit_value = (
-                        exit_price - entry_price - entry_commission - exit_commission
-                    )
+                    profit_value = exit_price - entry_price
                     holding_period_value = row_index - entry_row_index
                     trades.append(
                         Trade(
@@ -197,22 +336,28 @@ def simulate_trades(
                             profit=profit_value,
                             holding_period=holding_period_value,
                             exit_reason="take_profit",
+                            signal_bar_open=sl_tp_reference_price,
+                            max_favorable_excursion_pct=current_mfe_pct,
+                            max_adverse_excursion_pct=current_mae_pct,
+                            max_favorable_excursion_date=current_mfe_date,
+                            max_adverse_excursion_date=current_mae_date,
                         )
                     )
                     in_position = False
                     entry_row = None
                     entry_row_index = None
+                    sl_tp_reference_price = None
                     stop_loss_pending = False
                     take_profit_pending = False
+                    current_mfe_pct = None
+                    current_mae_pct = None
+                    current_mfe_date = None
+                    current_mae_date = None
                     last_exit_index = row_index
                     continue
             if stop_loss_pending:
                 exit_price = float(current_row[price_column_name])
-                entry_commission = calc_commission(1, entry_price)
-                exit_commission = calc_commission(1, exit_price)
-                profit_value = (
-                    exit_price - entry_price - entry_commission - exit_commission
-                )
+                profit_value = exit_price - entry_price
                 holding_period_value = row_index - entry_row_index
                 trades.append(
                     Trade(
@@ -223,22 +368,28 @@ def simulate_trades(
                         profit=profit_value,
                         holding_period=holding_period_value,
                         exit_reason="stop_loss",
+                        signal_bar_open=sl_tp_reference_price,
+                        max_favorable_excursion_pct=current_mfe_pct,
+                        max_adverse_excursion_pct=current_mae_pct,
+                        max_favorable_excursion_date=current_mfe_date,
+                        max_adverse_excursion_date=current_mae_date,
                     )
                 )
                 in_position = False
                 entry_row = None
                 entry_row_index = None
+                sl_tp_reference_price = None
                 stop_loss_pending = False
                 take_profit_pending = False
+                current_mfe_pct = None
+                current_mae_pct = None
+                current_mfe_date = None
+                current_mae_date = None
                 last_exit_index = row_index
                 continue
             if take_profit_pending:
                 exit_price = float(current_row[price_column_name])
-                entry_commission = calc_commission(1, entry_price)
-                exit_commission = calc_commission(1, exit_price)
-                profit_value = (
-                    exit_price - entry_price - entry_commission - exit_commission
-                )
+                profit_value = exit_price - entry_price
                 holding_period_value = row_index - entry_row_index
                 trades.append(
                     Trade(
@@ -249,22 +400,31 @@ def simulate_trades(
                         profit=profit_value,
                         holding_period=holding_period_value,
                         exit_reason="take_profit",
+                        signal_bar_open=sl_tp_reference_price,
+                        max_favorable_excursion_pct=current_mfe_pct,
+                        max_adverse_excursion_pct=current_mae_pct,
+                        max_favorable_excursion_date=current_mfe_date,
+                        max_adverse_excursion_date=current_mae_date,
                     )
                 )
                 in_position = False
                 entry_row = None
                 entry_row_index = None
+                sl_tp_reference_price = None
                 stop_loss_pending = False
                 take_profit_pending = False
+                current_mfe_pct = None
+                current_mae_pct = None
+                current_mfe_date = None
+                current_mae_date = None
                 last_exit_index = row_index
                 continue
-            if exit_rule(current_row, entry_row):
+            if (
+                (row_index - entry_row_index) >= minimum_holding_bars
+                and exit_rule(current_row, entry_row)
+            ):
                 exit_price = float(current_row[price_column_name])
-                entry_commission = calc_commission(1, entry_price)
-                exit_commission = calc_commission(1, exit_price)
-                profit_value = (
-                    exit_price - entry_price - entry_commission - exit_commission
-                )
+                profit_value = exit_price - entry_price
                 holding_period_value = row_index - entry_row_index
                 trades.append(
                     Trade(
@@ -274,20 +434,30 @@ def simulate_trades(
                         exit_price=exit_price,
                         profit=profit_value,
                         holding_period=holding_period_value,
+                        signal_bar_open=sl_tp_reference_price,
+                        max_favorable_excursion_pct=current_mfe_pct,
+                        max_adverse_excursion_pct=current_mae_pct,
+                        max_favorable_excursion_date=current_mfe_date,
+                        max_adverse_excursion_date=current_mae_date,
                     )
                 )
                 in_position = False
                 entry_row = None
                 entry_row_index = None
+                sl_tp_reference_price = None
                 stop_loss_pending = False
                 take_profit_pending = False
+                current_mfe_pct = None
+                current_mae_pct = None
+                current_mfe_date = None
+                current_mae_date = None
                 last_exit_index = row_index
                 continue
             if 0 < stop_loss_percentage < 1 and not is_last_row:
-                if float(current_row["close"]) <= entry_price * (1 - stop_loss_percentage):
+                if float(current_row["close"]) <= risk_price * (1 - stop_loss_percentage):
                     stop_loss_pending = True
             if 0 < take_profit_percentage < 1 and not is_last_row:
-                if float(current_row["close"]) >= entry_price * (1 + take_profit_percentage):
+                if float(current_row["close"]) >= risk_price * (1 + take_profit_percentage):
                     take_profit_pending = True
     if in_position and entry_row is not None and entry_row_index is not None:
         # TODO: review
@@ -297,21 +467,27 @@ def simulate_trades(
         final_row = data.iloc[-1]
         entry_price = float(entry_row[entry_price_column])
         exit_price = float(final_row[price_column_name])
-        entry_commission = calc_commission(1, entry_price)
-        exit_commission = calc_commission(1, exit_price)
-        profit_value = exit_price - entry_price - entry_commission - exit_commission
-        holding_period_value = len(data) - entry_row_index - 1
-        trades.append(
-            Trade(
-                entry_date=data.index[entry_row_index],
-                exit_date=data.index[-1],
-                entry_price=entry_price,
-                exit_price=exit_price,
-                profit=profit_value,
-                holding_period=holding_period_value,
-                exit_reason="end_of_data",
+        # Skip end-of-data trade when exit price is missing to avoid
+        # polluting balance calculations with NaN.
+        if not math.isnan(exit_price):
+            profit_value = exit_price - entry_price
+            holding_period_value = len(data) - entry_row_index - 1
+            trades.append(
+                Trade(
+                    entry_date=data.index[entry_row_index],
+                    exit_date=data.index[-1],
+                    entry_price=entry_price,
+                    exit_price=exit_price,
+                    profit=profit_value,
+                    holding_period=holding_period_value,
+                    exit_reason="end_of_data",
+                    signal_bar_open=sl_tp_reference_price,
+                    max_favorable_excursion_pct=current_mfe_pct,
+                    max_adverse_excursion_pct=current_mae_pct,
+                    max_favorable_excursion_date=current_mfe_date,
+                    max_adverse_excursion_date=current_mae_date,
+                )
             )
-        )
     total_profit = sum(completed_trade.profit for completed_trade in trades)
     return SimulationResult(trades=trades, total_profit=total_profit)
 
@@ -381,6 +557,9 @@ def simulate_portfolio_balance(
     """
     events: List[tuple[pandas.Timestamp, int, Trade]] = []
     for trade in trades:
+        # Skip trades with NaN prices to avoid polluting the balance.
+        if math.isnan(trade.entry_price) or math.isnan(trade.exit_price):
+            continue
         events.append((trade.entry_date, 1, trade))
         events.append((trade.exit_date, 0, trade))
     events.sort(key=lambda event_tuple: (event_tuple[0], event_tuple[1]))
@@ -429,8 +608,12 @@ def simulate_portfolio_balance(
                 position_details = open_trades.pop(trade)
                 proceeds = position_details.share_count * trade.exit_price
                 exit_commission = calc_commission(
-                    position_details.share_count, trade.exit_price
+                    position_details.share_count, trade.exit_price, is_sell=True
                 )
+                if trade.total_commission is not None:
+                    trade.total_commission += exit_commission
+                else:
+                    trade.total_commission = exit_commission
                 credit_date = event_timestamp + pandas.Timedelta(days=settlement_lag_days)
                 pending_credits[credit_date] = pending_credits.get(credit_date, 0.0) + (
                     proceeds - exit_commission
@@ -447,6 +630,8 @@ def simulate_portfolio_balance(
                 continue
             invested_amount = share_count * trade.entry_price
             entry_commission = calc_commission(share_count, trade.entry_price)
+            trade.share_count = share_count
+            trade.total_commission = entry_commission  # will add exit commission on close
             open_trades[trade] = OpenPosition(
                 invested_amount=invested_amount, share_count=share_count
             )
@@ -528,6 +713,8 @@ def calculate_max_drawdown(
 
     events: List[tuple[pandas.Timestamp, int, Trade]] = []
     for current_trade in trades:
+        if math.isnan(current_trade.entry_price) or math.isnan(current_trade.exit_price):
+            continue
         events.append((current_trade.entry_date, 1, current_trade))
         events.append((current_trade.exit_date, 0, current_trade))
     events.sort(key=lambda event_tuple: (event_tuple[0], event_tuple[1]))
@@ -561,7 +748,7 @@ def calculate_max_drawdown(
                     position_details = open_trades.pop(trade)
                     proceeds = position_details.share_count * trade.exit_price
                     exit_commission = calc_commission(
-                        position_details.share_count, trade.exit_price
+                        position_details.share_count, trade.exit_price, is_sell=True
                     )
                     credit_date = current_date + pandas.Timedelta(days=1)
                     pending_credits[credit_date] = pending_credits.get(credit_date, 0.0) + (
@@ -699,7 +886,7 @@ def calculate_annual_returns(
                 if trade in open_trades:
                     position_details = open_trades.pop(trade)
                     proceeds = position_details.share_count * trade.exit_price
-                    exit_commission = calc_commission(position_details.share_count, trade.exit_price)
+                    exit_commission = calc_commission(position_details.share_count, trade.exit_price, is_sell=True)
                     credit_date = current_date + pandas.Timedelta(days=settlement_lag_days)
                     pending_credits[credit_date] = pending_credits.get(credit_date, 0.0) + (proceeds - exit_commission)
             else:  # entry
