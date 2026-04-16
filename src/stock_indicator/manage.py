@@ -3079,6 +3079,69 @@ class StockShell(cmd.Cmd):
         if entry_budgets:
             self.stdout.write(f"budget suggestions: {entry_budgets}\n")
 
+        # Position tracking: load positions.json, check exits for held
+        # symbols (including those outside the current filter), update state.
+        if strategy_id:
+            positions_path = DATA_DIRECTORY / "positions.json"
+            all_positions: Dict[str, List[str]] = {}
+            if positions_path.exists():
+                try:
+                    with positions_path.open("r", encoding="utf-8") as fp:
+                        all_positions = json.load(fp)
+                except (json.JSONDecodeError, OSError):
+                    all_positions = {}
+            held_symbols: List[str] = all_positions.get(strategy_id, [])
+
+            # Check exit for held symbols not already in exit_signal_list
+            if date_string is None:
+                effective_date_for_exit = (
+                    daily_job.determine_latest_trading_date().isoformat()
+                )
+            else:
+                effective_date_for_exit = date_string
+            exit_held: List[str] = []
+            for held_symbol in held_symbols:
+                if held_symbol in exit_signal_list:
+                    exit_held.append(held_symbol)
+                else:
+                    try:
+                        debug_values = daily_job.filter_debug_values(
+                            held_symbol,
+                            effective_date_for_exit,
+                            buy_strategy_name,
+                            sell_strategy_name,
+                        )
+                    except Exception:  # noqa: BLE001
+                        debug_values = {}
+                    if debug_values.get("exit", False):
+                        exit_held.append(held_symbol)
+
+            # Update positions: add entries, remove exits
+            updated_held = [s for s in held_symbols if s not in exit_held]
+            for symbol_name in entry_signal_list:
+                if symbol_name not in updated_held:
+                    updated_held.append(symbol_name)
+            all_positions[strategy_id] = updated_held
+            try:
+                with positions_path.open("w", encoding="utf-8") as fp:
+                    json.dump(all_positions, fp, indent=2)
+            except OSError as write_error:
+                self.stdout.write(
+                    f"warning: failed to write positions.json: {write_error}\n"
+                )
+
+            if exit_held:
+                self.stdout.write(
+                    f">>> SELL ({strategy_id}): {exit_held}\n"
+                )
+            if entry_signal_list:
+                self.stdout.write(
+                    f">>> BUY ({strategy_id}): {entry_signal_list}\n"
+                )
+            self.stdout.write(
+                f"positions ({strategy_id}): {updated_held}\n"
+            )
+
     # TODO: review
     def help_find_history_signal(self) -> None:
         """Display help for the find_history_signal command."""
