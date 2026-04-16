@@ -180,6 +180,8 @@ def find_history_signal(
     sell_strategy: str,
     stop_loss: float,
     allowed_fama_french_groups: set[int] | None = None,
+    near_delta_range: tuple[float, float] | None = None,
+    price_tightness_range: tuple[float, float] | None = None,
 ) -> Dict[str, List[str]]:
     """Find entry and exit signals for a single historical date.
 
@@ -300,6 +302,8 @@ def find_history_signal(
         allowed_fama_french_groups=allowed_groups,
         maximum_symbols_per_group=maximum_symbols_per_group,
         use_unshifted_signals=True,
+        near_delta_range=near_delta_range,
+        price_tightness_range=price_tightness_range,
     )
     entry_signals = signal_result.get("entry_signals", [])
     exit_signals = signal_result.get("exit_signals", [])

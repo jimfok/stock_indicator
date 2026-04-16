@@ -47,6 +47,10 @@ class StrategyEntryFilters:
     d_ema_max: float | None = None
     price_score_min: float | None = None
     price_score_max: float | None = None
+    near_delta_min: float | None = None
+    near_delta_max: float | None = None
+    price_tightness_min: float | None = None
+    price_tightness_max: float | None = None
 
 
 def load_strategy_entry_filters(
@@ -83,6 +87,10 @@ def load_strategy_entry_filters(
                 d_ema_max=_float_or_none("d_ema_max"),
                 price_score_min=_float_or_none("price_score_min"),
                 price_score_max=_float_or_none("price_score_max"),
+                near_delta_min=_float_or_none("near_delta_min"),
+                near_delta_max=_float_or_none("near_delta_max"),
+                price_tightness_min=_float_or_none("price_tightness_min"),
+                price_tightness_max=_float_or_none("price_tightness_max"),
             )
             result[strategy_id] = filters
     return result

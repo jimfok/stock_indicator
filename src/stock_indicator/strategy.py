@@ -1048,6 +1048,8 @@ def compute_signals_for_date(
     exclude_other_ff12: bool = True,
     maximum_symbols_per_group: int = 1,
     use_unshifted_signals: bool = False,
+    near_delta_range: tuple[float, float] | None = None,
+    price_tightness_range: tuple[float, float] | None = None,
 ) -> Dict[str, List[str]]:
     """Compute entry/exit signals on ``evaluation_date`` using simulation filters.
 
@@ -1286,6 +1288,11 @@ def compute_signals_for_date(
             ):
                 kwargs["near_range"] = near_range
                 kwargs["above_range"] = above_range
+            if base_name == "ema_sma_cross_testing":
+                if near_delta_range is not None:
+                    kwargs["near_delta_range"] = near_delta_range
+                if price_tightness_range is not None:
+                    kwargs["price_tightness_range"] = price_tightness_range
         table[base_name](frame, include_raw_signals=include_raw_signals, **kwargs)
         if base_name != full_name:
             rename_mapping = {

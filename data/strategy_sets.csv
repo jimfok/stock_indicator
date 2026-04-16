@@ -1,4 +1,4 @@
-strategy_id,buy,sell,d_sma_min,d_sma_max,ema_min,ema_max,d_ema_min,d_ema_max,price_score_min,price_score_max
+strategy_id,buy,sell,d_sma_min,d_sma_max,ema_min,ema_max,d_ema_min,d_ema_max,price_score_min,price_score_max,near_delta_min,near_delta_max,price_tightness_min,price_tightness_max
 s99,"ema_sma_cross_testing_4_-99_99_-99.0,99.0_0.0,1.00","ema_sma_cross_testing_10_-99_99_-99.0,99.0_0.0,1.00",,,,,,,,
 s1,"ema_sma_cross_testing_4_-0.5_99_-99.0,0.2_0.7,1.00","ema_sma_cross_testing_5_-99_99_-99.0,99.0_0.0,1.00",,,,,,,,
 s2,"ema_sma_cross_testing_4_-0.5_99_-99.0,0.2_0.7,1.00","ema_sma_cross_testing_5_-99_99_-99.0,99.0_0.0,1.00",,,,,,,,
@@ -20,4 +20,4 @@ s561,"ema_sma_cross_testing_3_-99_99_-99.0,99.0_0.943,0.973","ema_sma_cross_test
 buy3,"ema_sma_cross_testing_3_-99_99_-99.0,99.0_0.973,1.0","ema_sma_cross_testing_3_-0.01_65_-10.0,10.0_0.78,1.00",,,,,,,,
 buy3_10,"ema_sma_cross_testing_3_-99_99_-99.0,99.0_0.943,0.973","ema_sma_cross_testing_10_-0.01_65_-10.0,10.0_0.78,1.00",,,,,,,,
 near_raw,"ema_sma_cross_testing_3_-99_99_0.0,0.09_0.0,0.973","ema_sma_cross_testing_100_-99_99_-99.0,99.0_0.0,1.00",,,,,,,,
-near_close,"ema_sma_cross_testing_3_-99_99_0.0,0.09_0.0,0.973","ema_sma_cross_testing_15_-99_99_-99.0,99.0_0.0,1.00",,,,,,,,
+near_close,"ema_sma_cross_testing_3_-99_99_0.0,0.09_0.0,0.973","ema_sma_cross_testing_15_-99_99_-99.0,99.0_0.0,1.00",,,,,,,,,-0.35,-0.03,0.0,0.133

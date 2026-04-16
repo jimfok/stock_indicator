@@ -3004,6 +3004,23 @@ class StockShell(cmd.Cmd):
         except ValueError:
             self.stdout.write("invalid stop loss\n")
             return
+        # Load entry filters for the strategy (near_delta_range, etc.)
+        near_delta_range_for_signal: tuple[float, float] | None = None
+        price_tightness_range_for_signal: tuple[float, float] | None = None
+        if strategy_id:
+            entry_filters_mapping = load_strategy_entry_filters()
+            if strategy_id in entry_filters_mapping:
+                ef = entry_filters_mapping[strategy_id]
+                if ef.near_delta_min is not None or ef.near_delta_max is not None:
+                    near_delta_range_for_signal = (
+                        ef.near_delta_min if ef.near_delta_min is not None else -99.0,
+                        ef.near_delta_max if ef.near_delta_max is not None else 99.0,
+                    )
+                if ef.price_tightness_min is not None or ef.price_tightness_max is not None:
+                    price_tightness_range_for_signal = (
+                        ef.price_tightness_min if ef.price_tightness_min is not None else 0.0,
+                        ef.price_tightness_max if ef.price_tightness_max is not None else 99.0,
+                    )
         signal_data: Dict[str, Any] = daily_job.find_history_signal(
             date_string,
             dollar_volume_filter,
@@ -3011,6 +3028,8 @@ class StockShell(cmd.Cmd):
             sell_strategy_name,
             stop_loss_value,
             allowed_group_identifiers,
+            near_delta_range=near_delta_range_for_signal,
+            price_tightness_range=price_tightness_range_for_signal,
         )
         filtered_symbol_list: List[tuple[str, int | None]] = signal_data.get(
             "filtered_symbols", []
