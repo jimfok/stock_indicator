@@ -3234,16 +3234,16 @@ class StockShell(cmd.Cmd):
                     all_positions = json.load(fp)
             except (json.JSONDecodeError, OSError):
                 all_positions = {}
-        combined: List[str] = []
-        for strat_positions in all_positions.values():
-            for sym in strat_positions:
-                if sym not in combined:
-                    combined.append(sym)
+        total_count = sum(len(v) for v in all_positions.values())
         self.stdout.write(
-            f"\n--- Concurrent positions after entry ({len(combined)} total) ---\n"
+            f"\n--- Concurrent positions after entry ({total_count} total) ---\n"
         )
-        combined_names = ", ".join(f"'{s}'" for s in combined)
-        self.stdout.write(f"  {combined_names}\n")
+        for strat_id, strat_positions in all_positions.items():
+            if strat_positions:
+                names = ", ".join(f"'{s}'" for s in strat_positions)
+                self.stdout.write(f"  {strat_id}: {names}\n")
+            else:
+                self.stdout.write(f"  {strat_id}: (none)\n")
 
 
 
