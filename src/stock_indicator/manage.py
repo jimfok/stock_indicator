@@ -2974,6 +2974,8 @@ class StockShell(cmd.Cmd):
         allowed_group_identifiers: set[int] | None = None
         tokens: List[str] = []
         strategy_id: str | None = None
+        take_profit_display: str | None = None
+        max_positions_display: int | None = None
         for token in argument_parts:
             if token.startswith("group="):
                 try:
@@ -2992,6 +2994,11 @@ class StockShell(cmd.Cmd):
                 allowed_group_identifiers = parsed
             elif token.startswith("strategy="):
                 strategy_id = token.split("=", 1)[1].strip()
+            elif token.startswith("tp="):
+                tp_val = float(token.split("=", 1)[1])
+                take_profit_display = f"{tp_val:.1%}" if tp_val > 0 else "NOPE"
+            elif token.startswith("max_pos="):
+                max_positions_display = int(token.split("=", 1)[1])
             else:
                 tokens.append(token)
         try:
@@ -3066,6 +3073,9 @@ class StockShell(cmd.Cmd):
         filtered_symbol_list: List[tuple[str, int | None]] = signal_data.get(
             "filtered_symbols", []
         )
+        # Strategy header
+        self.stdout.write(f"--- {strategy_id or 'signal'} ---\n")
+        self.stdout.write(f"{argument_line}\n")
         self.stdout.write(f"filtered symbols: {filtered_symbol_list}\n")
         entry_signal_list: List[str] = signal_data.get("entry_signals", [])
         if strategy_id in {"s4", "s6"} and entry_signal_list:
@@ -3104,56 +3114,78 @@ class StockShell(cmd.Cmd):
                     name,
                 ),
             )
-        exit_signal_list: List[str] = signal_data.get("exit_signals", [])
-        self.stdout.write(f"entry signals: {entry_signal_list}\n")
-        self.stdout.write(f"exit signals: {exit_signal_list}\n")
-        entry_budgets: Dict[str, float] | None = signal_data.get("entry_budgets")
-        if entry_budgets:
-            self.stdout.write(f"budget suggestions: {entry_budgets}\n")
+        filter_exit_signal_list: List[str] = signal_data.get("exit_signals", [])
+
+        # Sort entry signals by dollar volume rank (filtered_symbols is
+        # already sorted biggest-first by compute_signals_for_date).
+        filtered_symbol_order: Dict[str, int] = {
+            sym: idx for idx, (sym, _) in enumerate(filtered_symbol_list)
+        }
+        entry_signal_list = sorted(
+            entry_signal_list,
+            key=lambda name: filtered_symbol_order.get(name, len(filtered_symbol_order)),
+        )
 
         # Position tracking: load positions.json, check exits for held
         # symbols (including those outside the current filter), update state.
-        if strategy_id:
-            positions_path = DATA_DIRECTORY / "positions.json"
-            all_positions: Dict[str, List[str]] = {}
-            if positions_path.exists():
-                try:
-                    with positions_path.open("r", encoding="utf-8") as fp:
-                        all_positions = json.load(fp)
-                except (json.JSONDecodeError, OSError):
-                    all_positions = {}
-            held_symbols: List[str] = all_positions.get(strategy_id, [])
+        positions_path = DATA_DIRECTORY / "positions.json"
+        all_positions: Dict[str, List[str]] = {}
+        if positions_path.exists():
+            try:
+                with positions_path.open("r", encoding="utf-8") as fp:
+                    all_positions = json.load(fp)
+            except (json.JSONDecodeError, OSError):
+                all_positions = {}
+        held_symbols: List[str] = all_positions.get(
+            strategy_id or "", []
+        )
 
-            # Check exit for held symbols not already in exit_signal_list
-            if date_string is None:
-                effective_date_for_exit = (
-                    daily_job.determine_latest_trading_date().isoformat()
-                )
+        # Check exit for held symbols not already in filter exit list
+        if date_string is None:
+            effective_date_for_exit = (
+                daily_job.determine_latest_trading_date().isoformat()
+            )
+        else:
+            effective_date_for_exit = date_string
+        held_exit_signals: List[str] = []
+        for held_symbol in held_symbols:
+            if held_symbol in filter_exit_signal_list:
+                held_exit_signals.append(held_symbol)
             else:
-                effective_date_for_exit = date_string
-            exit_held: List[str] = []
-            for held_symbol in held_symbols:
-                if held_symbol in exit_signal_list:
-                    exit_held.append(held_symbol)
-                else:
-                    try:
-                        debug_values = daily_job.filter_debug_values(
-                            held_symbol,
-                            effective_date_for_exit,
-                            buy_strategy_name,
-                            sell_strategy_name,
-                        )
-                    except Exception:  # noqa: BLE001
-                        debug_values = {}
-                    if debug_values.get("exit", False):
-                        exit_held.append(held_symbol)
+                try:
+                    debug_values = daily_job.filter_debug_values(
+                        held_symbol,
+                        effective_date_for_exit,
+                        buy_strategy_name,
+                        sell_strategy_name,
+                    )
+                except Exception:  # noqa: BLE001
+                    debug_values = {}
+                if debug_values.get("exit", False):
+                    held_exit_signals.append(held_symbol)
 
-            # Update positions: add entries, remove exits
-            updated_held = [s for s in held_symbols if s not in exit_held]
-            for symbol_name in entry_signal_list:
-                if symbol_name not in updated_held:
-                    updated_held.append(symbol_name)
-            all_positions[strategy_id] = updated_held
+        # Merge exit signals: filter + held positions
+        all_exit_signals: List[str] = list(filter_exit_signal_list)
+        for sym in held_exit_signals:
+            if sym not in all_exit_signals:
+                all_exit_signals.append(sym)
+
+        self.stdout.write(f"entry signals: {entry_signal_list}\n")
+        self.stdout.write(f"exit signals: {all_exit_signals}\n")
+
+        # Compute expected positions after today's actions
+        expected_positions = [s for s in held_symbols if s not in held_exit_signals]
+        for symbol_name in entry_signal_list:
+            if symbol_name not in expected_positions:
+                expected_positions.append(symbol_name)
+
+        # Apply max_positions cap to expected positions
+        if max_positions_display is not None:
+            expected_positions = expected_positions[:max_positions_display]
+
+        # Save to positions.json
+        if strategy_id:
+            all_positions[strategy_id] = expected_positions
             try:
                 with positions_path.open("w", encoding="utf-8") as fp:
                     json.dump(all_positions, fp, indent=2)
@@ -3162,17 +3194,25 @@ class StockShell(cmd.Cmd):
                     f"warning: failed to write positions.json: {write_error}\n"
                 )
 
-            if exit_held:
-                self.stdout.write(
-                    f">>> SELL ({strategy_id}): {exit_held}\n"
-                )
-            if entry_signal_list:
-                self.stdout.write(
-                    f">>> BUY ({strategy_id}): {entry_signal_list}\n"
-                )
+        # Action instructions
+        self.stdout.write(f"\n--- {strategy_id or ''} actions ---\n")
+        sl_display = f"{stop_loss_value:.1%}" if stop_loss_value > 0 else "NOPE"
+        tp_display = take_profit_display or "NOPE"
+        self.stdout.write(f"Take Profit: {tp_display}; Stop loss: {sl_display}\n")
+        if max_positions_display is not None:
             self.stdout.write(
-                f"positions ({strategy_id}): {updated_held}\n"
+                f"No new positions can be opened when there are more than {max_positions_display}.\n"
             )
+        self.stdout.write("Entry priority is based on the displayed order.\n")
+        if entry_signal_list:
+            entry_names = ", ".join(f"'{s}'" for s in entry_signal_list)
+            self.stdout.write(f"  BUY  {entry_names}\n")
+        if held_exit_signals:
+            exit_names = ", ".join(f"'{s}'" for s in held_exit_signals)
+            self.stdout.write(f"  SELL {exit_names}\n")
+        if not held_exit_signals and not entry_signal_list:
+            self.stdout.write("  (no action)\n")
+
 
     # TODO: review
     def help_find_history_signal(self) -> None:
@@ -3182,6 +3222,28 @@ class StockShell(cmd.Cmd):
             "Display entry and exit signals for DATE or the latest trading day when DATE is omitted using the provided strategies or a strategy id from data/strategy_sets.csv.\n"
             "Signal calculation uses the same group dynamic ratio and Top-N rule as start_simulate.\n"
         )
+
+    def do_show_positions(self, argument_line: str) -> None:  # noqa: D401
+        """show_positions
+        Print combined concurrent positions from positions.json."""
+        positions_path = DATA_DIRECTORY / "positions.json"
+        all_positions: Dict[str, List[str]] = {}
+        if positions_path.exists():
+            try:
+                with positions_path.open("r", encoding="utf-8") as fp:
+                    all_positions = json.load(fp)
+            except (json.JSONDecodeError, OSError):
+                all_positions = {}
+        total_count = sum(len(v) for v in all_positions.values())
+        self.stdout.write(
+            f"\n--- Concurrent positions after entry ({total_count} total) ---\n"
+        )
+        for strat_id, strat_positions in all_positions.items():
+            if strat_positions:
+                names = ", ".join(f"'{s}'" for s in strat_positions)
+                self.stdout.write(f"  {strat_id}: {names}\n")
+            else:
+                self.stdout.write(f"  {strat_id}: (none)\n")
 
 
 
