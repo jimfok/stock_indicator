@@ -3105,6 +3105,17 @@ class StockShell(cmd.Cmd):
                 ),
             )
         exit_signal_list: List[str] = signal_data.get("exit_signals", [])
+
+        # Sort entry signals by dollar volume rank (filtered_symbols is
+        # already sorted biggest-first by compute_signals_for_date).
+        filtered_symbol_order: Dict[str, int] = {
+            sym: idx for idx, (sym, _) in enumerate(filtered_symbol_list)
+        }
+        entry_signal_list = sorted(
+            entry_signal_list,
+            key=lambda name: filtered_symbol_order.get(name, len(filtered_symbol_order)),
+        )
+
         self.stdout.write(f"entry signals: {entry_signal_list}\n")
         self.stdout.write(f"exit signals: {exit_signal_list}\n")
         entry_budgets: Dict[str, float] | None = signal_data.get("entry_budgets")
@@ -3162,14 +3173,16 @@ class StockShell(cmd.Cmd):
                     f"warning: failed to write positions.json: {write_error}\n"
                 )
 
+            # Action instructions
+            self.stdout.write(f"\n--- {strategy_id} actions ---\n")
             if exit_held:
-                self.stdout.write(
-                    f">>> SELL ({strategy_id}): {exit_held}\n"
-                )
+                for sym in exit_held:
+                    self.stdout.write(f"  SELL {sym}\n")
             if entry_signal_list:
-                self.stdout.write(
-                    f">>> BUY ({strategy_id}): {entry_signal_list}\n"
-                )
+                for sym in entry_signal_list:
+                    self.stdout.write(f"  BUY  {sym}\n")
+            if not exit_held and not entry_signal_list:
+                self.stdout.write("  (no action)\n")
             self.stdout.write(
                 f"positions ({strategy_id}): {updated_held}\n"
             )
