@@ -2974,6 +2974,8 @@ class StockShell(cmd.Cmd):
         allowed_group_identifiers: set[int] | None = None
         tokens: List[str] = []
         strategy_id: str | None = None
+        take_profit_display: str | None = None
+        max_positions_display: int | None = None
         for token in argument_parts:
             if token.startswith("group="):
                 try:
@@ -2992,6 +2994,11 @@ class StockShell(cmd.Cmd):
                 allowed_group_identifiers = parsed
             elif token.startswith("strategy="):
                 strategy_id = token.split("=", 1)[1].strip()
+            elif token.startswith("tp="):
+                tp_val = float(token.split("=", 1)[1])
+                take_profit_display = f"{tp_val:.1%}" if tp_val > 0 else "NOPE"
+            elif token.startswith("max_pos="):
+                max_positions_display = int(token.split("=", 1)[1])
             else:
                 tokens.append(token)
         try:
@@ -3066,6 +3073,9 @@ class StockShell(cmd.Cmd):
         filtered_symbol_list: List[tuple[str, int | None]] = signal_data.get(
             "filtered_symbols", []
         )
+        # Strategy header
+        self.stdout.write(f"--- {strategy_id or 'signal'} ---\n")
+        self.stdout.write(f"{argument_line}\n")
         self.stdout.write(f"filtered symbols: {filtered_symbol_list}\n")
         entry_signal_list: List[str] = signal_data.get("entry_signals", [])
         if strategy_id in {"s4", "s6"} and entry_signal_list:
@@ -3169,6 +3179,10 @@ class StockShell(cmd.Cmd):
             if symbol_name not in expected_positions:
                 expected_positions.append(symbol_name)
 
+        # Apply max_positions cap to expected positions
+        if max_positions_display is not None:
+            expected_positions = expected_positions[:max_positions_display]
+
         # Save to positions.json
         if strategy_id:
             all_positions[strategy_id] = expected_positions
@@ -3181,18 +3195,29 @@ class StockShell(cmd.Cmd):
                 )
 
         # Action instructions
-        self.stdout.write(f"\n--- {strategy_id or 'actions'} actions ---\n")
-        if held_exit_signals:
-            for sym in held_exit_signals:
-                self.stdout.write(f"  SELL {sym}\n")
+        self.stdout.write(f"\n--- {strategy_id or ''} actions ---\n")
+        sl_display = f"{stop_loss_value:.1%}" if stop_loss_value > 0 else "NOPE"
+        tp_display = take_profit_display or "NOPE"
+        self.stdout.write(f"Take Profit: {tp_display}; Stop loss: {sl_display}\n")
+        if max_positions_display is not None:
+            self.stdout.write(
+                f"No new positions can be opened when there are more than {max_positions_display}.\n"
+            )
+        self.stdout.write("Entry priority is based on the displayed order.\n")
         if entry_signal_list:
-            for sym in entry_signal_list:
-                self.stdout.write(f"  BUY  {sym}\n")
+            entry_names = ", ".join(f"'{s}'" for s in entry_signal_list)
+            self.stdout.write(f"  BUY  {entry_names}\n")
+        if held_exit_signals:
+            exit_names = ", ".join(f"'{s}'" for s in held_exit_signals)
+            self.stdout.write(f"  SELL {exit_names}\n")
         if not held_exit_signals and not entry_signal_list:
             self.stdout.write("  (no action)\n")
+
         self.stdout.write(
-            f"expected positions ({strategy_id or ''}): {expected_positions}\n"
+            f"\n--- Concurrent positions after entry ---\n"
         )
+        concurrent_names = ", ".join(f"'{s}'" for s in expected_positions)
+        self.stdout.write(f"  {concurrent_names}\n")
 
     # TODO: review
     def help_find_history_signal(self) -> None:
