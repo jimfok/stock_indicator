@@ -3213,11 +3213,6 @@ class StockShell(cmd.Cmd):
         if not held_exit_signals and not entry_signal_list:
             self.stdout.write("  (no action)\n")
 
-        self.stdout.write(
-            f"\n--- Concurrent positions after entry ---\n"
-        )
-        concurrent_names = ", ".join(f"'{s}'" for s in expected_positions)
-        self.stdout.write(f"  {concurrent_names}\n")
 
     # TODO: review
     def help_find_history_signal(self) -> None:
@@ -3227,6 +3222,28 @@ class StockShell(cmd.Cmd):
             "Display entry and exit signals for DATE or the latest trading day when DATE is omitted using the provided strategies or a strategy id from data/strategy_sets.csv.\n"
             "Signal calculation uses the same group dynamic ratio and Top-N rule as start_simulate.\n"
         )
+
+    def do_show_positions(self, argument_line: str) -> None:  # noqa: D401
+        """show_positions
+        Print combined concurrent positions from positions.json."""
+        positions_path = DATA_DIRECTORY / "positions.json"
+        all_positions: Dict[str, List[str]] = {}
+        if positions_path.exists():
+            try:
+                with positions_path.open("r", encoding="utf-8") as fp:
+                    all_positions = json.load(fp)
+            except (json.JSONDecodeError, OSError):
+                all_positions = {}
+        combined: List[str] = []
+        for strat_positions in all_positions.values():
+            for sym in strat_positions:
+                if sym not in combined:
+                    combined.append(sym)
+        self.stdout.write(
+            f"\n--- Concurrent positions after entry ({len(combined)} total) ---\n"
+        )
+        combined_names = ", ".join(f"'{s}'" for s in combined)
+        self.stdout.write(f"  {combined_names}\n")
 
 
 
