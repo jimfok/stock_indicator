@@ -108,6 +108,7 @@ def simulate_trades(
     exit_price_column: str | None = None,
     stop_loss_percentage: float = 1.0,
     take_profit_percentage: float = 0.0,
+    trailing_stop_percentage: float = 0.0,
     cooldown_bars: int = 0,
     minimum_holding_bars: int = 0,
     pending_limit_entry: bool = False,
@@ -163,6 +164,8 @@ def simulate_trades(
     entry_row_index: int | None = None
     stop_loss_pending = False
     take_profit_pending = False
+    trailing_stop_pending = False
+    trailing_high_price: float = 0.0
     last_exit_index: int | None = None
     # Pending limit order state
     has_pending_limit = False
@@ -200,6 +203,8 @@ def simulate_trades(
                     sl_tp_reference_price = pending_limit_price
                     stop_loss_pending = False
                     take_profit_pending = False
+                    trailing_stop_pending = False
+                    trailing_high_price = 0.0
                     has_pending_limit = False
                     pending_signal_row = None
                     current_mfe_pct = None
@@ -217,6 +222,8 @@ def simulate_trades(
                     sl_tp_reference_price = None
                     stop_loss_pending = False
                     take_profit_pending = False
+                    trailing_stop_pending = False
+                    trailing_high_price = 0.0
                     has_pending_limit = False
                     pending_signal_row = None
                     current_mfe_pct = None
@@ -248,6 +255,8 @@ def simulate_trades(
                     sl_tp_reference_price = None
                     stop_loss_pending = False
                     take_profit_pending = False
+                    trailing_stop_pending = False
+                    trailing_high_price = 0.0
                     current_mfe_pct = None
                     current_mae_pct = None
                     current_mfe_date = None
@@ -277,6 +286,12 @@ def simulate_trades(
                         if current_mae_pct is None or low_excursion_pct < current_mae_pct:
                             current_mae_pct = low_excursion_pct
                             current_mae_date = data.index[row_index]
+            # Update trailing high for trailing stop
+            if 0 < trailing_stop_percentage < 1 and "high" in data.columns:
+                bar_high = float(current_row["high"])
+                if not math.isnan(bar_high) and bar_high > trailing_high_price:
+                    trailing_high_price = bar_high
+
             # For stop-loss / take-profit triggers, use the signal bar's price
             # (T+1 open) when a pending market entry was used, since risk
             # management is set at decision time, not at fill time.
@@ -286,6 +301,52 @@ def simulate_trades(
             )
             has_low = "low" in data.columns
             has_high = "high" in data.columns
+
+            # Trailing stop: exit when price drops trailing_stop_percentage
+            # from the highest price since entry.
+            if (
+                0 < trailing_stop_percentage < 1
+                and trailing_high_price > 0
+                and not is_last_row
+                and (row_index - entry_row_index) >= minimum_holding_bars
+            ):
+                trailing_stop_price = trailing_high_price * (1 - trailing_stop_percentage)
+                if has_low and float(current_row["low"]) <= trailing_stop_price:
+                    exit_price = float(trailing_stop_price)
+                    profit_value = exit_price - entry_price
+                    holding_period_value = row_index - entry_row_index
+                    trades.append(
+                        Trade(
+                            entry_date=data.index[entry_row_index],
+                            exit_date=data.index[row_index],
+                            entry_price=entry_price,
+                            exit_price=exit_price,
+                            profit=profit_value,
+                            holding_period=holding_period_value,
+                            exit_reason="trailing_stop",
+                            signal_bar_open=sl_tp_reference_price,
+                            max_favorable_excursion_pct=current_mfe_pct,
+                            max_adverse_excursion_pct=current_mae_pct,
+                            max_favorable_excursion_date=current_mfe_date,
+                            max_adverse_excursion_date=current_mae_date,
+                        )
+                    )
+                    in_position = False
+                    entry_row = None
+                    entry_row_index = None
+                    sl_tp_reference_price = None
+                    stop_loss_pending = False
+                    take_profit_pending = False
+                    trailing_stop_pending = False
+                    trailing_high_price = 0.0
+                    current_mfe_pct = None
+                    current_mae_pct = None
+                    current_mfe_date = None
+                    current_mae_date = None
+                    last_exit_index = row_index
+                    continue
+                if float(current_row["close"]) <= trailing_stop_price:
+                    trailing_stop_pending = True
 
             if 0 < stop_loss_percentage < 1:
                 stop_price = risk_price * (1 - stop_loss_percentage)
@@ -315,6 +376,8 @@ def simulate_trades(
                     sl_tp_reference_price = None
                     stop_loss_pending = False
                     take_profit_pending = False
+                    trailing_stop_pending = False
+                    trailing_high_price = 0.0
                     current_mfe_pct = None
                     current_mae_pct = None
                     current_mfe_date = None
@@ -349,12 +412,48 @@ def simulate_trades(
                     sl_tp_reference_price = None
                     stop_loss_pending = False
                     take_profit_pending = False
+                    trailing_stop_pending = False
+                    trailing_high_price = 0.0
                     current_mfe_pct = None
                     current_mae_pct = None
                     current_mfe_date = None
                     current_mae_date = None
                     last_exit_index = row_index
                     continue
+            if trailing_stop_pending:
+                exit_price = float(current_row[price_column_name])
+                profit_value = exit_price - entry_price
+                holding_period_value = row_index - entry_row_index
+                trades.append(
+                    Trade(
+                        entry_date=data.index[entry_row_index],
+                        exit_date=data.index[row_index],
+                        entry_price=entry_price,
+                        exit_price=exit_price,
+                        profit=profit_value,
+                        holding_period=holding_period_value,
+                        exit_reason="trailing_stop",
+                        signal_bar_open=sl_tp_reference_price,
+                        max_favorable_excursion_pct=current_mfe_pct,
+                        max_adverse_excursion_pct=current_mae_pct,
+                        max_favorable_excursion_date=current_mfe_date,
+                        max_adverse_excursion_date=current_mae_date,
+                    )
+                )
+                in_position = False
+                entry_row = None
+                entry_row_index = None
+                sl_tp_reference_price = None
+                stop_loss_pending = False
+                take_profit_pending = False
+                trailing_stop_pending = False
+                trailing_high_price = 0.0
+                current_mfe_pct = None
+                current_mae_pct = None
+                current_mfe_date = None
+                current_mae_date = None
+                last_exit_index = row_index
+                continue
             if stop_loss_pending:
                 exit_price = float(current_row[price_column_name])
                 profit_value = exit_price - entry_price

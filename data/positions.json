@@ -1,8 +1,8 @@
 {
   "buy3": [],
   "near_close": [
-    "LLY",
-    "JPM",
-    "CVX"
+    {"symbol": "LLY", "entry_date": "2026-04-16"},
+    {"symbol": "JPM", "entry_date": "2026-04-16"},
+    {"symbol": "CVX", "entry_date": "2026-04-16"}
   ]
 }

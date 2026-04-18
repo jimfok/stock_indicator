@@ -543,6 +543,8 @@ class ComplexStrategySetDefinition:
     d_ema_range: tuple[float, float] | None = None
     near_delta_range: tuple[float, float] | None = None
     price_tightness_range: tuple[float, float] | None = None
+    sma_150_angle_min: float | None = None
+    trailing_stop_percentage: float = 0.0
     price_score_min: float | None = None
     price_score_max: float | None = None
     exit_alpha_factor: float | None = None
@@ -670,6 +672,8 @@ def run_complex_simulation(
             d_ema_range=definition.d_ema_range,
             near_delta_range=definition.near_delta_range,
             price_tightness_range=definition.price_tightness_range,
+            sma_150_angle_min=definition.sma_150_angle_min,
+            trailing_stop_percentage=definition.trailing_stop_percentage,
             price_score_min=definition.price_score_min,
             price_score_max=definition.price_score_max,
             confirmation_sma_angle_range=confirmation_sma_angle_range,
@@ -1784,6 +1788,7 @@ def attach_ema_sma_cross_testing_signals(
     d_ema_range: tuple[float, float] | None = None,
     near_delta_range: tuple[float, float] | None = None,
     price_tightness_range: tuple[float, float] | None = None,
+    sma_150_angle_min: float | None = None,
     price_score_min: float | None = None,
     price_score_max: float | None = None,
     confirmation_sma_angle_range: tuple[float, float] | None = None,
@@ -1891,6 +1896,12 @@ def attach_ema_sma_cross_testing_signals(
         - price_data_frame["low"].rolling(window=60, min_periods=1).min()
     ) / price_data_frame["close"]
 
+    # Stage 2 indicator: 150-day SMA angle.  Positive = uptrend.
+    sma_150 = price_data_frame["close"].rolling(window=150, min_periods=150).mean()
+    sma_150_prev = sma_150.shift(1)
+    sma_150_rel_change = (sma_150 - sma_150_prev) / sma_150_prev
+    price_data_frame["sma_150_angle"] = numpy.degrees(numpy.arctan(sma_150_rel_change))
+
     price_data_frame["near_price_volume_ratio_previous"] = price_data_frame[
         "near_price_volume_ratio"
     ].shift(1)
@@ -1995,6 +2006,13 @@ def attach_ema_sma_cross_testing_signals(
         entry_conditions = entry_conditions & (
             pt_series.ge(price_tightness_range[0]).fillna(False)
             & pt_series.le(price_tightness_range[1]).fillna(False)
+        )
+
+    # Optional Stage 2 gate: 150-day SMA must be trending up (angle > min).
+    if sma_150_angle_min is not None:
+        sma_150_series = price_data_frame["sma_150_angle"].shift(1)
+        entry_conditions = entry_conditions & (
+            sma_150_series.ge(sma_150_angle_min).fillna(False)
         )
 
     # Optional price_concentration_score filter (checked on T, the signal date)
@@ -2463,6 +2481,8 @@ def _generate_strategy_evaluation_artifacts(
     d_ema_range: tuple[float, float] | None = None,
     near_delta_range: tuple[float, float] | None = None,
     price_tightness_range: tuple[float, float] | None = None,
+    sma_150_angle_min: float | None = None,
+    trailing_stop_percentage: float = 0.0,
     price_score_min: float | None = None,
     price_score_max: float | None = None,
     confirmation_sma_angle_range: tuple[float, float] | None = None,
@@ -2679,6 +2699,8 @@ def _generate_strategy_evaluation_artifacts(
                         kwargs["near_delta_range"] = near_delta_range
                     if price_tightness_range is not None:
                         kwargs["price_tightness_range"] = price_tightness_range
+                    if sma_150_angle_min is not None:
+                        kwargs["sma_150_angle_min"] = sma_150_angle_min
                     if price_score_min is not None:
                         kwargs["price_score_min"] = price_score_min
                     if price_score_max is not None:
@@ -2801,6 +2823,7 @@ def _generate_strategy_evaluation_artifacts(
             exit_price_column="open",
             stop_loss_percentage=stop_loss_percentage,
             take_profit_percentage=take_profit_percentage,
+            trailing_stop_percentage=trailing_stop_percentage,
             cooldown_bars=cooldown_after_close,
             minimum_holding_bars=minimum_holding_bars,
             pending_limit_entry=use_confirmation_angle and confirmation_entry_mode == "limit",
