@@ -75,3 +75,5 @@ cron_logs/
 local_data/current_status.json
 db.sqlite3
 db.sqlite3-journal
+data/stock_data_1989
+data/stock_data_2014
