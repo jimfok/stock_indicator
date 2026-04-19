@@ -1118,6 +1118,11 @@ class StockShell(cmd.Cmd):
                             ),
                             "commission_pct": commission_pct,
                             "exit_reason": detail.exit_reason,
+                            "profit_per_bar": (
+                                detail.percentage_change / max(1, (detail.date - entry_detail.date).days * 5 // 7)
+                                if detail.percentage_change is not None
+                                else None
+                            ),
                         }
                     )
         if trade_records:
@@ -1156,6 +1161,7 @@ class StockShell(cmd.Cmd):
                     "max_adverse_excursion_date",
                     "commission_pct",
                     "exit_reason",
+                    "profit_per_bar",
                 ],
             ).to_csv(output_file, index=False)
             self.stdout.write(f"Trade details saved to {output_file}\n")
@@ -1486,6 +1492,7 @@ class StockShell(cmd.Cmd):
                 near_delta_range=near_delta_range_value,
                 price_tightness_range=price_tightness_range_value,
                 sma_150_angle_min=sma_150_angle_min_value,
+                use_ftd_confirmation=bool(raw_bucket.get("use_ftd", False)),
                 trailing_stop_percentage=float(raw_bucket.get("trailing_stop", 0)),
                 price_score_min=price_score_min_value,
                 price_score_max=price_score_max_value,
@@ -1649,6 +1656,11 @@ class StockShell(cmd.Cmd):
                             ),
                             "commission_pct": commission_pct,
                             "exit_reason": detail.exit_reason,
+                            "profit_per_bar": (
+                                detail.percentage_change / max(1, (detail.date - entry_detail.date).days * 5 // 7)
+                                if detail.percentage_change is not None
+                                else None
+                            ),
                         }
                     )
         if trade_records:
@@ -1690,6 +1702,7 @@ class StockShell(cmd.Cmd):
                     "max_adverse_excursion_date",
                     "commission_pct",
                     "exit_reason",
+                    "profit_per_bar",
                 ],
             ).to_csv(output_file, index=False)
             self.stdout.write(f"Trade details saved to {output_file}\n")
@@ -2250,6 +2263,11 @@ class StockShell(cmd.Cmd):
                             else None
                         ),
                         "exit_reason": detail.exit_reason,
+                        "profit_per_bar": (
+                            detail.percentage_change / max(1, (detail.date - entry_detail.date).days * 5 // 7)
+                            if detail.percentage_change is not None
+                            else None
+                        ),
                     }
                 )
         output_directory = Path("logs") / "simulate_result"
@@ -2283,6 +2301,7 @@ class StockShell(cmd.Cmd):
                 "max_favorable_excursion_date",
                 "max_adverse_excursion_date",
                 "exit_reason",
+                "profit_per_bar",
             ],
         ).to_csv(output_file, index=False)
         save_trade_details_to_log(
