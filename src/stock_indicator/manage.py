@@ -1118,6 +1118,11 @@ class StockShell(cmd.Cmd):
                             ),
                             "commission_pct": commission_pct,
                             "exit_reason": detail.exit_reason,
+                            "profit_per_bar": (
+                                detail.percentage_change / max(1, (detail.date - entry_detail.date).days * 5 // 7)
+                                if detail.percentage_change is not None
+                                else None
+                            ),
                         }
                     )
         if trade_records:
@@ -1156,6 +1161,7 @@ class StockShell(cmd.Cmd):
                     "max_adverse_excursion_date",
                     "commission_pct",
                     "exit_reason",
+                    "profit_per_bar",
                 ],
             ).to_csv(output_file, index=False)
             self.stdout.write(f"Trade details saved to {output_file}\n")
@@ -1457,6 +1463,17 @@ class StockShell(cmd.Cmd):
                     )
                     return
 
+            sma_150_angle_min_value: float | None = None
+            raw_sma_150 = raw_bucket.get("sma_150_angle_min")
+            if raw_sma_150 is not None:
+                try:
+                    sma_150_angle_min_value = float(raw_sma_150)
+                except (TypeError, ValueError):
+                    self.stdout.write(
+                        f"bucket {label}: sma_150_angle_min must be a number\n"
+                    )
+                    return
+
             bucket_definitions[label] = strategy.ComplexStrategySetDefinition(
                 label=label,
                 buy_strategy_name=buy_strategy_name,
@@ -1474,6 +1491,9 @@ class StockShell(cmd.Cmd):
                 d_ema_range=d_ema_range,
                 near_delta_range=near_delta_range_value,
                 price_tightness_range=price_tightness_range_value,
+                sma_150_angle_min=sma_150_angle_min_value,
+                use_ftd_confirmation=bool(raw_bucket.get("use_ftd", False)),
+                trailing_stop_percentage=float(raw_bucket.get("trailing_stop", 0)),
                 price_score_min=price_score_min_value,
                 price_score_max=price_score_max_value,
                 entry_priority=entry_priority,
@@ -1636,6 +1656,11 @@ class StockShell(cmd.Cmd):
                             ),
                             "commission_pct": commission_pct,
                             "exit_reason": detail.exit_reason,
+                            "profit_per_bar": (
+                                detail.percentage_change / max(1, (detail.date - entry_detail.date).days * 5 // 7)
+                                if detail.percentage_change is not None
+                                else None
+                            ),
                         }
                     )
         if trade_records:
@@ -1677,6 +1702,7 @@ class StockShell(cmd.Cmd):
                     "max_adverse_excursion_date",
                     "commission_pct",
                     "exit_reason",
+                    "profit_per_bar",
                 ],
             ).to_csv(output_file, index=False)
             self.stdout.write(f"Trade details saved to {output_file}\n")
@@ -2237,6 +2263,11 @@ class StockShell(cmd.Cmd):
                             else None
                         ),
                         "exit_reason": detail.exit_reason,
+                        "profit_per_bar": (
+                            detail.percentage_change / max(1, (detail.date - entry_detail.date).days * 5 // 7)
+                            if detail.percentage_change is not None
+                            else None
+                        ),
                     }
                 )
         output_directory = Path("logs") / "simulate_result"
@@ -2270,6 +2301,7 @@ class StockShell(cmd.Cmd):
                 "max_favorable_excursion_date",
                 "max_adverse_excursion_date",
                 "exit_reason",
+                "profit_per_bar",
             ],
         ).to_csv(output_file, index=False)
         save_trade_details_to_log(
@@ -2976,6 +3008,7 @@ class StockShell(cmd.Cmd):
         strategy_id: str | None = None
         take_profit_display: str | None = None
         max_positions_display: int | None = None
+        min_hold_bars: int = 0
         for token in argument_parts:
             if token.startswith("group="):
                 try:
@@ -2999,6 +3032,8 @@ class StockShell(cmd.Cmd):
                 take_profit_display = f"{tp_val:.1%}" if tp_val > 0 else "NOPE"
             elif token.startswith("max_pos="):
                 max_positions_display = int(token.split("=", 1)[1])
+            elif token.startswith("min_hold="):
+                min_hold_bars = int(token.split("=", 1)[1])
             else:
                 tokens.append(token)
         try:
@@ -3128,30 +3163,63 @@ class StockShell(cmd.Cmd):
 
         # Position tracking: load positions.json, check exits for held
         # symbols (including those outside the current filter), update state.
+        # Format: {"strategy_id": [{"symbol": "X", "entry_date": "YYYY-MM-DD"}, ...]}
         positions_path = DATA_DIRECTORY / "positions.json"
-        all_positions: Dict[str, List[str]] = {}
+        all_positions: Dict[str, List[Dict[str, str]]] = {}
         if positions_path.exists():
             try:
                 with positions_path.open("r", encoding="utf-8") as fp:
-                    all_positions = json.load(fp)
+                    raw_positions = json.load(fp)
+                # Migrate legacy format (list of strings) to new format
+                for key, val in raw_positions.items():
+                    if isinstance(val, list):
+                        migrated: List[Dict[str, str]] = []
+                        for item in val:
+                            if isinstance(item, str):
+                                migrated.append({"symbol": item, "entry_date": ""})
+                            elif isinstance(item, dict):
+                                migrated.append(item)
+                        all_positions[key] = migrated
+                    else:
+                        all_positions[key] = []
             except (json.JSONDecodeError, OSError):
                 all_positions = {}
-        held_symbols: List[str] = all_positions.get(
+        held_entries: List[Dict[str, str]] = all_positions.get(
             strategy_id or "", []
         )
+        held_symbols: List[str] = [e["symbol"] for e in held_entries]
+        held_entry_dates: Dict[str, str] = {
+            e["symbol"]: e.get("entry_date", "") for e in held_entries
+        }
 
-        # Check exit for held symbols not already in filter exit list
+        # Determine evaluation date for exit checks and bar counting
         if date_string is None:
             effective_date_for_exit = (
                 daily_job.determine_latest_trading_date().isoformat()
             )
         else:
             effective_date_for_exit = date_string
+
+        # Count trading bars between entry_date and evaluation date
+        def _bars_held(entry_date_str: str) -> int:
+            if not entry_date_str:
+                return 9999  # unknown entry date, assume long enough
+            try:
+                entry_ts = pandas.Timestamp(entry_date_str)
+                eval_ts = pandas.Timestamp(effective_date_for_exit)
+                # Approximate trading bars (weekdays)
+                trading_days = pandas.bdate_range(entry_ts, eval_ts)
+                return max(0, len(trading_days) - 1)
+            except Exception:  # noqa: BLE001
+                return 9999
+
+        # Check exit for held symbols not already in filter exit list
         held_exit_signals: List[str] = []
+        held_min_hold_blocked: List[str] = []
         for held_symbol in held_symbols:
-            if held_symbol in filter_exit_signal_list:
-                held_exit_signals.append(held_symbol)
-            else:
+            bars = _bars_held(held_entry_dates.get(held_symbol, ""))
+            has_exit = held_symbol in filter_exit_signal_list
+            if not has_exit:
                 try:
                     debug_values = daily_job.filter_debug_values(
                         held_symbol,
@@ -3161,7 +3229,11 @@ class StockShell(cmd.Cmd):
                     )
                 except Exception:  # noqa: BLE001
                     debug_values = {}
-                if debug_values.get("exit", False):
+                has_exit = debug_values.get("exit", False)
+            if has_exit:
+                if bars < min_hold_bars:
+                    held_min_hold_blocked.append(held_symbol)
+                else:
                     held_exit_signals.append(held_symbol)
 
         # Merge exit signals: filter + held positions
@@ -3174,18 +3246,23 @@ class StockShell(cmd.Cmd):
         self.stdout.write(f"exit signals: {all_exit_signals}\n")
 
         # Compute expected positions after today's actions
-        expected_positions = [s for s in held_symbols if s not in held_exit_signals]
+        expected_entries = [e for e in held_entries if e["symbol"] not in held_exit_signals]
         for symbol_name in entry_signal_list:
-            if symbol_name not in expected_positions:
-                expected_positions.append(symbol_name)
+            if symbol_name not in [e["symbol"] for e in expected_entries]:
+                expected_entries.append({
+                    "symbol": symbol_name,
+                    "entry_date": effective_date_for_exit,
+                })
 
         # Apply max_positions cap to expected positions
         if max_positions_display is not None:
-            expected_positions = expected_positions[:max_positions_display]
+            expected_entries = expected_entries[:max_positions_display]
+
+        expected_symbols = [e["symbol"] for e in expected_entries]
 
         # Save to positions.json
         if strategy_id:
-            all_positions[strategy_id] = expected_positions
+            all_positions[strategy_id] = expected_entries
             try:
                 with positions_path.open("w", encoding="utf-8") as fp:
                     json.dump(all_positions, fp, indent=2)
@@ -3203,6 +3280,8 @@ class StockShell(cmd.Cmd):
             self.stdout.write(
                 f"No new positions can be opened when there are more than {max_positions_display}.\n"
             )
+        if min_hold_bars > 0:
+            self.stdout.write(f"Minimum hold: {min_hold_bars} bars\n")
         self.stdout.write("Entry priority is based on the displayed order.\n")
         if entry_signal_list:
             entry_names = ", ".join(f"'{s}'" for s in entry_signal_list)
@@ -3210,6 +3289,9 @@ class StockShell(cmd.Cmd):
         if held_exit_signals:
             exit_names = ", ".join(f"'{s}'" for s in held_exit_signals)
             self.stdout.write(f"  SELL {exit_names}\n")
+        if held_min_hold_blocked:
+            blocked_names = ", ".join(f"'{s}'" for s in held_min_hold_blocked)
+            self.stdout.write(f"  HOLD (min_hold) {blocked_names}\n")
         if not held_exit_signals and not entry_signal_list:
             self.stdout.write("  (no action)\n")
 
@@ -3227,7 +3309,7 @@ class StockShell(cmd.Cmd):
         """show_positions
         Print combined concurrent positions from positions.json."""
         positions_path = DATA_DIRECTORY / "positions.json"
-        all_positions: Dict[str, List[str]] = {}
+        all_positions: Dict[str, list] = {}
         if positions_path.exists():
             try:
                 with positions_path.open("r", encoding="utf-8") as fp:
@@ -3240,7 +3322,13 @@ class StockShell(cmd.Cmd):
         )
         for strat_id, strat_positions in all_positions.items():
             if strat_positions:
-                names = ", ".join(f"'{s}'" for s in strat_positions)
+                symbols = []
+                for item in strat_positions:
+                    if isinstance(item, dict):
+                        symbols.append(item.get("symbol", "?"))
+                    else:
+                        symbols.append(str(item))
+                names = ", ".join(f"'{s}'" for s in symbols)
                 self.stdout.write(f"  {strat_id}: {names}\n")
             else:
                 self.stdout.write(f"  {strat_id}: (none)\n")
