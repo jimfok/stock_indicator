@@ -1118,6 +1118,7 @@ class StockShell(cmd.Cmd):
                             ),
                             "commission_pct": commission_pct,
                             "exit_reason": detail.exit_reason,
+                            "holding_bars": max(1, (detail.date - entry_detail.date).days * 5 // 7),
                             "profit_per_bar": (
                                 detail.percentage_change / max(1, (detail.date - entry_detail.date).days * 5 // 7)
                                 if detail.percentage_change is not None
@@ -1161,6 +1162,7 @@ class StockShell(cmd.Cmd):
                     "max_adverse_excursion_date",
                     "commission_pct",
                     "exit_reason",
+                    "holding_bars",
                     "profit_per_bar",
                 ],
             ).to_csv(output_file, index=False)
@@ -1518,6 +1520,35 @@ class StockShell(cmd.Cmd):
             return
         self.stdout.write(f"Data source: {data_directory.name}\n")
 
+        # Parse adaptive TP/SL configuration.
+        adaptive_tp_sl_config: strategy.AdaptiveTPSLConfig | None = None
+        raw_adaptive = config_document.get("adaptive_tp_sl")
+        if raw_adaptive is not None and raw_adaptive:
+            if isinstance(raw_adaptive, dict):
+                raw_fixed_sl = raw_adaptive.get("fixed_sl")
+                adaptive_tp_sl_config = strategy.AdaptiveTPSLConfig(
+                    window=int(raw_adaptive.get("window", 20)),
+                    sigma_multiplier=float(raw_adaptive.get("sigma", 0.5)),
+                    target_r=float(raw_adaptive.get("target_r", 2.0)),
+                    min_tp=float(raw_adaptive.get("min_tp", 0.02)),
+                    min_sl=float(raw_adaptive.get("min_sl", 0.01)),
+                    min_samples=int(raw_adaptive.get("min_samples", 5)),
+                    fixed_sl=float(raw_fixed_sl) if raw_fixed_sl is not None else None,
+                )
+            else:
+                # Boolean true -> use defaults.
+                adaptive_tp_sl_config = strategy.AdaptiveTPSLConfig()
+            sl_desc = (
+                f"fixed_sl={adaptive_tp_sl_config.fixed_sl}"
+                if adaptive_tp_sl_config.fixed_sl is not None
+                else f"target_r={adaptive_tp_sl_config.target_r}"
+            )
+            self.stdout.write(
+                f"Adaptive TP/SL: window={adaptive_tp_sl_config.window} "
+                f"sigma={adaptive_tp_sl_config.sigma_multiplier} "
+                f"{sl_desc}\n"
+            )
+
         try:
             simulation_metrics = strategy.run_complex_simulation(
                 data_directory,
@@ -1533,6 +1564,7 @@ class StockShell(cmd.Cmd):
                 minimum_holding_bars=minimum_holding_bars,
                 multi_bucket_mode=True,
                 confirmation_sma_angle_range=confirmation_sma_angle_range,
+                adaptive_tp_sl=adaptive_tp_sl_config,
             )
         except ValueError as error:
             self.stdout.write(f"{error}\n")
@@ -1656,6 +1688,7 @@ class StockShell(cmd.Cmd):
                             ),
                             "commission_pct": commission_pct,
                             "exit_reason": detail.exit_reason,
+                            "holding_bars": max(1, (detail.date - entry_detail.date).days * 5 // 7),
                             "profit_per_bar": (
                                 detail.percentage_change / max(1, (detail.date - entry_detail.date).days * 5 // 7)
                                 if detail.percentage_change is not None
@@ -1702,6 +1735,7 @@ class StockShell(cmd.Cmd):
                     "max_adverse_excursion_date",
                     "commission_pct",
                     "exit_reason",
+                    "holding_bars",
                     "profit_per_bar",
                 ],
             ).to_csv(output_file, index=False)
@@ -2263,6 +2297,7 @@ class StockShell(cmd.Cmd):
                             else None
                         ),
                         "exit_reason": detail.exit_reason,
+                        "holding_bars": max(1, (detail.date - entry_detail.date).days * 5 // 7),
                         "profit_per_bar": (
                             detail.percentage_change / max(1, (detail.date - entry_detail.date).days * 5 // 7)
                             if detail.percentage_change is not None
@@ -2301,6 +2336,7 @@ class StockShell(cmd.Cmd):
                 "max_favorable_excursion_date",
                 "max_adverse_excursion_date",
                 "exit_reason",
+                "holding_bars",
                 "profit_per_bar",
             ],
         ).to_csv(output_file, index=False)
@@ -3245,6 +3281,43 @@ class StockShell(cmd.Cmd):
         self.stdout.write(f"entry signals: {entry_signal_list}\n")
         self.stdout.write(f"exit signals: {all_exit_signals}\n")
 
+        # Update adaptive_state.json with closed positions' raw P/L.
+        # The user must manually fill in exit_price after closing;
+        # alternatively, compute_adaptive_tp_sl can be called with
+        # the actual exit price.
+        if held_exit_signals:
+            state_path = DATA_DIRECTORY / "adaptive_state.json"
+            adaptive_state: dict = {"raw_trade_profits": [], "closed_trades": []}
+            if state_path.exists():
+                try:
+                    with state_path.open("r", encoding="utf-8") as fp:
+                        adaptive_state = json.load(fp)
+                except (json.JSONDecodeError, OSError):
+                    pass
+            raw_profits = adaptive_state.get("raw_trade_profits", [])
+            closed_list = adaptive_state.get("closed_trades", [])
+            for exit_sym in held_exit_signals:
+                entry_rec = next(
+                    (e for e in held_entries if e["symbol"] == exit_sym), None
+                )
+                if entry_rec and entry_rec.get("entry_price"):
+                    # Record closed trade for manual exit_price update later.
+                    closed_list.append({
+                        "symbol": exit_sym,
+                        "entry_date": entry_rec.get("entry_date", ""),
+                        "exit_date": effective_date_for_exit,
+                        "entry_price": entry_rec["entry_price"],
+                        "exit_price": None,  # fill manually or via API
+                        "raw_pct": None,
+                    })
+            adaptive_state["raw_trade_profits"] = raw_profits[-20:]
+            adaptive_state["closed_trades"] = closed_list
+            try:
+                with state_path.open("w", encoding="utf-8") as fp:
+                    json.dump(adaptive_state, fp, indent=2)
+            except OSError:
+                pass
+
         # Compute expected positions after today's actions
         expected_entries = [e for e in held_entries if e["symbol"] not in held_exit_signals]
         for symbol_name in entry_signal_list:
@@ -3273,9 +3346,10 @@ class StockShell(cmd.Cmd):
 
         # Action instructions
         self.stdout.write(f"\n--- {strategy_id or ''} actions ---\n")
-        sl_display = f"{stop_loss_value:.1%}" if stop_loss_value > 0 else "NOPE"
-        tp_display = take_profit_display or "NOPE"
-        self.stdout.write(f"Take Profit: {tp_display}; Stop loss: {sl_display}\n")
+        self.stdout.write(
+            "TP/SL: adaptive (will be computed in next day's "
+            "compute_adaptive_tp_sl after entry)\n"
+        )
         if max_positions_display is not None:
             self.stdout.write(
                 f"No new positions can be opened when there are more than {max_positions_display}.\n"
@@ -3304,6 +3378,203 @@ class StockShell(cmd.Cmd):
             "Display entry and exit signals for DATE or the latest trading day when DATE is omitted using the provided strategies or a strategy id from data/strategy_sets.csv.\n"
             "Signal calculation uses the same group dynamic ratio and Top-N rule as start_simulate.\n"
         )
+
+    def do_compute_adaptive_tp_sl(self, argument_line: str) -> None:  # noqa: D401
+        """compute_adaptive_tp_sl
+        Compute current adaptive TP/SL levels from rolling raw trade stats.
+
+        Reads data/adaptive_state.json for the rolling window of raw trade
+        profits.  Outputs current TP/SL percentages and, for each open
+        position in positions.json, computes target prices.
+
+        Config: window=20, sigma=0.5, target_r=2.0, fixed_sl_cap=0.03
+        """
+        state_path = DATA_DIRECTORY / "adaptive_state.json"
+        positions_path = DATA_DIRECTORY / "positions.json"
+
+        # Adaptive parameters (matching production config)
+        window = 20
+        sigma_mult = 0.5
+        target_r = 2.0
+        fixed_sl_cap = 0.03
+        min_tp = 0.02
+        min_sl = 0.01
+        min_samples = 5
+
+        # Load rolling state
+        raw_profits: list[float] = []
+        closed_trades: list[dict] = []
+        if state_path.exists():
+            try:
+                with state_path.open("r", encoding="utf-8") as fp:
+                    state = json.load(fp)
+                raw_profits = state.get("raw_trade_profits", [])
+                closed_trades = state.get("closed_trades", [])
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Process closed trades: auto-fill entry/exit prices from stock
+        # data (open price on T+1 for entry, open price on exit_date for
+        # exit — matching simulation's open-to-open convention), compute
+        # raw_pct and move into raw_trade_profits.
+        stock_data_dir = DATA_DIRECTORY / "stock_data"
+        updated_closed: list[dict] = []
+        state_changed = False
+
+        def _read_open_price(symbol: str, date_str: str) -> float | None:
+            csv_path = stock_data_dir / f"{symbol}.csv"
+            if not csv_path.exists():
+                return None
+            try:
+                price_frame = pandas.read_csv(
+                    csv_path, index_col=0, parse_dates=True
+                )
+                ts = pandas.Timestamp(date_str)
+                if ts not in price_frame.index:
+                    return None
+                open_col = next(
+                    (c for c in price_frame.columns if c.lower() == "open"),
+                    None,
+                )
+                if open_col is None:
+                    return None
+                val = float(price_frame.loc[ts, open_col])
+                return val if not pandas.isna(val) else None
+            except Exception:  # noqa: BLE001
+                return None
+
+        for ct in closed_trades:
+            if ct.get("raw_pct") is not None:
+                updated_closed.append(ct)
+                continue
+            symbol = ct.get("symbol", "")
+            # Auto-fill entry_price: open on T+1 (one bday after entry_date).
+            if ct.get("entry_price") is None and ct.get("entry_date"):
+                t1 = (
+                    pandas.Timestamp(ct["entry_date"]) + pandas.offsets.BDay(1)
+                ).date().isoformat()
+                entry_p = _read_open_price(symbol, t1)
+                if entry_p is not None:
+                    ct["entry_price"] = round(entry_p, 4)
+            # Auto-fill exit_price: open on exit_date.
+            if ct.get("exit_price") is None and ct.get("exit_date"):
+                exit_p = _read_open_price(symbol, ct["exit_date"])
+                if exit_p is not None:
+                    ct["exit_price"] = round(exit_p, 4)
+            # Compute raw_pct if both prices available.
+            if ct.get("exit_price") is not None and ct.get("entry_price"):
+                entry_p = float(ct["entry_price"])
+                exit_p = float(ct["exit_price"])
+                if entry_p > 0:
+                    pct = (exit_p - entry_p) / entry_p
+                    ct["raw_pct"] = round(pct, 6)
+                    raw_profits.append(pct)
+                    state_changed = True
+                    self.stdout.write(
+                        f"  Processed closed trade: {symbol} "
+                        f"pct={pct:+.2%}\n"
+                    )
+            updated_closed.append(ct)
+        # Trim rolling window
+        raw_profits = raw_profits[-window:]
+        if state_changed:
+            try:
+                with state_path.open("w", encoding="utf-8") as fp:
+                    json.dump(
+                        {
+                            "raw_trade_profits": [round(p, 8) for p in raw_profits],
+                            "closed_trades": updated_closed,
+                        },
+                        fp,
+                        indent=2,
+                    )
+            except OSError:
+                pass
+
+        # Compute current TP/SL
+        tp_pct = min_tp
+        sl_pct = min_sl
+        if len(raw_profits) >= min_samples:
+            wins = [p for p in raw_profits if p > 0]
+            if len(wins) >= 3:
+                from statistics import stdev as _stdev
+                mp = sum(wins) / len(wins)
+                sp = _stdev(wins) if len(wins) >= 2 else 0.0
+                tp_pct = max(min_tp, mp + sigma_mult * sp)
+                sl_pct = max(min_sl, tp_pct / target_r)
+                sl_pct = min(sl_pct, fixed_sl_cap)
+
+        self.stdout.write(
+            f"\n--- Adaptive TP/SL (window={window}, "
+            f"samples={len(raw_profits)}) ---\n"
+        )
+        self.stdout.write(f"  TP: {tp_pct:.2%}\n")
+        self.stdout.write(f"  SL: {sl_pct:.2%}\n")
+        if len(raw_profits) >= min_samples:
+            wins = [p for p in raw_profits if p > 0]
+            losses = [p for p in raw_profits if p <= 0]
+            if wins:
+                self.stdout.write(
+                    f"  Rolling MP: {sum(wins)/len(wins):.2%} "
+                    f"(n={len(wins)})\n"
+                )
+            if losses:
+                self.stdout.write(
+                    f"  Rolling ML: {sum(losses)/len(losses):.2%} "
+                    f"(n={len(losses)})\n"
+                )
+        else:
+            self.stdout.write(
+                f"  (insufficient data: {len(raw_profits)}/{min_samples} "
+                f"samples, using defaults)\n"
+            )
+
+        # Load positions and compute target prices
+        all_positions: Dict[str, list] = {}
+        if positions_path.exists():
+            try:
+                with positions_path.open("r", encoding="utf-8") as fp:
+                    all_positions = json.load(fp)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        has_positions = False
+        for strat_id, strat_positions in all_positions.items():
+            for pos in strat_positions:
+                if not isinstance(pos, dict):
+                    continue
+                symbol = pos.get("symbol", "?")
+                entry_price = pos.get("entry_price")
+                if entry_price is not None:
+                    has_positions = True
+                    entry_price = float(entry_price)
+                    tp_price = entry_price * (1 + tp_pct)
+                    sl_price = entry_price * (1 - sl_pct)
+                    self.stdout.write(
+                        f"  {symbol}: entry={entry_price:.2f} "
+                        f"TP={tp_price:.2f} (+{tp_pct:.2%}) "
+                        f"SL={sl_price:.2f} (-{sl_pct:.2%})\n"
+                    )
+                    # Store computed targets back into position
+                    pos["tp_pct"] = round(tp_pct, 6)
+                    pos["sl_pct"] = round(sl_pct, 6)
+                    pos["tp_price"] = round(tp_price, 4)
+                    pos["sl_price"] = round(sl_price, 4)
+
+        if not has_positions:
+            self.stdout.write(
+                "  (no open positions with entry_price)\n"
+            )
+
+        # Save updated positions with target prices
+        if has_positions:
+            try:
+                with positions_path.open("w", encoding="utf-8") as fp:
+                    json.dump(all_positions, fp, indent=2)
+            except OSError as write_error:
+                self.stdout.write(
+                    f"warning: failed to write positions.json: {write_error}\n"
+                )
 
     def do_show_positions(self, argument_line: str) -> None:  # noqa: D401
         """show_positions

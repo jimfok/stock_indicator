@@ -10,9 +10,8 @@ REPOSITORY_ROOT="${REPO:-$SCRIPT_DIRECTORY}"
 SOURCE_DIRECTORY="${SRC:-$REPOSITORY_ROOT/src}"
 VIRTUAL_ENVIRONMENT_DIRECTORY="${VENV:-$REPOSITORY_ROOT/venv}"
 
-# Your daily_job argument line
-ARG_LINE_1='dollar_volume>0.05%,Top50,Pick3 0.03 strategy=buy3 tp=0.078 max_pos=6 min_hold=5'
-ARG_LINE_2='dollar_volume>0.05%,Top200,Pick5 0.0 strategy=near_close tp=0 max_pos=3 min_hold=5'
+# Production Buy3 config: Top200 Pick5, adaptive TP/SL with fixed SL cap 3%
+ARG_LINE_1='dollar_volume>0.05%,Top200,Pick5 0.03 strategy=buy3 tp=0.078 max_pos=6 min_hold=5'
 
 # Set up logging directories
 LOG_DIRECTORY="$REPOSITORY_ROOT/cron_logs"
@@ -32,6 +31,6 @@ START_DATE="$("$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -c 'from datetime impo
 {
   "$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -m stock_indicator.manage find_history_signal "$LATEST_DATE" "$ARG_LINE_1"
   echo ""
-  "$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -m stock_indicator.manage find_history_signal "$LATEST_DATE" "$ARG_LINE_2"
+  "$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -m stock_indicator.manage compute_adaptive_tp_sl
   "$VIRTUAL_ENVIRONMENT_DIRECTORY/bin/python" -m stock_indicator.manage show_positions
 } | tee -a "$LOG_DIRECTORY/cron_stdout.log" >> "$DATE_LOG_DIRECTORY/$LATEST_DATE.log"

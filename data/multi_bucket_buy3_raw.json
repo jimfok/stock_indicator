@@ -1,6 +1,6 @@
 {
-  "max_position_count": 6,
-  "starting_cash": 60000,
+  "max_position_count": 20,
+  "starting_cash": 200000,
   "start_date": "2014-01-01",
   "data_source": "2014",
   "withdraw": 0,
@@ -10,20 +10,15 @@
   "confirmation_sma_angle_min": -99,
   "confirmation_sma_angle_max": 99,
   "show_trade_details": false,
-  "adaptive_tp_sl": {
-    "window": 20,
-    "sigma": 0.5,
-    "fixed_sl": 0.03
-  },
   "buckets": [
     {
-      "label": "buy3_adaptive_fixedsl_Top200Pick5_6p",
+      "label": "buy3_raw",
       "strategy_id": "buy3",
-      "dollar_volume_filter": "dollar_volume>0.01%,Top200,Pick5",
-      "stop_loss": 1.0,
-      "take_profit": 0.0,
+      "dollar_volume_filter": "dollar_volume>0.05%,Top50,Pick3",
+      "stop_loss": 0,
+      "take_profit": 0,
       "priority": 1,
-      "max_positions": 6,
+      "max_positions": 20,
       "exit_alpha_factor": 3
     }
   ]
