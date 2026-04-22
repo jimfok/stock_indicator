@@ -586,8 +586,12 @@ class AdaptiveTPSLConfig:
     # When True, TP uses min_hold_tp instead of the global min_hold.
     override_min_hold_tp_only: bool = False
     # Minimum bars before TP can trigger (when override_min_hold_tp_only=True).
-    # 0 = immediate, 2 = realistic (T+2 before TP price is known).
+    # 0 = immediate, 1 = realistic (T+2 morning TP known, place order intraday).
     min_hold_tp: int = 0
+    # When True, rolling stats only include trades that closed BEFORE the
+    # current entry date (not same-day closes). This lets TP% be computed
+    # on entry signal night (T), so TP orders can be placed at T+1 open.
+    delayed_rolling_update: bool = False
 
 
 @dataclass
@@ -863,6 +867,10 @@ def run_complex_simulation(
     # (close_date, counter, label, original_trade_id)).
     adaptive_close_heap: list[tuple[pandas.Timestamp, int, str, int]] = []
     adaptive_close_counter = 0
+    # When delayed_rolling_update is True, closed trade pcts are buffered
+    # here and only flushed into adaptive_closed_profits when an entry
+    # event on a LATER date is processed.
+    pending_rolling_updates: list[tuple[pandas.Timestamp, float]] = []
 
     if adaptive_tp_sl is not None:
         # Use heap-based event processing for adaptive mode.
@@ -911,9 +919,12 @@ def run_complex_simulation(
                             if raw_trade.entry_price > 0
                             else 0.0
                         )
-                        adaptive_closed_profits.append(pct)
-                        if len(adaptive_closed_profits) > adaptive_tp_sl.window:
-                            adaptive_closed_profits.popleft()
+                        if adaptive_tp_sl.delayed_rolling_update:
+                            pending_rolling_updates.append((close_date, pct))
+                        else:
+                            adaptive_closed_profits.append(pct)
+                            if len(adaptive_closed_profits) > adaptive_tp_sl.window:
+                                adaptive_closed_profits.popleft()
             else:
                 (
                     event_date,
@@ -924,6 +935,18 @@ def run_complex_simulation(
                     label,
                     trade,
                 ) = entry_events.popleft()
+                # Flush pending rolling updates from trades that closed
+                # strictly before this entry date (delayed_rolling_update).
+                if pending_rolling_updates:
+                    remaining: list[tuple[pandas.Timestamp, float]] = []
+                    for closed_date, closed_pct in pending_rolling_updates:
+                        if closed_date < event_date:
+                            adaptive_closed_profits.append(closed_pct)
+                            if len(adaptive_closed_profits) > adaptive_tp_sl.window:
+                                adaptive_closed_profits.popleft()
+                        else:
+                            remaining.append((closed_date, closed_pct))
+                    pending_rolling_updates[:] = remaining
                 trade_identifier = id(trade)
                 trade_key = (label, trade_identifier)
                 if trade_key in accepted_trade_keys:
