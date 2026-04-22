@@ -1536,6 +1536,7 @@ class StockShell(cmd.Cmd):
                     fixed_sl=float(raw_fixed_sl) if raw_fixed_sl is not None else None,
                     override_min_hold=bool(raw_adaptive.get("override_min_hold", False)),
                     override_min_hold_tp_only=bool(raw_adaptive.get("override_min_hold_tp_only", False)),
+                    min_hold_tp=int(raw_adaptive.get("min_hold_tp", 0)),
                 )
             else:
                 # Boolean true -> use defaults.

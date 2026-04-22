@@ -14,7 +14,8 @@
     "window": 20,
     "sigma": 0.5,
     "fixed_sl": 0.03,
-    "override_min_hold_tp_only": true
+    "override_min_hold_tp_only": true,
+    "min_hold_tp": 1
   },
   "buckets": [
     {

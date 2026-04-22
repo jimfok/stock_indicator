@@ -583,8 +583,11 @@ class AdaptiveTPSLConfig:
     fixed_sl: float | None = None
     # When True, adaptive TP/SL can trigger before minimum_holding_bars.
     override_min_hold: bool = False
-    # When True, only TP can trigger before min_hold (SL still respects it).
+    # When True, TP uses min_hold_tp instead of the global min_hold.
     override_min_hold_tp_only: bool = False
+    # Minimum bars before TP can trigger (when override_min_hold_tp_only=True).
+    # 0 = immediate, 2 = realistic (T+2 before TP price is known).
+    min_hold_tp: int = 0
 
 
 @dataclass
@@ -972,7 +975,7 @@ def run_complex_simulation(
                 )
                 effective_min_hold_tp: int | None = None
                 if adaptive_tp_sl.override_min_hold_tp_only:
-                    effective_min_hold_tp = 0
+                    effective_min_hold_tp = adaptive_tp_sl.min_hold_tp
                 adjusted = _replay_trade_with_adaptive_tp_sl(
                     trade, tp_pct, sl_pct, effective_min_hold,
                     minimum_holding_bars_tp=effective_min_hold_tp,
