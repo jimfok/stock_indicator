@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field, replace
+import heapq
 import logging
 import math
 from math import ceil
@@ -544,6 +546,7 @@ class ComplexStrategySetDefinition:
     near_delta_range: tuple[float, float] | None = None
     price_tightness_range: tuple[float, float] | None = None
     sma_150_angle_min: float | None = None
+    use_ftd_confirmation: bool = False
     trailing_stop_percentage: float = 0.0
     price_score_min: float | None = None
     price_score_max: float | None = None
@@ -560,6 +563,35 @@ class ComplexStrategySetDefinition:
     entry_priority: int = 0
     maximum_positions: int | None = None
     fill_remaining: bool = False
+
+
+@dataclass
+class AdaptiveTPSLConfig:
+    """Configuration for adaptive (rolling) take-profit and stop-loss.
+
+    TP = rolling_MP + sigma_multiplier * rolling_σ_profit
+    SL = TP / target_r (capped by fixed_sl when set)
+    """
+
+    window: int = 20
+    sigma_multiplier: float = 0.5
+    target_r: float = 2.0
+    min_tp: float = 0.02
+    min_sl: float = 0.01
+    min_samples: int = 5
+    # When set, SL is fixed at this value (TP remains adaptive).
+    fixed_sl: float | None = None
+    # When True, adaptive TP/SL can trigger before minimum_holding_bars.
+    override_min_hold: bool = False
+    # When True, TP uses min_hold_tp instead of the global min_hold.
+    override_min_hold_tp_only: bool = False
+    # Minimum bars before TP can trigger (when override_min_hold_tp_only=True).
+    # 0 = immediate, 1 = realistic (T+2 morning TP known, place order intraday).
+    min_hold_tp: int = 0
+    # When True, rolling stats only include trades that closed BEFORE the
+    # current entry date (not same-day closes). This lets TP% be computed
+    # on entry signal night (T), so TP orders can be placed at T+1 open.
+    delayed_rolling_update: bool = False
 
 
 @dataclass
@@ -582,6 +614,71 @@ class StrategyEvaluationArtifacts:
     simulation_start_date: pandas.Timestamp | None
 
 
+def _replay_trade_with_adaptive_tp_sl(
+    trade: Trade,
+    tp_pct: float,
+    sl_pct: float,
+    minimum_holding_bars: int = 0,
+    minimum_holding_bars_tp: int | None = None,
+) -> Trade:
+    """Replay a raw trade using adaptive TP/SL levels.
+
+    Walks the trade's bar_excursions to find if TP or SL triggers before
+    the signal-based exit.  Returns a new Trade with adjusted exit if
+    triggered, or the original trade unchanged.
+
+    When *minimum_holding_bars_tp* is provided it overrides
+    *minimum_holding_bars* for TP checks only, allowing TP to trigger
+    earlier than SL.
+    """
+    if trade.bar_excursions is None or not trade.bar_excursions:
+        return trade
+    effective_min_hold_tp = (
+        minimum_holding_bars_tp if minimum_holding_bars_tp is not None
+        else minimum_holding_bars
+    )
+    for bar_index, (bar_date, bar_high_pct, bar_low_pct) in enumerate(
+        trade.bar_excursions
+    ):
+        holding = bar_index + 1
+        # Check SL (respects minimum_holding_bars)
+        if (
+            holding >= minimum_holding_bars
+            and sl_pct > 0
+            and bar_low_pct <= -sl_pct
+        ):
+            adjusted_exit_price = trade.entry_price * (1 - sl_pct)
+            adjusted_profit = adjusted_exit_price - trade.entry_price
+            return replace(
+                trade,
+                exit_date=bar_date,
+                exit_price=adjusted_exit_price,
+                profit=adjusted_profit,
+                holding_period=holding,
+                exit_reason="adaptive_stop_loss",
+                bar_excursions=trade.bar_excursions[: holding],
+            )
+        # Check TP (may use different min_hold)
+        if (
+            holding >= effective_min_hold_tp
+            and tp_pct > 0
+            and bar_high_pct >= tp_pct
+        ):
+            adjusted_exit_price = trade.entry_price * (1 + tp_pct)
+            adjusted_profit = adjusted_exit_price - trade.entry_price
+            return replace(
+                trade,
+                exit_date=bar_date,
+                exit_price=adjusted_exit_price,
+                profit=adjusted_profit,
+                holding_period=holding,
+                exit_reason="adaptive_take_profit",
+                bar_excursions=trade.bar_excursions[: holding],
+            )
+    # Neither triggered — use signal exit as-is.
+    return trade
+
+
 def run_complex_simulation(
     data_directory: Path,
     set_definitions: Dict[str, ComplexStrategySetDefinition],
@@ -597,6 +694,7 @@ def run_complex_simulation(
     minimum_holding_bars: int = 0,
     multi_bucket_mode: bool = False,
     confirmation_sma_angle_range: tuple[float, float] | None = None,
+    adaptive_tp_sl: AdaptiveTPSLConfig | None = None,
 ) -> ComplexSimulationMetrics:
     """Evaluate multiple strategy sets under a shared configuration.
 
@@ -660,8 +758,14 @@ def run_complex_simulation(
             allowed_fama_french_groups=None,
             allowed_symbols=None,
             exclude_other_ff12=True,
-            stop_loss_percentage=definition.stop_loss_percentage,
-            take_profit_percentage=definition.take_profit_percentage,
+            stop_loss_percentage=(
+                1.0 if adaptive_tp_sl is not None
+                else definition.stop_loss_percentage
+            ),
+            take_profit_percentage=(
+                0.0 if adaptive_tp_sl is not None
+                else definition.take_profit_percentage
+            ),
             minimum_holding_bars=minimum_holding_bars,
             use_confirmation_angle=use_confirmation_angle,
             confirmation_entry_mode=confirmation_entry_mode,
@@ -673,7 +777,11 @@ def run_complex_simulation(
             near_delta_range=definition.near_delta_range,
             price_tightness_range=definition.price_tightness_range,
             sma_150_angle_min=definition.sma_150_angle_min,
-            trailing_stop_percentage=definition.trailing_stop_percentage,
+            use_ftd_confirmation=definition.use_ftd_confirmation,
+            trailing_stop_percentage=(
+                0.0 if adaptive_tp_sl is not None
+                else definition.trailing_stop_percentage
+            ),
             price_score_min=definition.price_score_min,
             price_score_max=definition.price_score_max,
             confirmation_sma_angle_range=confirmation_sma_angle_range,
@@ -731,63 +839,227 @@ def run_complex_simulation(
                 )
             )
             event_insertion_counter += 1
-            events.append(
-                (
-                    trade.exit_date,
-                    0,
-                    0,
-                    0.0,
-                    event_insertion_counter,
-                    label,
-                    trade,
+            if adaptive_tp_sl is None:
+                # Non-adaptive: close events are pre-scheduled.
+                events.append(
+                    (
+                        trade.exit_date,
+                        0,
+                        0,
+                        0.0,
+                        event_insertion_counter,
+                        label,
+                        trade,
+                    )
                 )
-            )
-            event_insertion_counter += 1
+                event_insertion_counter += 1
     events.sort(
         key=lambda event: (event[0], event[1], event[2], event[3], event[4])
     )
 
-    for (
-        event_date,
-        event_type,
-        _bucket_priority,
-        _event_priority,
-        _insertion_counter,
-        label,
-        trade,
-    ) in events:
-        trade_identifier = id(trade)
-        trade_key = (label, trade_identifier)
-        normalized_label = label.upper()
-        if event_type == 0:
-            if trade_key in open_trade_keys:
-                open_trade_keys.pop(trade_key, None)
-                open_position_counts_by_set[label] = max(
-                    0, open_position_counts_by_set[label] - 1
+    # Adaptive TP/SL state: rolling window of recently closed trades.
+    adaptive_closed_profits: deque[float] = deque()
+    # Map from original trade id -> adjusted trade for adaptive mode.
+    adaptive_trade_map: Dict[int, Trade] = {}
+    # Reverse map: adjusted trade -> original trade (for detail pair lookups).
+    adaptive_original_trade: Dict[int, Trade] = {}
+    # Pending close events for adaptive mode (heap of
+    # (close_date, counter, label, original_trade_id)).
+    adaptive_close_heap: list[tuple[pandas.Timestamp, int, str, int]] = []
+    adaptive_close_counter = 0
+    # When delayed_rolling_update is True, closed trade pcts are buffered
+    # here and only flushed into adaptive_closed_profits when an entry
+    # event on a LATER date is processed.
+    pending_rolling_updates: list[tuple[pandas.Timestamp, float]] = []
+
+    if adaptive_tp_sl is not None:
+        # Use heap-based event processing for adaptive mode.
+        # Convert sorted entry events into a deque for efficient popping.
+        entry_events = deque(events)
+        events = []  # free memory
+
+        while entry_events or adaptive_close_heap:
+            # Determine next event: either from entry_events or close_heap.
+            next_entry = entry_events[0] if entry_events else None
+            next_close = adaptive_close_heap[0] if adaptive_close_heap else None
+
+            process_close = False
+            if next_entry is None and next_close is not None:
+                process_close = True
+            elif next_close is not None and next_entry is not None:
+                # Close events (type=0) before entry events (type=1) on same
+                # date, matching the original sort convention.
+                if next_close[0] < next_entry[0]:
+                    process_close = True
+                elif next_close[0] == next_entry[0]:
+                    process_close = True  # close before open on same day
+
+            if process_close:
+                close_date, _cnt, close_label, orig_trade_id = heapq.heappop(
+                    adaptive_close_heap
                 )
-        else:
-            if trade_key in accepted_trade_keys:
-                continue
-            current_open_total = len(open_trade_keys)
-            if current_open_total >= maximum_position_count:
-                continue
-            if (
-                not multi_bucket_mode
-                and normalized_label == "B"
-                and current_open_total >= position_limits_by_set[label]
-            ):
-                continue
-            if multi_bucket_mode and set_definitions[label].fill_remaining:
-                # fill_remaining bucket: can only open when total open
-                # positions (across all buckets) is below this bucket's max.
-                if current_open_total >= position_limits_by_set[label]:
+                close_key = (close_label, orig_trade_id)
+                if close_key in open_trade_keys:
+                    open_trade_keys.pop(close_key, None)
+                    open_position_counts_by_set[close_label] = max(
+                        0, open_position_counts_by_set[close_label] - 1
+                    )
+                    # Update rolling stats using the RAW (original) trade's
+                    # result, not the adaptive-adjusted one.  This ensures
+                    # the rolling window reflects true signal quality, not
+                    # the effect of the adaptive TP/SL itself.
+                    adjusted_trade = adaptive_trade_map.get(orig_trade_id)
+                    if adjusted_trade is not None:
+                        raw_trade = adaptive_original_trade.get(
+                            id(adjusted_trade), adjusted_trade
+                        )
+                        pct = (
+                            (raw_trade.exit_price - raw_trade.entry_price)
+                            / raw_trade.entry_price
+                            if raw_trade.entry_price > 0
+                            else 0.0
+                        )
+                        if adaptive_tp_sl.delayed_rolling_update:
+                            pending_rolling_updates.append((close_date, pct))
+                        else:
+                            adaptive_closed_profits.append(pct)
+                            if len(adaptive_closed_profits) > adaptive_tp_sl.window:
+                                adaptive_closed_profits.popleft()
+            else:
+                (
+                    event_date,
+                    event_type,
+                    _bucket_priority,
+                    _event_priority,
+                    _insertion_counter,
+                    label,
+                    trade,
+                ) = entry_events.popleft()
+                # Flush pending rolling updates from trades that closed
+                # strictly before this entry date (delayed_rolling_update).
+                if pending_rolling_updates:
+                    remaining: list[tuple[pandas.Timestamp, float]] = []
+                    for closed_date, closed_pct in pending_rolling_updates:
+                        if closed_date < event_date:
+                            adaptive_closed_profits.append(closed_pct)
+                            if len(adaptive_closed_profits) > adaptive_tp_sl.window:
+                                adaptive_closed_profits.popleft()
+                        else:
+                            remaining.append((closed_date, closed_pct))
+                    pending_rolling_updates[:] = remaining
+                trade_identifier = id(trade)
+                trade_key = (label, trade_identifier)
+                if trade_key in accepted_trade_keys:
                     continue
-            elif open_position_counts_by_set[label] >= position_limits_by_set[label]:
-                continue
-            accepted_trade_keys.add(trade_key)
-            open_trade_keys[trade_key] = label
-            open_position_counts_by_set[label] += 1
-            accepted_trades_by_set[label].append(trade)
+                current_open_total = len(open_trade_keys)
+                if current_open_total >= maximum_position_count:
+                    continue
+                if (
+                    not multi_bucket_mode
+                    and label.upper() == "B"
+                    and current_open_total >= position_limits_by_set[label]
+                ):
+                    continue
+                if multi_bucket_mode and set_definitions[label].fill_remaining:
+                    if current_open_total >= position_limits_by_set[label]:
+                        continue
+                elif open_position_counts_by_set[label] >= position_limits_by_set[label]:
+                    continue
+
+                # Compute adaptive TP/SL from rolling stats.
+                tp_pct = adaptive_tp_sl.min_tp
+                sl_pct = adaptive_tp_sl.min_sl
+                if len(adaptive_closed_profits) >= adaptive_tp_sl.min_samples:
+                    profits = [
+                        p for p in adaptive_closed_profits if p > 0
+                    ]
+                    if len(profits) >= 3:
+                        mp = sum(profits) / len(profits)
+                        if len(profits) >= 2:
+                            sp = stdev(profits)
+                        else:
+                            sp = 0.0
+                        tp_pct = max(
+                            adaptive_tp_sl.min_tp,
+                            mp + adaptive_tp_sl.sigma_multiplier * sp,
+                        )
+                        sl_pct = max(
+                            adaptive_tp_sl.min_sl,
+                            tp_pct / adaptive_tp_sl.target_r,
+                        )
+                # Apply fixed_sl as ceiling (cap): SL never exceeds this.
+                if adaptive_tp_sl.fixed_sl is not None:
+                    sl_pct = min(sl_pct, adaptive_tp_sl.fixed_sl)
+
+                # Replay trade with adaptive levels.
+                effective_min_hold = (
+                    0 if adaptive_tp_sl.override_min_hold
+                    else minimum_holding_bars
+                )
+                effective_min_hold_tp: int | None = None
+                if adaptive_tp_sl.override_min_hold_tp_only:
+                    effective_min_hold_tp = adaptive_tp_sl.min_hold_tp
+                adjusted = _replay_trade_with_adaptive_tp_sl(
+                    trade, tp_pct, sl_pct, effective_min_hold,
+                    minimum_holding_bars_tp=effective_min_hold_tp,
+                )
+                adaptive_trade_map[trade_identifier] = adjusted
+                adaptive_original_trade[id(adjusted)] = trade
+
+                accepted_trade_keys.add(trade_key)
+                open_trade_keys[trade_key] = label
+                open_position_counts_by_set[label] += 1
+                accepted_trades_by_set[label].append(adjusted)
+
+                # Schedule close event.
+                adaptive_close_counter += 1
+                heapq.heappush(
+                    adaptive_close_heap,
+                    (adjusted.exit_date, adaptive_close_counter, label, trade_identifier),
+                )
+    else:
+        # Original non-adaptive event processing.
+        for (
+            event_date,
+            event_type,
+            _bucket_priority,
+            _event_priority,
+            _insertion_counter,
+            label,
+            trade,
+        ) in events:
+            trade_identifier = id(trade)
+            trade_key = (label, trade_identifier)
+            normalized_label = label.upper()
+            if event_type == 0:
+                if trade_key in open_trade_keys:
+                    open_trade_keys.pop(trade_key, None)
+                    open_position_counts_by_set[label] = max(
+                        0, open_position_counts_by_set[label] - 1
+                    )
+            else:
+                if trade_key in accepted_trade_keys:
+                    continue
+                current_open_total = len(open_trade_keys)
+                if current_open_total >= maximum_position_count:
+                    continue
+                if (
+                    not multi_bucket_mode
+                    and normalized_label == "B"
+                    and current_open_total >= position_limits_by_set[label]
+                ):
+                    continue
+                if multi_bucket_mode and set_definitions[label].fill_remaining:
+                    # fill_remaining bucket: can only open when total open
+                    # positions (across all buckets) is below this bucket's max.
+                    if current_open_total >= position_limits_by_set[label]:
+                        continue
+                elif open_position_counts_by_set[label] >= position_limits_by_set[label]:
+                    continue
+                accepted_trade_keys.add(trade_key)
+                open_trade_keys[trade_key] = label
+                open_position_counts_by_set[label] += 1
+                accepted_trades_by_set[label].append(trade)
 
     metrics_by_set: Dict[str, StrategyMetrics] = {}
     aggregated_trades: List[Trade] = []
@@ -819,10 +1091,33 @@ def run_complex_simulation(
                 profit_percentage_list.append(percentage_change)
             elif percentage_change < 0:
                 loss_percentage_list.append(abs(percentage_change))
+            # For adaptive TP/SL, the accepted trade may be a replayed copy.
+            # Look up the original trade for symbol and detail pair mapping.
+            original_trade = adaptive_original_trade.get(id(trade), trade)
             filtered_trade_symbol_lookup[trade] = artifacts.trade_symbol_lookup.get(
-                trade, ""
+                original_trade, ""
             )
-            entry_detail, exit_detail = artifacts.trade_detail_pairs[trade]
+            entry_detail, exit_detail = artifacts.trade_detail_pairs[original_trade]
+            # When adaptive TP/SL modified the trade, update the exit detail
+            # to reflect the adjusted exit date, price, reason, and holding.
+            if trade is not original_trade:
+                pct_change = (
+                    (trade.exit_price - trade.entry_price) / trade.entry_price
+                    if trade.entry_price > 0
+                    else 0.0
+                )
+                exit_detail = replace(
+                    exit_detail,
+                    date=trade.exit_date,
+                    price=trade.exit_price,
+                    exit_reason=trade.exit_reason,
+                    percentage_change=pct_change,
+                    result="win" if pct_change > 0 else "lose",
+                    max_favorable_excursion_pct=trade.max_favorable_excursion_pct,
+                    max_adverse_excursion_pct=trade.max_adverse_excursion_pct,
+                    max_favorable_excursion_date=trade.max_favorable_excursion_date,
+                    max_adverse_excursion_date=trade.max_adverse_excursion_date,
+                )
             detail_pairs_with_label.append(
                 (
                     replace(entry_detail, strategy_set_label=label),
@@ -886,8 +1181,9 @@ def run_complex_simulation(
         # Propagate commission data from Trade objects (set by
         # simulate_portfolio_balance) back to the corresponding TradeDetails.
         for trade in trades_for_set:
-            if trade in artifacts.trade_detail_pairs:
-                _, exit_detail = artifacts.trade_detail_pairs[trade]
+            orig = adaptive_original_trade.get(id(trade), trade)
+            if orig in artifacts.trade_detail_pairs:
+                _, exit_detail = artifacts.trade_detail_pairs[orig]
                 exit_detail.total_commission = trade.total_commission
                 exit_detail.share_count = trade.share_count
 
@@ -1789,6 +2085,7 @@ def attach_ema_sma_cross_testing_signals(
     near_delta_range: tuple[float, float] | None = None,
     price_tightness_range: tuple[float, float] | None = None,
     sma_150_angle_min: float | None = None,
+    use_ftd_confirmation: bool = False,
     price_score_min: float | None = None,
     price_score_max: float | None = None,
     confirmation_sma_angle_range: tuple[float, float] | None = None,
@@ -2028,6 +2325,43 @@ def attach_ema_sma_cross_testing_signals(
             entry_conditions = entry_conditions & (
                 price_score_series.le(price_score_max).fillna(False)
             )
+
+    # Follow Through Day (FTD) confirmation gate.
+    # When use_ftd_confirmation is True, entry signals require a FTD pattern
+    # within a lookback window: bottom formed, ascending lows, rising volume.
+    if use_ftd_confirmation:
+        _low = price_data_frame["low"]
+        _close = price_data_frame["close"]
+        _open = price_data_frame["open"]
+        _vol = price_data_frame["volume"]
+        _ma50 = _close.rolling(window=50, min_periods=50).mean()
+
+        # 4 bars ago was the lowest low in 23 bars
+        _low_4ago = _low.shift(3)
+        _lowest_23 = _low.rolling(window=23, min_periods=1).min()
+        bottom_check = _low_4ago == _lowest_23.shift(3)
+
+        # Ascending lows over 4 bars: low1 > low2 > low3 > low4
+        low_check = (
+            (_low > _low.shift(1))
+            & (_low.shift(1) > _low.shift(2))
+            & (_low.shift(2) > _low.shift(3))
+        )
+
+        # Volume: sum of last 4 bars > sum of previous 4 bars
+        _vol_sum_4 = _vol.rolling(window=4, min_periods=4).sum()
+        vol_check = _vol_sum_4 > _vol_sum_4.shift(4)
+
+        # MA check: 4 bars ago close was below MA(50)
+        ma_check = _close.shift(3) < _ma50.shift(3)
+
+        ftd_signal = bottom_check & low_check & vol_check & ma_check
+        ftd_signal = ftd_signal.fillna(False)
+
+        # FTD must have occurred within the last ftd_lookback bars
+        ftd_lookback = 10
+        ftd_recent = ftd_signal.rolling(window=ftd_lookback, min_periods=1).max().astype(bool)
+        entry_conditions = entry_conditions & ftd_recent
 
     price_data_frame["ema_sma_cross_testing_entry_signal"] = entry_conditions
 
@@ -2482,6 +2816,7 @@ def _generate_strategy_evaluation_artifacts(
     near_delta_range: tuple[float, float] | None = None,
     price_tightness_range: tuple[float, float] | None = None,
     sma_150_angle_min: float | None = None,
+    use_ftd_confirmation: bool = False,
     trailing_stop_percentage: float = 0.0,
     price_score_min: float | None = None,
     price_score_max: float | None = None,
@@ -2701,6 +3036,8 @@ def _generate_strategy_evaluation_artifacts(
                         kwargs["price_tightness_range"] = price_tightness_range
                     if sma_150_angle_min is not None:
                         kwargs["sma_150_angle_min"] = sma_150_angle_min
+                    if use_ftd_confirmation:
+                        kwargs["use_ftd_confirmation"] = True
                     if price_score_min is not None:
                         kwargs["price_score_min"] = price_score_min
                     if price_score_max is not None:

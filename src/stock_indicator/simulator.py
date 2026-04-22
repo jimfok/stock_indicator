@@ -80,6 +80,10 @@ class Trade:
     max_adverse_excursion_pct: float | None = None
     max_favorable_excursion_date: pandas.Timestamp | None = None
     max_adverse_excursion_date: pandas.Timestamp | None = None
+    # Per-bar excursion path for adaptive TP/SL replay.
+    # Each tuple: (date, bar_high_pct_from_entry, bar_low_pct_from_entry).
+    # Populated only when running raw mode (no TP/SL).
+    bar_excursions: list[tuple[pandas.Timestamp, float, float]] | None = None
 
 
 @dataclass
@@ -181,6 +185,13 @@ def simulate_trades(
     current_mae_pct: float | None = None
     current_mfe_date: pandas.Timestamp | None = None
     current_mae_date: pandas.Timestamp | None = None
+    # Per-bar excursion recording for adaptive TP/SL replay.
+    record_bar_excursions = (
+        stop_loss_percentage >= 1.0
+        and take_profit_percentage <= 0.0
+        and trailing_stop_percentage <= 0.0
+    )
+    current_bar_excursions: list[tuple[pandas.Timestamp, float, float]] = []
     for row_index in range(len(data)):
         current_row = data.iloc[row_index]
         is_last_row = row_index == len(data) - 1
@@ -211,6 +222,7 @@ def simulate_trades(
                     current_mae_pct = None
                     current_mfe_date = None
                     current_mae_date = None
+                    current_bar_excursions = []
                 # Limit order: check if limit is hit (low <= limit price)
                 elif "low" in data.columns and float(current_row["low"]) <= pending_limit_price:
                     fill_price = min(float(current_row[entry_price_column]), pending_limit_price)
@@ -230,6 +242,7 @@ def simulate_trades(
                     current_mae_pct = None
                     current_mfe_date = None
                     current_mae_date = None
+                    current_bar_excursions = []
                 # A new entry signal supersedes the old pending order
                 elif entry_rule(current_row):
                     pending_limit_price = float(current_row[entry_price_column])
@@ -261,6 +274,7 @@ def simulate_trades(
                     current_mae_pct = None
                     current_mfe_date = None
                     current_mae_date = None
+                    current_bar_excursions = []
         else:
             if entry_row is None or entry_row_index is None:
                 continue
@@ -286,6 +300,13 @@ def simulate_trades(
                         if current_mae_pct is None or low_excursion_pct < current_mae_pct:
                             current_mae_pct = low_excursion_pct
                             current_mae_date = data.index[row_index]
+                # Record per-bar excursion for adaptive TP/SL replay.
+                if record_bar_excursions:
+                    bar_h = high_excursion_pct if "high" in data.columns and not math.isnan(bar_high_value) else 0.0
+                    bar_l = low_excursion_pct if "low" in data.columns and not math.isnan(bar_low_value) else 0.0
+                    current_bar_excursions.append(
+                        (data.index[row_index], bar_h, bar_l)
+                    )
             # Update trailing high for trailing stop
             if 0 < trailing_stop_percentage < 1 and "high" in data.columns:
                 bar_high = float(current_row["high"])
@@ -329,6 +350,7 @@ def simulate_trades(
                             max_adverse_excursion_pct=current_mae_pct,
                             max_favorable_excursion_date=current_mfe_date,
                             max_adverse_excursion_date=current_mae_date,
+                            bar_excursions=current_bar_excursions if record_bar_excursions else None,
                         )
                     )
                     in_position = False
@@ -343,6 +365,7 @@ def simulate_trades(
                     current_mae_pct = None
                     current_mfe_date = None
                     current_mae_date = None
+                    current_bar_excursions = []
                     last_exit_index = row_index
                     continue
                 if float(current_row["close"]) <= trailing_stop_price:
@@ -368,6 +391,7 @@ def simulate_trades(
                             max_adverse_excursion_pct=current_mae_pct,
                             max_favorable_excursion_date=current_mfe_date,
                             max_adverse_excursion_date=current_mae_date,
+                            bar_excursions=current_bar_excursions if record_bar_excursions else None,
                         )
                     )
                     in_position = False
@@ -382,6 +406,7 @@ def simulate_trades(
                     current_mae_pct = None
                     current_mfe_date = None
                     current_mae_date = None
+                    current_bar_excursions = []
                     last_exit_index = row_index
                     continue
             if 0 < take_profit_percentage < 1:
@@ -404,6 +429,7 @@ def simulate_trades(
                             max_adverse_excursion_pct=current_mae_pct,
                             max_favorable_excursion_date=current_mfe_date,
                             max_adverse_excursion_date=current_mae_date,
+                            bar_excursions=current_bar_excursions if record_bar_excursions else None,
                         )
                     )
                     in_position = False
@@ -418,6 +444,7 @@ def simulate_trades(
                     current_mae_pct = None
                     current_mfe_date = None
                     current_mae_date = None
+                    current_bar_excursions = []
                     last_exit_index = row_index
                     continue
             if trailing_stop_pending:
@@ -438,6 +465,7 @@ def simulate_trades(
                         max_adverse_excursion_pct=current_mae_pct,
                         max_favorable_excursion_date=current_mfe_date,
                         max_adverse_excursion_date=current_mae_date,
+                        bar_excursions=current_bar_excursions if record_bar_excursions else None,
                     )
                 )
                 in_position = False
@@ -452,6 +480,7 @@ def simulate_trades(
                 current_mae_pct = None
                 current_mfe_date = None
                 current_mae_date = None
+                current_bar_excursions = []
                 last_exit_index = row_index
                 continue
             if stop_loss_pending:
@@ -472,6 +501,7 @@ def simulate_trades(
                         max_adverse_excursion_pct=current_mae_pct,
                         max_favorable_excursion_date=current_mfe_date,
                         max_adverse_excursion_date=current_mae_date,
+                        bar_excursions=current_bar_excursions if record_bar_excursions else None,
                     )
                 )
                 in_position = False
@@ -484,6 +514,7 @@ def simulate_trades(
                 current_mae_pct = None
                 current_mfe_date = None
                 current_mae_date = None
+                current_bar_excursions = []
                 last_exit_index = row_index
                 continue
             if take_profit_pending:
@@ -504,6 +535,7 @@ def simulate_trades(
                         max_adverse_excursion_pct=current_mae_pct,
                         max_favorable_excursion_date=current_mfe_date,
                         max_adverse_excursion_date=current_mae_date,
+                        bar_excursions=current_bar_excursions if record_bar_excursions else None,
                     )
                 )
                 in_position = False
@@ -516,6 +548,7 @@ def simulate_trades(
                 current_mae_pct = None
                 current_mfe_date = None
                 current_mae_date = None
+                current_bar_excursions = []
                 last_exit_index = row_index
                 continue
             if (
@@ -538,6 +571,7 @@ def simulate_trades(
                         max_adverse_excursion_pct=current_mae_pct,
                         max_favorable_excursion_date=current_mfe_date,
                         max_adverse_excursion_date=current_mae_date,
+                        bar_excursions=current_bar_excursions if record_bar_excursions else None,
                     )
                 )
                 in_position = False
@@ -550,6 +584,7 @@ def simulate_trades(
                 current_mae_pct = None
                 current_mfe_date = None
                 current_mae_date = None
+                current_bar_excursions = []
                 last_exit_index = row_index
                 continue
             if 0 < stop_loss_percentage < 1 and not is_last_row:
@@ -585,6 +620,7 @@ def simulate_trades(
                     max_adverse_excursion_pct=current_mae_pct,
                     max_favorable_excursion_date=current_mfe_date,
                     max_adverse_excursion_date=current_mae_date,
+                    bar_excursions=current_bar_excursions if record_bar_excursions else None,
                 )
             )
     total_profit = sum(completed_trade.profit for completed_trade in trades)
