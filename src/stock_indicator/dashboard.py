@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
+import math
 import re
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+
+LOGGER = logging.getLogger(__name__)
 
 DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "data"
 LOGS_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "logs"
@@ -173,6 +178,276 @@ def api_futu_positions():
         return {"connected": False, "error": str(exc)}
 
 
+# ---------------------------------------------------------------------------
+# Order execution
+# ---------------------------------------------------------------------------
+
+MARGIN_MULTIPLIER = 1.5
+MAX_POSITIONS = 6
+# Use paper trading by default. Set to "REAL" to trade with real money.
+TRADING_ENV = "SIMULATE"
+ORDER_LOG_DIR = LOGS_DIRECTORY
+
+
+def _get_futu_trd_ctx():
+    """Create a Futu trade context. Caller must .close() it."""
+    from futu import OpenSecTradeContext, SecurityFirm, TrdMarket
+
+    return OpenSecTradeContext(
+        host="127.0.0.1",
+        port=11111,
+        filter_trdmarket=TrdMarket.US,
+        security_firm=SecurityFirm.FUTUSECURITIES,
+    )
+
+
+def _get_trd_env():
+    from futu import TrdEnv
+
+    return TrdEnv.REAL if TRADING_ENV == "REAL" else TrdEnv.SIMULATE
+
+
+def _get_last_price(symbol: str) -> float | None:
+    """Get last traded price for a US stock via Futu quote API."""
+    try:
+        from futu import OpenQuoteContext
+
+        quote_ctx = OpenQuoteContext(host="127.0.0.1", port=11111)
+        ret, data = quote_ctx.get_stock_quote([f"US.{symbol}"])
+        quote_ctx.close()
+        if ret == 0 and len(data) > 0:
+            return float(data.iloc[0]["last_price"])
+    except Exception:
+        pass
+    return None
+
+
+def _compute_order_size(total_assets_hkd: float, price_usd: float) -> int:
+    """Compute qty: floor(total_assets * margin / max_pos / price).
+
+    total_assets is in HKD, price is in USD.  Uses ~7.8 HKD/USD.
+    """
+    hkd_per_position = total_assets_hkd * MARGIN_MULTIPLIER / MAX_POSITIONS
+    usd_per_position = hkd_per_position / 7.8
+    if price_usd <= 0:
+        return 0
+    return math.floor(usd_per_position / price_usd)
+
+
+def _log_order(order_data: dict) -> None:
+    """Append order to today's order log."""
+    today = date.today().isoformat()
+    log_path = ORDER_LOG_DIR / f"{today}_orders.json"
+    orders = []
+    if log_path.exists():
+        try:
+            orders = json.loads(log_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    orders.append(order_data)
+    log_path.write_text(json.dumps(orders, indent=2), encoding="utf-8")
+
+
+@app.get("/api/preview_orders")
+def api_preview_orders():
+    """Build order preview from latest signal + account data."""
+    try:
+        from futu import TrdEnv
+
+        trd_ctx = _get_futu_trd_ctx()
+        trd_env = _get_trd_env()
+        ret_acc, acc_data = trd_ctx.accinfo_query(trd_env=trd_env)
+        ret_pos, pos_data = trd_ctx.position_list_query(trd_env=trd_env)
+        trd_ctx.close()
+
+        if ret_acc != 0:
+            return {"error": "Failed to query account"}
+
+        total_assets = float(acc_data.iloc[0].get("total_assets", 0))
+        held_symbols = set()
+        if ret_pos == 0 and len(pos_data) > 0:
+            for _, row in pos_data.iterrows():
+                held_symbols.add(str(row.get("code", "")).replace("US.", ""))
+
+    except Exception as exc:
+        return {"error": f"Futu connection failed: {exc}"}
+
+    # Parse latest log for signals
+    dates = _get_log_dates()
+    if not dates:
+        return {"error": "No log files found"}
+    log = _parse_log(LOGS_DIRECTORY / f"{dates[0]}.log")
+
+    # Read adaptive TP/SL
+    tp_pct = log.get("tp_pct")
+    sl_pct = log.get("sl_pct")
+
+    orders = []
+
+    # BUY orders
+    for symbol in log.get("buy_actions", []):
+        if symbol in held_symbols:
+            continue
+        price = _get_last_price(symbol)
+        qty = _compute_order_size(total_assets, price) if price else 0
+        tp_price = round(price * (1 + tp_pct / 100), 2) if price and tp_pct else None
+        sl_price = round(price * (1 - sl_pct / 100), 2) if price and sl_pct else None
+        orders.append({
+            "side": "BUY",
+            "symbol": symbol,
+            "qty": qty,
+            "price": price,
+            "order_type": "MARKET",
+            "tp_price": tp_price,
+            "sl_price": sl_price,
+            "tp_pct": tp_pct,
+            "sl_pct": sl_pct,
+        })
+
+    # SELL orders (exit signals for held positions)
+    for symbol in log.get("sell_actions", []):
+        if symbol not in held_symbols:
+            continue
+        # Find qty from positions
+        qty = 0
+        if ret_pos == 0 and len(pos_data) > 0:
+            match = pos_data[pos_data["code"] == f"US.{symbol}"]
+            if len(match) > 0:
+                qty = int(match.iloc[0].get("qty", 0))
+        price = _get_last_price(symbol)
+        orders.append({
+            "side": "SELL",
+            "symbol": symbol,
+            "qty": qty,
+            "price": price,
+            "order_type": "MARKET",
+        })
+
+    return {
+        "orders": orders,
+        "total_assets_hkd": total_assets,
+        "margin": MARGIN_MULTIPLIER,
+        "max_positions": MAX_POSITIONS,
+        "held_count": len(held_symbols),
+        "trading_env": TRADING_ENV,
+        "signal_date": log.get("date"),
+    }
+
+
+class ExecuteRequest(BaseModel):
+    orders: list[dict]
+
+
+@app.post("/api/execute_orders")
+def api_execute_orders(req: ExecuteRequest):
+    """Execute confirmed orders via Futu API."""
+    from futu import OrderType, TrdSide
+
+    trd_ctx = _get_futu_trd_ctx()
+    trd_env = _get_trd_env()
+    results = []
+
+    for order in req.orders:
+        symbol = order["symbol"]
+        side = TrdSide.BUY if order["side"] == "BUY" else TrdSide.SELL
+        qty = order["qty"]
+        code = f"US.{symbol}"
+
+        if qty <= 0:
+            results.append({"symbol": symbol, "status": "skipped", "reason": "qty=0"})
+            continue
+
+        try:
+            # Market order for entry/exit
+            ret, data = trd_ctx.place_order(
+                price=0.0,
+                qty=qty,
+                code=code,
+                trd_side=side,
+                order_type=OrderType.MARKET,
+                trd_env=trd_env,
+            )
+            if ret == 0:
+                order_id = str(data.iloc[0].get("order_id", ""))
+                result = {
+                    "symbol": symbol,
+                    "side": order["side"],
+                    "qty": qty,
+                    "status": "sent",
+                    "order_id": order_id,
+                    "env": TRADING_ENV,
+                    "timestamp": datetime.now().isoformat(),
+                }
+                results.append(result)
+                _log_order(result)
+
+                # Place TP + SL for BUY orders
+                if order["side"] == "BUY":
+                    tp_price = order.get("tp_price")
+                    sl_price = order.get("sl_price")
+                    if tp_price and tp_price > 0:
+                        ret_tp, data_tp = trd_ctx.place_order(
+                            price=tp_price,
+                            qty=qty,
+                            code=code,
+                            trd_side=TrdSide.SELL,
+                            order_type=OrderType.NORMAL,  # limit sell
+                            trd_env=trd_env,
+                        )
+                        tp_result = {
+                            "symbol": symbol,
+                            "side": "TP_SELL",
+                            "qty": qty,
+                            "price": tp_price,
+                            "status": "sent" if ret_tp == 0 else "failed",
+                            "order_id": str(data_tp.iloc[0].get("order_id", "")) if ret_tp == 0 else None,
+                            "error": str(data_tp) if ret_tp != 0 else None,
+                            "env": TRADING_ENV,
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                        results.append(tp_result)
+                        _log_order(tp_result)
+
+                    if sl_price and sl_price > 0:
+                        ret_sl, data_sl = trd_ctx.place_order(
+                            price=sl_price,
+                            qty=qty,
+                            code=code,
+                            trd_side=TrdSide.SELL,
+                            order_type=OrderType.STOP,  # stop order
+                            trd_env=trd_env,
+                            aux_price=sl_price,
+                        )
+                        sl_result = {
+                            "symbol": symbol,
+                            "side": "SL_SELL",
+                            "qty": qty,
+                            "price": sl_price,
+                            "status": "sent" if ret_sl == 0 else "failed",
+                            "order_id": str(data_sl.iloc[0].get("order_id", "")) if ret_sl == 0 else None,
+                            "error": str(data_sl) if ret_sl != 0 else None,
+                            "env": TRADING_ENV,
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                        results.append(sl_result)
+                        _log_order(sl_result)
+            else:
+                results.append({
+                    "symbol": symbol,
+                    "status": "failed",
+                    "error": str(data),
+                })
+        except Exception as exc:
+            results.append({
+                "symbol": symbol,
+                "status": "error",
+                "error": str(exc),
+            })
+
+    trd_ctx.close()
+    return {"results": results}
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
     return HTML_PAGE
@@ -225,6 +500,20 @@ HTML_PAGE = """<!DOCTYPE html>
   .futu-badge { font-size: 0.75em; padding: 2px 6px; border-radius: 3px; }
   .futu-badge.on { background: rgba(63, 185, 80, 0.2); color: var(--green); }
   .futu-badge.off { background: rgba(248, 81, 73, 0.2); color: var(--red); }
+  .btn { padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit;
+    font-size: 0.9em; font-weight: bold; transition: opacity 0.2s; }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-confirm { background: var(--green); color: var(--bg); }
+  .btn-cancel { background: var(--border); color: var(--text2); margin-left: 8px; }
+  .btn-preview { background: var(--blue); color: var(--bg); }
+  .order-row { display: grid; grid-template-columns: 60px 80px 60px 90px 90px 90px; gap: 8px; align-items: center;
+    padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.9em; }
+  .order-row:last-child { border-bottom: none; }
+  .order-header { color: var(--text2); font-size: 0.8em; }
+  .env-badge { font-size: 0.7em; padding: 2px 6px; border-radius: 3px; margin-left: 8px; }
+  .env-simulate { background: rgba(88, 166, 255, 0.2); color: var(--blue); }
+  .env-real { background: rgba(248, 81, 73, 0.3); color: var(--red); }
 </style>
 </head>
 <body>
@@ -249,6 +538,17 @@ HTML_PAGE = """<!DOCTYPE html>
   <div class="card full" id="signals-card">
     <h2>Signals — <span id="signal-date"></span></h2>
     <div id="signals-content"></div>
+  </div>
+
+  <!-- Order Preview -->
+  <div class="card full" id="orders-card">
+    <h2>Order Preview <span class="env-badge" id="env-badge"></span></h2>
+    <div id="orders-content"><div style="color:var(--text2)">Click "Preview Orders" to load</div></div>
+    <div style="margin-top: 12px">
+      <button class="btn btn-preview" onclick="previewOrders()">Preview Orders</button>
+      <button class="btn btn-confirm" id="confirm-btn" onclick="executeOrders()" disabled>Confirm &amp; Send</button>
+      <button class="btn btn-cancel" id="cancel-btn" onclick="cancelOrders()" style="display:none">Cancel</button>
+    </div>
   </div>
 
   <!-- Positions -->
@@ -324,10 +624,10 @@ function render(state, futu) {
     $('#futu-badge').className = 'futu-badge on';
     $('#futu-badge').textContent = 'FUTU LIVE';
     const a = futu.account;
-    html += stat('Total Assets', '$' + (a.total_assets||0).toLocaleString(undefined,{minimumFractionDigits:2}));
-    html += stat('US Cash', '$' + (a.us_cash||0).toLocaleString(undefined,{minimumFractionDigits:2}));
-    html += stat('Market Value', '$' + (a.market_val||0).toLocaleString(undefined,{minimumFractionDigits:2}));
-    html += stat('Buying Power', '$' + (a.power||0).toLocaleString(undefined,{minimumFractionDigits:2}));
+    html += stat('Total Assets', 'HK$' + (a.total_assets||0).toLocaleString(undefined,{minimumFractionDigits:2}));
+    html += stat('US Cash', 'US$' + (a.us_cash||0).toLocaleString(undefined,{minimumFractionDigits:2}));
+    html += stat('Market Value', 'US$' + (a.market_val||0).toLocaleString(undefined,{minimumFractionDigits:2}));
+    html += stat('Buying Power', 'HK$' + (a.power||0).toLocaleString(undefined,{minimumFractionDigits:2}));
   } else {
     html += stat('Status', 'Futu OpenD not connected', 'negative');
     // Show signal-based positions
@@ -450,6 +750,106 @@ async function loadDate(d) {
   document.querySelectorAll('.date-btn').forEach(b => {
     b.className = b.textContent === d ? 'date-btn active' : 'date-btn';
   });
+}
+
+// --- Order management ---
+let pendingOrders = null;
+
+async function previewOrders() {
+  $('#orders-content').innerHTML = '<div style="color:var(--text2)">Loading...</div>';
+  $('#confirm-btn').disabled = true;
+  try {
+    const res = await fetch('/api/preview_orders');
+    const data = await res.json();
+    if (data.error) {
+      $('#orders-content').innerHTML = `<div class="negative">${data.error}</div>`;
+      return;
+    }
+    pendingOrders = data;
+    const env = data.trading_env || 'SIMULATE';
+    const badge = $('#env-badge');
+    badge.textContent = env;
+    badge.className = env === 'REAL' ? 'env-badge env-real' : 'env-badge env-simulate';
+
+    if (data.orders.length === 0) {
+      $('#orders-content').innerHTML = '<div style="color:var(--text2)">No pending orders (signal date: ' + (data.signal_date||'—') + ')</div>';
+      return;
+    }
+
+    let html = '<div style="font-size:0.8em; color:var(--text2); margin-bottom:8px">';
+    html += 'Assets: HK$' + (data.total_assets_hkd||0).toLocaleString(undefined,{minimumFractionDigits:0});
+    html += ' | Margin: ' + data.margin + 'x';
+    html += ' | Held: ' + data.held_count + '/' + data.max_positions;
+    html += ' | Signal: ' + (data.signal_date||'—');
+    html += '</div>';
+
+    html += '<div class="order-row order-header"><span>Side</span><span>Symbol</span><span>Qty</span><span>Price</span><span>TP</span><span>SL</span></div>';
+    for (const o of data.orders) {
+      const sideClass = o.side === 'BUY' ? 'positive' : 'negative';
+      html += `<div class="order-row">
+        <span class="${sideClass}"><strong>${o.side}</strong></span>
+        <span><strong>${o.symbol}</strong></span>
+        <span>${o.qty}</span>
+        <span>$${o.price ? o.price.toFixed(2) : '—'}</span>
+        <span class="positive">${o.tp_price ? '$'+o.tp_price.toFixed(2) : '—'}</span>
+        <span class="negative">${o.sl_price ? '$'+o.sl_price.toFixed(2) : '—'}</span>
+      </div>`;
+    }
+    $('#orders-content').innerHTML = html;
+    $('#confirm-btn').disabled = false;
+    $('#cancel-btn').style.display = 'inline-block';
+  } catch (e) {
+    $('#orders-content').innerHTML = `<div class="negative">Error: ${e.message}</div>`;
+  }
+}
+
+async function executeOrders() {
+  if (!pendingOrders || !pendingOrders.orders.length) return;
+  const env = pendingOrders.trading_env || 'SIMULATE';
+  const msg = env === 'REAL'
+    ? 'SENDING REAL ORDERS. Are you sure?'
+    : 'Send orders to PAPER TRADING?';
+  if (!confirm(msg)) return;
+
+  $('#confirm-btn').disabled = true;
+  $('#confirm-btn').textContent = 'Sending...';
+
+  try {
+    const res = await fetch('/api/execute_orders', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({orders: pendingOrders.orders}),
+    });
+    const data = await res.json();
+
+    let html = '<div style="margin-bottom:8px"><strong>Order Results:</strong></div>';
+    for (const r of data.results) {
+      const icon = r.status === 'sent' ? '✓' : '✗';
+      const cls = r.status === 'sent' ? 'positive' : 'negative';
+      html += `<div class="${cls}" style="margin:4px 0">${icon} ${r.side||r.symbol} ${r.symbol} qty=${r.qty||0} — ${r.status}`;
+      if (r.order_id) html += ` (id: ${r.order_id})`;
+      if (r.price) html += ` @ $${r.price}`;
+      if (r.error) html += ` — ${r.error}`;
+      html += '</div>';
+    }
+    $('#orders-content').innerHTML = html;
+    pendingOrders = null;
+    $('#cancel-btn').style.display = 'none';
+    $('#confirm-btn').textContent = 'Confirm & Send';
+    // Refresh positions
+    setTimeout(load, 2000);
+  } catch (e) {
+    $('#orders-content').innerHTML = `<div class="negative">Error: ${e.message}</div>`;
+    $('#confirm-btn').disabled = false;
+    $('#confirm-btn').textContent = 'Confirm & Send';
+  }
+}
+
+function cancelOrders() {
+  pendingOrders = null;
+  $('#orders-content').innerHTML = '<div style="color:var(--text2)">Cancelled</div>';
+  $('#confirm-btn').disabled = true;
+  $('#cancel-btn').style.display = 'none';
 }
 
 load();
