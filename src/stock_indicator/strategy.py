@@ -581,6 +581,10 @@ class AdaptiveTPSLConfig:
     min_samples: int = 5
     # When set, SL is fixed at this value (TP remains adaptive).
     fixed_sl: float | None = None
+    # When True, adaptive TP/SL can trigger before minimum_holding_bars.
+    override_min_hold: bool = False
+    # When True, only TP can trigger before min_hold (SL still respects it).
+    override_min_hold_tp_only: bool = False
 
 
 @dataclass
@@ -608,24 +612,34 @@ def _replay_trade_with_adaptive_tp_sl(
     tp_pct: float,
     sl_pct: float,
     minimum_holding_bars: int = 0,
+    minimum_holding_bars_tp: int | None = None,
 ) -> Trade:
     """Replay a raw trade using adaptive TP/SL levels.
 
     Walks the trade's bar_excursions to find if TP or SL triggers before
     the signal-based exit.  Returns a new Trade with adjusted exit if
     triggered, or the original trade unchanged.
+
+    When *minimum_holding_bars_tp* is provided it overrides
+    *minimum_holding_bars* for TP checks only, allowing TP to trigger
+    earlier than SL.
     """
     if trade.bar_excursions is None or not trade.bar_excursions:
         return trade
+    effective_min_hold_tp = (
+        minimum_holding_bars_tp if minimum_holding_bars_tp is not None
+        else minimum_holding_bars
+    )
     for bar_index, (bar_date, bar_high_pct, bar_low_pct) in enumerate(
         trade.bar_excursions
     ):
-        # Respect minimum holding bars (bar_excursions starts from bar after
-        # entry, so index 0 = holding bar 1).
-        if (bar_index + 1) < minimum_holding_bars:
-            continue
-        # Check SL first (conservative: SL triggers before TP on same bar)
-        if sl_pct > 0 and bar_low_pct <= -sl_pct:
+        holding = bar_index + 1
+        # Check SL (respects minimum_holding_bars)
+        if (
+            holding >= minimum_holding_bars
+            and sl_pct > 0
+            and bar_low_pct <= -sl_pct
+        ):
             adjusted_exit_price = trade.entry_price * (1 - sl_pct)
             adjusted_profit = adjusted_exit_price - trade.entry_price
             return replace(
@@ -633,12 +647,16 @@ def _replay_trade_with_adaptive_tp_sl(
                 exit_date=bar_date,
                 exit_price=adjusted_exit_price,
                 profit=adjusted_profit,
-                holding_period=bar_index + 1,
+                holding_period=holding,
                 exit_reason="adaptive_stop_loss",
-                bar_excursions=trade.bar_excursions[: bar_index + 1],
+                bar_excursions=trade.bar_excursions[: holding],
             )
-        # Check TP
-        if tp_pct > 0 and bar_high_pct >= tp_pct:
+        # Check TP (may use different min_hold)
+        if (
+            holding >= effective_min_hold_tp
+            and tp_pct > 0
+            and bar_high_pct >= tp_pct
+        ):
             adjusted_exit_price = trade.entry_price * (1 + tp_pct)
             adjusted_profit = adjusted_exit_price - trade.entry_price
             return replace(
@@ -646,9 +664,9 @@ def _replay_trade_with_adaptive_tp_sl(
                 exit_date=bar_date,
                 exit_price=adjusted_exit_price,
                 profit=adjusted_profit,
-                holding_period=bar_index + 1,
+                holding_period=holding,
                 exit_reason="adaptive_take_profit",
-                bar_excursions=trade.bar_excursions[: bar_index + 1],
+                bar_excursions=trade.bar_excursions[: holding],
             )
     # Neither triggered — use signal exit as-is.
     return trade
@@ -948,8 +966,16 @@ def run_complex_simulation(
                     sl_pct = min(sl_pct, adaptive_tp_sl.fixed_sl)
 
                 # Replay trade with adaptive levels.
+                effective_min_hold = (
+                    0 if adaptive_tp_sl.override_min_hold
+                    else minimum_holding_bars
+                )
+                effective_min_hold_tp: int | None = None
+                if adaptive_tp_sl.override_min_hold_tp_only:
+                    effective_min_hold_tp = 0
                 adjusted = _replay_trade_with_adaptive_tp_sl(
-                    trade, tp_pct, sl_pct, minimum_holding_bars
+                    trade, tp_pct, sl_pct, effective_min_hold,
+                    minimum_holding_bars_tp=effective_min_hold_tp,
                 )
                 adaptive_trade_map[trade_identifier] = adjusted
                 adaptive_original_trade[id(adjusted)] = trade
