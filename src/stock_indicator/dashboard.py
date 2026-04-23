@@ -208,15 +208,17 @@ def _get_trd_env():
 
 
 def _get_last_price(symbol: str) -> float | None:
-    """Get last traded price for a US stock via Futu quote API."""
+    """Get last traded price for a US stock via Futu snapshot API."""
     try:
         from futu import OpenQuoteContext
 
         quote_ctx = OpenQuoteContext(host="127.0.0.1", port=11111)
-        ret, data = quote_ctx.get_stock_quote([f"US.{symbol}"])
+        ret, data = quote_ctx.get_market_snapshot([f"US.{symbol}"])
         quote_ctx.close()
         if ret == 0 and len(data) > 0:
-            return float(data.iloc[0]["last_price"])
+            price = float(data.iloc[0]["last_price"])
+            if price > 0:
+                return price
     except Exception:
         pass
     return None
@@ -288,20 +290,14 @@ def api_preview_orders():
     for symbol in log.get("buy_actions", []):
         if symbol in held_symbols:
             continue
-        price = _get_last_price(symbol)
-        qty = _compute_order_size(total_assets, price) if price else 0
-        tp_price = round(price * (1 + tp_pct / 100), 2) if price and tp_pct else None
-        sl_price = round(price * (1 - sl_pct / 100), 2) if price and sl_pct else None
+        ref_price = _get_last_price(symbol)
+        qty = _compute_order_size(total_assets, ref_price) if ref_price else 0
         orders.append({
             "side": "BUY",
             "symbol": symbol,
             "qty": qty,
-            "price": price,
+            "ref_price": ref_price,
             "order_type": "MARKET",
-            "tp_price": tp_price,
-            "sl_price": sl_price,
-            "tp_pct": tp_pct,
-            "sl_pct": sl_pct,
         })
 
     # SELL orders (exit signals for held positions)
@@ -380,57 +376,6 @@ def api_execute_orders(req: ExecuteRequest):
                 }
                 results.append(result)
                 _log_order(result)
-
-                # Place TP + SL for BUY orders
-                if order["side"] == "BUY":
-                    tp_price = order.get("tp_price")
-                    sl_price = order.get("sl_price")
-                    if tp_price and tp_price > 0:
-                        ret_tp, data_tp = trd_ctx.place_order(
-                            price=tp_price,
-                            qty=qty,
-                            code=code,
-                            trd_side=TrdSide.SELL,
-                            order_type=OrderType.NORMAL,  # limit sell
-                            trd_env=trd_env,
-                        )
-                        tp_result = {
-                            "symbol": symbol,
-                            "side": "TP_SELL",
-                            "qty": qty,
-                            "price": tp_price,
-                            "status": "sent" if ret_tp == 0 else "failed",
-                            "order_id": str(data_tp.iloc[0].get("order_id", "")) if ret_tp == 0 else None,
-                            "error": str(data_tp) if ret_tp != 0 else None,
-                            "env": TRADING_ENV,
-                            "timestamp": datetime.now().isoformat(),
-                        }
-                        results.append(tp_result)
-                        _log_order(tp_result)
-
-                    if sl_price and sl_price > 0:
-                        ret_sl, data_sl = trd_ctx.place_order(
-                            price=sl_price,
-                            qty=qty,
-                            code=code,
-                            trd_side=TrdSide.SELL,
-                            order_type=OrderType.STOP,  # stop order
-                            trd_env=trd_env,
-                            aux_price=sl_price,
-                        )
-                        sl_result = {
-                            "symbol": symbol,
-                            "side": "SL_SELL",
-                            "qty": qty,
-                            "price": sl_price,
-                            "status": "sent" if ret_sl == 0 else "failed",
-                            "order_id": str(data_sl.iloc[0].get("order_id", "")) if ret_sl == 0 else None,
-                            "error": str(data_sl) if ret_sl != 0 else None,
-                            "env": TRADING_ENV,
-                            "timestamp": datetime.now().isoformat(),
-                        }
-                        results.append(sl_result)
-                        _log_order(sl_result)
             else:
                 results.append({
                     "symbol": symbol,
@@ -783,16 +728,16 @@ async function previewOrders() {
     html += ' | Signal: ' + (data.signal_date||'—');
     html += '</div>';
 
-    html += '<div class="order-row order-header"><span>Side</span><span>Symbol</span><span>Qty</span><span>Price</span><span>TP</span><span>SL</span></div>';
+    html += '<div class="order-row order-header"><span>Side</span><span>Symbol</span><span>Qty</span><span>Type</span><span>Ref Price</span><span></span></div>';
     for (const o of data.orders) {
       const sideClass = o.side === 'BUY' ? 'positive' : 'negative';
       html += `<div class="order-row">
         <span class="${sideClass}"><strong>${o.side}</strong></span>
         <span><strong>${o.symbol}</strong></span>
         <span>${o.qty}</span>
-        <span>$${o.price ? o.price.toFixed(2) : '—'}</span>
-        <span class="positive">${o.tp_price ? '$'+o.tp_price.toFixed(2) : '—'}</span>
-        <span class="negative">${o.sl_price ? '$'+o.sl_price.toFixed(2) : '—'}</span>
+        <span>MARKET</span>
+        <span style="color:var(--text2)">${o.ref_price ? '$'+o.ref_price.toFixed(2) : '—'}</span>
+        <span></span>
       </div>`;
     }
     $('#orders-content').innerHTML = html;
