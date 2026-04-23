@@ -185,7 +185,7 @@ def api_futu_positions():
 MARGIN_MULTIPLIER = 1.5
 MAX_POSITIONS = 6
 # Use paper trading by default. Set to "REAL" to trade with real money.
-TRADING_ENV = "SIMULATE"
+TRADING_ENV = "REAL"
 ORDER_LOG_DIR = LOGS_DIRECTORY
 
 
