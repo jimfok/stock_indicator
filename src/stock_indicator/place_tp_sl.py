@@ -67,6 +67,7 @@ def main() -> None:
         OpenSecTradeContext,
         OrderType,
         SecurityFirm,
+        TimeInForce,
         TrdEnv,
         TrdMarket,
         TrdSide,
@@ -159,20 +160,18 @@ def main() -> None:
             continue
 
         tp_price = round(entry_price * (1 + tp_pct), 2)
-        sl_price = round(entry_price * (1 - sl_pct), 2)
 
         LOGGER.info(
-            "%s: entry=$%.2f qty=%d → TP=$%.2f (%.2f%%) SL=$%.2f (%.2f%%)",
+            "%s: entry=$%.2f qty=%d → TP=$%.2f (%.2f%%) [GTC limit sell]",
             symbol, entry_price, qty,
             tp_price, tp_pct * 100,
-            sl_price, sl_pct * 100,
         )
 
         if dry_run:
             LOGGER.info("  [DRY RUN] skipping order placement")
             continue
 
-        # Place TP limit sell
+        # Place TP limit sell (GTC)
         ret_tp, data_tp = trd_ctx.place_order(
             price=tp_price,
             qty=qty,
@@ -180,6 +179,7 @@ def main() -> None:
             trd_side=TrdSide.SELL,
             order_type=OrderType.NORMAL,
             trd_env=trd_env,
+            time_in_force=TimeInForce.GTC,
         )
         tp_result = {
             "symbol": symbol,
@@ -200,34 +200,10 @@ def main() -> None:
         LOGGER.info("  TP: %s", tp_result["status"])
         _log_order(tp_result)
 
-        # Place SL stop order
-        ret_sl, data_sl = trd_ctx.place_order(
-            price=sl_price,
-            qty=qty,
-            code=code,
-            trd_side=TrdSide.SELL,
-            order_type=OrderType.STOP,
-            trd_env=trd_env,
-            aux_price=sl_price,
-        )
-        sl_result = {
-            "symbol": symbol,
-            "side": "SL_SELL",
-            "qty": qty,
-            "entry_price": entry_price,
-            "price": sl_price,
-            "sl_pct": round(sl_pct * 100, 2),
-            "status": "sent" if ret_sl == 0 else "failed",
-            "order_id": (
-                str(data_sl.iloc[0].get("order_id", ""))
-                if ret_sl == 0 else None
-            ),
-            "error": str(data_sl) if ret_sl != 0 else None,
-            "env": TRADING_ENV,
-            "timestamp": datetime.now().isoformat(),
-        }
-        LOGGER.info("  SL: %s", sl_result["status"])
-        _log_order(sl_result)
+        # SL is NOT placed here.
+        # min_hold=5 means SL should only activate after 5 bars.
+        # SL will be placed by a separate process after min_hold expires.
+        LOGGER.info("  SL: deferred (min_hold=5, entry=%s)", today_str)
 
     trd_ctx.close()
     LOGGER.info("Done")
