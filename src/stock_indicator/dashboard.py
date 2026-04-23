@@ -463,7 +463,7 @@ HTML_PAGE = """<!DOCTYPE html>
 </head>
 <body>
 
-<h1>Stock Indicator <span style="color: var(--text2); font-weight: normal">Dashboard</span></h1>
+<h1>Stock Indicator <span style="color: var(--text2); font-weight: normal">Dashboard</span> <span style="font-size:0.5em; color:var(--text2); font-weight:normal">since 2026-04-21</span></h1>
 <div id="status">Loading...</div>
 
 <div class="grid">
@@ -493,6 +493,7 @@ HTML_PAGE = """<!DOCTYPE html>
       <button class="btn btn-preview" onclick="previewOrders()">Preview Orders</button>
       <button class="btn btn-confirm" id="confirm-btn" onclick="executeOrders()" disabled>Confirm &amp; Send</button>
       <button class="btn btn-cancel" id="cancel-btn" onclick="cancelOrders()" style="display:none">Cancel</button>
+      <button class="btn" style="background:var(--orange); color:var(--bg); margin-left:16px" onclick="placeTPSL()">Place TP/SL</button>
     </div>
   </div>
 

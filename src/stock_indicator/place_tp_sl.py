@@ -96,7 +96,7 @@ def main() -> None:
     )
 
     # Query today's filled orders
-    today_str = date.today().isoformat().replace("-", "")
+    today_str = date.today().isoformat()
     ret, order_data = trd_ctx.history_order_list_query(
         trd_env=trd_env,
         start=today_str,
