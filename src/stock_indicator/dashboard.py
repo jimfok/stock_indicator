@@ -572,7 +572,7 @@ function render(state, futu) {
     const a = futu.account;
     html += stat('Total Assets', 'HK$' + (a.total_assets||0).toLocaleString(undefined,{minimumFractionDigits:2}));
     html += stat('US Cash', 'US$' + (a.us_cash||0).toLocaleString(undefined,{minimumFractionDigits:2}));
-    html += stat('Market Value', 'US$' + (a.market_val||0).toLocaleString(undefined,{minimumFractionDigits:2}));
+    html += stat('Market Value', 'HK$' + (a.market_val||0).toLocaleString(undefined,{minimumFractionDigits:2}));
     html += stat('Buying Power', 'HK$' + (a.power||0).toLocaleString(undefined,{minimumFractionDigits:2}));
   } else {
     html += stat('Status', 'Futu OpenD not connected', 'negative');
