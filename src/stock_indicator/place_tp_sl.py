@@ -19,6 +19,8 @@ import sys
 from datetime import date
 from pathlib import Path
 
+import pandas
+
 LOGGER = logging.getLogger(__name__)
 
 DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "data"
@@ -26,6 +28,7 @@ LOGS_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "logs"
 
 # Match dashboard.py settings
 TRADING_ENV = "REAL"
+MIN_HOLD_BARS = 5
 
 
 def _get_tp_sl_from_log() -> tuple[float | None, float | None]:
@@ -128,12 +131,11 @@ def main() -> None:
 
     if not filled_buys:
         LOGGER.info("No filled BUY orders today")
-        trd_ctx.close()
-        return
 
-    LOGGER.info("Found %d filled BUY orders", len(filled_buys))
+    if filled_buys:
+        LOGGER.info("Found %d filled BUY orders", len(filled_buys))
 
-    # Check existing orders to avoid duplicates
+    # Check existing orders to avoid duplicates (also used for SL)
     ret_existing, existing_orders = trd_ctx.order_list_query(trd_env=trd_env)
     existing_sell_codes = set()
     if ret_existing == 0 and len(existing_orders) > 0:
@@ -200,10 +202,137 @@ def main() -> None:
         LOGGER.info("  TP: %s", tp_result["status"])
         _log_order(tp_result)
 
-        # SL is NOT placed here.
-        # min_hold=5 means SL should only activate after 5 bars.
-        # SL will be placed by a separate process after min_hold expires.
-        LOGGER.info("  SL: deferred (min_hold=5, entry=%s)", today_str)
+        # SL deferred — will be placed when min_hold is met (see below).
+        LOGGER.info("  SL: deferred (min_hold=%d)", MIN_HOLD_BARS)
+
+    # ------------------------------------------------------------------
+    # Place SL for positions that have passed min_hold
+    # ------------------------------------------------------------------
+    LOGGER.info("--- Checking SL for positions past min_hold ---")
+    positions_path = DATA_DIRECTORY / "positions.json"
+    positions: dict = {}
+    if positions_path.exists():
+        try:
+            positions = json.loads(positions_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    buy3_positions = positions.get("buy3", [])
+    if not buy3_positions:
+        LOGGER.info("No positions in positions.json")
+        trd_ctx.close()
+        LOGGER.info("Done")
+        return
+
+    # Refresh existing sell orders (may have changed after TP placement above)
+    ret_existing2, existing_orders2 = trd_ctx.order_list_query(trd_env=trd_env)
+    existing_stop_codes = set()
+    existing_limit_sell_codes = set()
+    if ret_existing2 == 0 and len(existing_orders2) > 0:
+        for _, row in existing_orders2.iterrows():
+            if (
+                str(row.get("trd_side", "")) == "SELL"
+                and str(row.get("order_status", "")) not in (
+                    "CANCELLED_ALL", "FAILED", "DELETED",
+                )
+            ):
+                code_val = str(row.get("code", ""))
+                order_type_val = str(row.get("order_type", ""))
+                if order_type_val == "STOP":
+                    existing_stop_codes.add(code_val)
+                elif order_type_val == "NORMAL":
+                    existing_limit_sell_codes.add(code_val)
+
+    # Get actual positions from Futu (for cost_price)
+    ret_pos, pos_data = trd_ctx.position_list_query(trd_env=trd_env)
+    futu_positions: dict[str, dict] = {}
+    if ret_pos == 0 and len(pos_data) > 0:
+        for _, row in pos_data.iterrows():
+            code_val = str(row.get("code", ""))
+            futu_positions[code_val] = {
+                "qty": int(row.get("qty", 0)),
+                "cost_price": float(row.get("cost_price", 0)),
+            }
+
+    for pos in buy3_positions:
+        symbol = pos.get("symbol", "")
+        entry_date_str = pos.get("entry_date", "")
+        code = f"US.{symbol}"
+
+        if not entry_date_str:
+            LOGGER.info("  %s: no entry_date, skipping SL", symbol)
+            continue
+
+        # Count trading bars since entry
+        try:
+            entry_ts = pandas.Timestamp(entry_date_str)
+            today_ts = pandas.Timestamp(today_str)
+            trading_days = pandas.bdate_range(entry_ts, today_ts)
+            bars_held = max(0, len(trading_days) - 1)
+        except Exception:
+            bars_held = 0
+
+        if bars_held < MIN_HOLD_BARS:
+            LOGGER.info(
+                "  %s: bars_held=%d < min_hold=%d, SL deferred",
+                symbol, bars_held, MIN_HOLD_BARS,
+            )
+            continue
+
+        # Already has a stop order?
+        if code in existing_stop_codes:
+            LOGGER.info("  %s: SL stop order already exists", symbol)
+            continue
+
+        # Get entry price from Futu position
+        futu_pos = futu_positions.get(code)
+        if not futu_pos or futu_pos["qty"] <= 0:
+            LOGGER.info("  %s: no Futu position found, skipping SL", symbol)
+            continue
+
+        entry_price = futu_pos["cost_price"]
+        qty = futu_pos["qty"]
+        sl_price = round(entry_price * (1 - sl_pct), 2)
+
+        LOGGER.info(
+            "  %s: bars_held=%d >= min_hold=%d → SL=$%.2f (%.2f%%) [GTC stop]",
+            symbol, bars_held, MIN_HOLD_BARS,
+            sl_price, sl_pct * 100,
+        )
+
+        if dry_run:
+            LOGGER.info("    [DRY RUN] skipping SL placement")
+            continue
+
+        ret_sl, data_sl = trd_ctx.place_order(
+            price=sl_price,
+            qty=qty,
+            code=code,
+            trd_side=TrdSide.SELL,
+            order_type=OrderType.STOP,
+            trd_env=trd_env,
+            aux_price=sl_price,
+            time_in_force=TimeInForce.GTC,
+        )
+        sl_result = {
+            "symbol": symbol,
+            "side": "SL_SELL",
+            "qty": qty,
+            "entry_price": entry_price,
+            "price": sl_price,
+            "sl_pct": round(sl_pct * 100, 2),
+            "bars_held": bars_held,
+            "status": "sent" if ret_sl == 0 else "failed",
+            "order_id": (
+                str(data_sl.iloc[0].get("order_id", ""))
+                if ret_sl == 0 else None
+            ),
+            "error": str(data_sl) if ret_sl != 0 else None,
+            "env": TRADING_ENV,
+            "timestamp": datetime.now().isoformat(),
+        }
+        LOGGER.info("    SL: %s", sl_result["status"])
+        _log_order(sl_result)
 
     trd_ctx.close()
     LOGGER.info("Done")
