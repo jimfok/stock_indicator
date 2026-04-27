@@ -1,9 +1,14 @@
-"""Place TP/SL orders for today's filled entry orders.
+"""Place TP/SL orders based on Futu live positions.
 
-Run after market open (e.g. 5-10 minutes after 09:30 ET) to:
-1. Query today's filled BUY orders from Futu
-2. Read adaptive TP/SL percentages from latest log
-3. Place TP limit sell + SL stop order for each fill
+Source of truth: Futu API (positions, orders, history).
+Only TP/SL percentages come from local adaptive log.
+
+Logic:
+1. Query Futu positions → code, qty, cost_price
+2. Query open sell orders → which positions already have TP / SL
+3. Query history filled BUY → earliest fill date per code = entry date
+4. Missing TP → GTC limit sell at cost_price * (1 + tp%)
+5. Missing SL + bars_held >= min_hold → GTC stop at cost_price * (1 - sl%)
 
 Usage:
     venv/bin/python -m stock_indicator.place_tp_sl [--dry-run]
@@ -13,7 +18,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import re
 import sys
 from datetime import date
@@ -23,10 +27,8 @@ import pandas
 
 LOGGER = logging.getLogger(__name__)
 
-DATA_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "data"
 LOGS_DIRECTORY = Path(__file__).resolve().parent.parent.parent / "logs"
 
-# Match dashboard.py settings
 TRADING_ENV = "REAL"
 MIN_HOLD_BARS = 5
 
@@ -84,14 +86,14 @@ def main() -> None:
         format="%(asctime)s %(message)s",
     )
 
-    # Get TP/SL from log
+    # --- Adaptive TP/SL from local log (only non-Futu data source) ---
     tp_pct, sl_pct = _get_tp_sl_from_log()
     if tp_pct is None:
         LOGGER.error("No TP/SL found in logs")
         return
     LOGGER.info("Adaptive TP: %.2f%%, SL: %.2f%%", tp_pct * 100, sl_pct * 100)
 
-    # Connect to Futu
+    # --- Connect to Futu ---
     trd_ctx = OpenSecTradeContext(
         host="127.0.0.1",
         port=11111,
@@ -99,84 +101,121 @@ def main() -> None:
         security_firm=SecurityFirm.FUTUSECURITIES,
     )
 
-    # Query today's filled orders
-    today_str = date.today().isoformat()
-    ret, order_data = trd_ctx.history_order_list_query(
-        trd_env=trd_env,
-        start=today_str,
-        end=today_str,
-    )
-    if ret != 0:
-        LOGGER.error("Failed to query orders: %s", order_data)
+    # --- 1. Query positions ---
+    ret_pos, pos_data = trd_ctx.position_list_query(trd_env=trd_env)
+    if ret_pos != 0:
+        LOGGER.error("Failed to query positions: %s", pos_data)
         trd_ctx.close()
         return
 
-    # Filter for filled BUY orders
-    filled_buys = []
-    if len(order_data) > 0:
-        for _, row in order_data.iterrows():
-            if (
-                str(row.get("trd_side", "")) == "BUY"
-                and str(row.get("order_status", "")) in (
-                    "FILLED_ALL", "FILLED_PART",
-                )
+    positions: dict[str, dict] = {}
+    if len(pos_data) > 0:
+        for _, row in pos_data.iterrows():
+            qty = int(row.get("qty", 0))
+            if qty <= 0:
+                continue
+            code = str(row.get("code", ""))
+            positions[code] = {
+                "qty": qty,
+                "cost_price": float(row.get("cost_price", 0)),
+            }
+
+    if not positions:
+        LOGGER.info("No open positions")
+        trd_ctx.close()
+        return
+
+    LOGGER.info("Positions: %s", ", ".join(
+        f"{c.replace('US.', '')} qty={p['qty']} cost=${p['cost_price']:.2f}"
+        for c, p in positions.items()
+    ))
+
+    # --- 2. Query existing open sell orders ---
+    ret_ord, ord_data = trd_ctx.order_list_query(trd_env=trd_env)
+    existing_tp_codes: set[str] = set()  # NORMAL limit sell
+    existing_sl_codes: set[str] = set()  # STOP sell
+    if ret_ord == 0 and len(ord_data) > 0:
+        for _, row in ord_data.iterrows():
+            if str(row.get("trd_side", "")) != "SELL":
+                continue
+            if str(row.get("order_status", "")) in (
+                "CANCELLED_ALL", "FAILED", "DELETED",
             ):
-                filled_buys.append({
-                    "code": str(row.get("code", "")),
-                    "symbol": str(row.get("code", "")).replace("US.", ""),
-                    "qty": int(row.get("dealt_qty", 0)),
-                    "avg_price": float(row.get("dealt_avg_price", 0)),
-                    "order_id": str(row.get("order_id", "")),
-                })
+                continue
+            code = str(row.get("code", ""))
+            order_type = str(row.get("order_type", ""))
+            if order_type == "STOP":
+                existing_sl_codes.add(code)
+            elif order_type == "NORMAL":
+                existing_tp_codes.add(code)
 
-    if not filled_buys:
-        LOGGER.info("No filled BUY orders today")
-
-    if filled_buys:
-        LOGGER.info("Found %d filled BUY orders", len(filled_buys))
-
-    # Check existing orders to avoid duplicates (also used for SL)
-    ret_existing, existing_orders = trd_ctx.order_list_query(trd_env=trd_env)
-    existing_sell_codes = set()
-    if ret_existing == 0 and len(existing_orders) > 0:
-        for _, row in existing_orders.iterrows():
-            if (
-                str(row.get("trd_side", "")) == "SELL"
-                and str(row.get("order_status", "")) not in (
-                    "CANCELLED_ALL", "FAILED", "DELETED",
-                )
+    # --- 3. Query history filled BUY → entry date per code ---
+    entry_dates: dict[str, str] = {}
+    ret_hist, hist_data = trd_ctx.history_order_list_query(
+        trd_env=trd_env,
+    )
+    if ret_hist == 0 and len(hist_data) > 0:
+        for _, row in hist_data.iterrows():
+            if str(row.get("trd_side", "")) != "BUY":
+                continue
+            if str(row.get("order_status", "")) not in (
+                "FILLED_ALL", "FILLED_PART",
             ):
-                existing_sell_codes.add(str(row.get("code", "")))
+                continue
+            code = str(row.get("code", ""))
+            if code not in positions:
+                continue
+            # create_time format: "2026-04-22 21:34:27.949"
+            create_time = str(row.get("create_time", ""))
+            if not create_time:
+                continue
+            fill_date = create_time[:10]  # "2026-04-22"
+            # Keep earliest date per code
+            if code not in entry_dates or fill_date < entry_dates[code]:
+                entry_dates[code] = fill_date
 
-    # Place TP + SL for each fill
-    for fill in filled_buys:
-        code = fill["code"]
-        symbol = fill["symbol"]
-        qty = fill["qty"]
-        entry_price = fill["avg_price"]
+    # Also check active orders for today's fills not yet in history
+    if ret_ord == 0 and len(ord_data) > 0:
+        for _, row in ord_data.iterrows():
+            if str(row.get("trd_side", "")) != "BUY":
+                continue
+            if str(row.get("order_status", "")) not in (
+                "FILLED_ALL", "FILLED_PART",
+            ):
+                continue
+            code = str(row.get("code", ""))
+            if code not in positions:
+                continue
+            create_time = str(row.get("create_time", ""))
+            if not create_time:
+                continue
+            fill_date = create_time[:10]
+            if code not in entry_dates or fill_date < entry_dates[code]:
+                entry_dates[code] = fill_date
 
-        if code in existing_sell_codes:
-            LOGGER.info(
-                "Skipping %s — sell order already exists", symbol
-            )
+    today_str = date.today().isoformat()
+
+    # --- 4. Place TP for positions missing it ---
+    LOGGER.info("--- TP check ---")
+    for code, pos in positions.items():
+        symbol = code.replace("US.", "")
+        if code in existing_tp_codes:
+            LOGGER.info("%s: TP already exists, skip", symbol)
             continue
 
-        tp_price = round(entry_price * (1 + tp_pct), 2)
-
+        tp_price = round(pos["cost_price"] * (1 + tp_pct), 2)
         LOGGER.info(
-            "%s: entry=$%.2f qty=%d → TP=$%.2f (%.2f%%) [GTC limit sell]",
-            symbol, entry_price, qty,
-            tp_price, tp_pct * 100,
+            "%s: cost=$%.2f qty=%d → TP=$%.2f (+%.2f%%) [GTC limit sell]",
+            symbol, pos["cost_price"], pos["qty"], tp_price, tp_pct * 100,
         )
 
         if dry_run:
-            LOGGER.info("  [DRY RUN] skipping order placement")
+            LOGGER.info("  [DRY RUN] skipping")
             continue
 
-        # Place TP limit sell (GTC)
         ret_tp, data_tp = trd_ctx.place_order(
             price=tp_price,
-            qty=qty,
+            qty=pos["qty"],
             code=code,
             trd_side=TrdSide.SELL,
             order_type=OrderType.NORMAL,
@@ -186,8 +225,8 @@ def main() -> None:
         tp_result = {
             "symbol": symbol,
             "side": "TP_SELL",
-            "qty": qty,
-            "entry_price": entry_price,
+            "qty": pos["qty"],
+            "entry_price": pos["cost_price"],
             "price": tp_price,
             "tp_pct": round(tp_pct * 100, 2),
             "status": "sent" if ret_tp == 0 else "failed",
@@ -202,68 +241,20 @@ def main() -> None:
         LOGGER.info("  TP: %s", tp_result["status"])
         _log_order(tp_result)
 
-        # SL deferred — will be placed when min_hold is met (see below).
-        LOGGER.info("  SL: deferred (min_hold=%d)", MIN_HOLD_BARS)
+    # --- 5. Place SL for positions past min_hold and missing SL ---
+    LOGGER.info("--- SL check (min_hold=%d) ---", MIN_HOLD_BARS)
+    for code, pos in positions.items():
+        symbol = code.replace("US.", "")
 
-    # ------------------------------------------------------------------
-    # Place SL for positions that have passed min_hold
-    # ------------------------------------------------------------------
-    LOGGER.info("--- Checking SL for positions past min_hold ---")
-    positions_path = DATA_DIRECTORY / "positions.json"
-    positions: dict = {}
-    if positions_path.exists():
-        try:
-            positions = json.loads(positions_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    buy3_positions = positions.get("buy3", [])
-    if not buy3_positions:
-        LOGGER.info("No positions in positions.json")
-        trd_ctx.close()
-        LOGGER.info("Done")
-        return
-
-    # Refresh existing sell orders (may have changed after TP placement above)
-    ret_existing2, existing_orders2 = trd_ctx.order_list_query(trd_env=trd_env)
-    existing_stop_codes = set()
-    existing_limit_sell_codes = set()
-    if ret_existing2 == 0 and len(existing_orders2) > 0:
-        for _, row in existing_orders2.iterrows():
-            if (
-                str(row.get("trd_side", "")) == "SELL"
-                and str(row.get("order_status", "")) not in (
-                    "CANCELLED_ALL", "FAILED", "DELETED",
-                )
-            ):
-                code_val = str(row.get("code", ""))
-                order_type_val = str(row.get("order_type", ""))
-                if order_type_val == "STOP":
-                    existing_stop_codes.add(code_val)
-                elif order_type_val == "NORMAL":
-                    existing_limit_sell_codes.add(code_val)
-
-    # Get actual positions from Futu (for cost_price)
-    ret_pos, pos_data = trd_ctx.position_list_query(trd_env=trd_env)
-    futu_positions: dict[str, dict] = {}
-    if ret_pos == 0 and len(pos_data) > 0:
-        for _, row in pos_data.iterrows():
-            code_val = str(row.get("code", ""))
-            futu_positions[code_val] = {
-                "qty": int(row.get("qty", 0)),
-                "cost_price": float(row.get("cost_price", 0)),
-            }
-
-    for pos in buy3_positions:
-        symbol = pos.get("symbol", "")
-        entry_date_str = pos.get("entry_date", "")
-        code = f"US.{symbol}"
-
-        if not entry_date_str:
-            LOGGER.info("  %s: no entry_date, skipping SL", symbol)
+        if code in existing_sl_codes:
+            LOGGER.info("%s: SL already exists, skip", symbol)
             continue
 
-        # Count trading bars since entry
+        entry_date_str = entry_dates.get(code)
+        if not entry_date_str:
+            LOGGER.info("%s: no entry date found in order history, skip SL", symbol)
+            continue
+
         try:
             entry_ts = pandas.Timestamp(entry_date_str)
             today_ts = pandas.Timestamp(today_str)
@@ -274,39 +265,24 @@ def main() -> None:
 
         if bars_held < MIN_HOLD_BARS:
             LOGGER.info(
-                "  %s: bars_held=%d < min_hold=%d, SL deferred",
+                "%s: bars_held=%d < min_hold=%d, SL deferred",
                 symbol, bars_held, MIN_HOLD_BARS,
             )
             continue
 
-        # Already has a stop order?
-        if code in existing_stop_codes:
-            LOGGER.info("  %s: SL stop order already exists", symbol)
-            continue
-
-        # Get entry price from Futu position
-        futu_pos = futu_positions.get(code)
-        if not futu_pos or futu_pos["qty"] <= 0:
-            LOGGER.info("  %s: no Futu position found, skipping SL", symbol)
-            continue
-
-        entry_price = futu_pos["cost_price"]
-        qty = futu_pos["qty"]
-        sl_price = round(entry_price * (1 - sl_pct), 2)
-
+        sl_price = round(pos["cost_price"] * (1 - sl_pct), 2)
         LOGGER.info(
-            "  %s: bars_held=%d >= min_hold=%d → SL=$%.2f (%.2f%%) [GTC stop]",
-            symbol, bars_held, MIN_HOLD_BARS,
-            sl_price, sl_pct * 100,
+            "%s: bars_held=%d >= min_hold=%d → SL=$%.2f (-%.2f%%) [GTC stop]",
+            symbol, bars_held, MIN_HOLD_BARS, sl_price, sl_pct * 100,
         )
 
         if dry_run:
-            LOGGER.info("    [DRY RUN] skipping SL placement")
+            LOGGER.info("  [DRY RUN] skipping")
             continue
 
         ret_sl, data_sl = trd_ctx.place_order(
             price=sl_price,
-            qty=qty,
+            qty=pos["qty"],
             code=code,
             trd_side=TrdSide.SELL,
             order_type=OrderType.STOP,
@@ -317,8 +293,8 @@ def main() -> None:
         sl_result = {
             "symbol": symbol,
             "side": "SL_SELL",
-            "qty": qty,
-            "entry_price": entry_price,
+            "qty": pos["qty"],
+            "entry_price": pos["cost_price"],
             "price": sl_price,
             "sl_pct": round(sl_pct * 100, 2),
             "bars_held": bars_held,
@@ -331,7 +307,7 @@ def main() -> None:
             "env": TRADING_ENV,
             "timestamp": datetime.now().isoformat(),
         }
-        LOGGER.info("    SL: %s", sl_result["status"])
+        LOGGER.info("  SL: %s", sl_result["status"])
         _log_order(sl_result)
 
     trd_ctx.close()
