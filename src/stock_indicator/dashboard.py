@@ -393,6 +393,32 @@ def api_execute_orders(req: ExecuteRequest):
     return {"results": results}
 
 
+@app.post("/api/place_tp_sl")
+def api_place_tp_sl():
+    """Trigger TP/SL placement (same logic as place_tp_sl.py)."""
+    try:
+        from stock_indicator.place_tp_sl import main as _tp_sl_main
+
+        import io
+        import contextlib
+
+        buf = io.StringIO()
+        handler = logging.StreamHandler(buf)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        tp_sl_logger = logging.getLogger("stock_indicator.place_tp_sl")
+        tp_sl_logger.addHandler(handler)
+        tp_sl_logger.setLevel(logging.INFO)
+
+        try:
+            _tp_sl_main()
+        finally:
+            tp_sl_logger.removeHandler(handler)
+
+        return {"ok": True, "log": buf.getvalue()}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
     return HTML_PAGE
@@ -796,6 +822,28 @@ function cancelOrders() {
   $('#orders-content').innerHTML = '<div style="color:var(--text2)">Cancelled</div>';
   $('#confirm-btn').disabled = true;
   $('#cancel-btn').style.display = 'none';
+}
+
+async function placeTPSL() {
+  if (!confirm('Place TP/SL orders for current positions?')) return;
+  const btn = document.querySelector('[onclick="placeTPSL()"]');
+  btn.disabled = true;
+  btn.textContent = 'Placing...';
+  try {
+    const res = await fetch('/api/place_tp_sl', {method: 'POST'});
+    const data = await res.json();
+    if (data.ok) {
+      const lines = data.log.trim().split('\\n').map(l => `<div>${l}</div>`).join('');
+      $('#orders-content').innerHTML = '<div style="margin-bottom:8px"><strong>TP/SL Result:</strong></div>' + lines;
+    } else {
+      $('#orders-content').innerHTML = `<div class="negative">Error: ${data.error}</div>`;
+    }
+    setTimeout(load, 2000);
+  } catch (e) {
+    $('#orders-content').innerHTML = `<div class="negative">Error: ${e.message}</div>`;
+  }
+  btn.disabled = false;
+  btn.textContent = 'Place TP/SL';
 }
 
 load();
