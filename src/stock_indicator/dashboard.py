@@ -185,7 +185,7 @@ def api_futu_positions():
 MARGIN_MULTIPLIER = 1.5
 MAX_POSITIONS = 6
 # Use paper trading by default. Set to "REAL" to trade with real money.
-TRADING_ENV = "SIMULATE"
+TRADING_ENV = "REAL"
 ORDER_LOG_DIR = LOGS_DIRECTORY
 
 
@@ -208,15 +208,17 @@ def _get_trd_env():
 
 
 def _get_last_price(symbol: str) -> float | None:
-    """Get last traded price for a US stock via Futu quote API."""
+    """Get last traded price for a US stock via Futu snapshot API."""
     try:
         from futu import OpenQuoteContext
 
         quote_ctx = OpenQuoteContext(host="127.0.0.1", port=11111)
-        ret, data = quote_ctx.get_stock_quote([f"US.{symbol}"])
+        ret, data = quote_ctx.get_market_snapshot([f"US.{symbol}"])
         quote_ctx.close()
         if ret == 0 and len(data) > 0:
-            return float(data.iloc[0]["last_price"])
+            price = float(data.iloc[0]["last_price"])
+            if price > 0:
+                return price
     except Exception:
         pass
     return None
@@ -288,20 +290,14 @@ def api_preview_orders():
     for symbol in log.get("buy_actions", []):
         if symbol in held_symbols:
             continue
-        price = _get_last_price(symbol)
-        qty = _compute_order_size(total_assets, price) if price else 0
-        tp_price = round(price * (1 + tp_pct / 100), 2) if price and tp_pct else None
-        sl_price = round(price * (1 - sl_pct / 100), 2) if price and sl_pct else None
+        ref_price = _get_last_price(symbol)
+        qty = _compute_order_size(total_assets, ref_price) if ref_price else 0
         orders.append({
             "side": "BUY",
             "symbol": symbol,
             "qty": qty,
-            "price": price,
+            "ref_price": ref_price,
             "order_type": "MARKET",
-            "tp_price": tp_price,
-            "sl_price": sl_price,
-            "tp_pct": tp_pct,
-            "sl_pct": sl_pct,
         })
 
     # SELL orders (exit signals for held positions)
@@ -380,57 +376,6 @@ def api_execute_orders(req: ExecuteRequest):
                 }
                 results.append(result)
                 _log_order(result)
-
-                # Place TP + SL for BUY orders
-                if order["side"] == "BUY":
-                    tp_price = order.get("tp_price")
-                    sl_price = order.get("sl_price")
-                    if tp_price and tp_price > 0:
-                        ret_tp, data_tp = trd_ctx.place_order(
-                            price=tp_price,
-                            qty=qty,
-                            code=code,
-                            trd_side=TrdSide.SELL,
-                            order_type=OrderType.NORMAL,  # limit sell
-                            trd_env=trd_env,
-                        )
-                        tp_result = {
-                            "symbol": symbol,
-                            "side": "TP_SELL",
-                            "qty": qty,
-                            "price": tp_price,
-                            "status": "sent" if ret_tp == 0 else "failed",
-                            "order_id": str(data_tp.iloc[0].get("order_id", "")) if ret_tp == 0 else None,
-                            "error": str(data_tp) if ret_tp != 0 else None,
-                            "env": TRADING_ENV,
-                            "timestamp": datetime.now().isoformat(),
-                        }
-                        results.append(tp_result)
-                        _log_order(tp_result)
-
-                    if sl_price and sl_price > 0:
-                        ret_sl, data_sl = trd_ctx.place_order(
-                            price=sl_price,
-                            qty=qty,
-                            code=code,
-                            trd_side=TrdSide.SELL,
-                            order_type=OrderType.STOP,  # stop order
-                            trd_env=trd_env,
-                            aux_price=sl_price,
-                        )
-                        sl_result = {
-                            "symbol": symbol,
-                            "side": "SL_SELL",
-                            "qty": qty,
-                            "price": sl_price,
-                            "status": "sent" if ret_sl == 0 else "failed",
-                            "order_id": str(data_sl.iloc[0].get("order_id", "")) if ret_sl == 0 else None,
-                            "error": str(data_sl) if ret_sl != 0 else None,
-                            "env": TRADING_ENV,
-                            "timestamp": datetime.now().isoformat(),
-                        }
-                        results.append(sl_result)
-                        _log_order(sl_result)
             else:
                 results.append({
                     "symbol": symbol,
@@ -446,6 +391,32 @@ def api_execute_orders(req: ExecuteRequest):
 
     trd_ctx.close()
     return {"results": results}
+
+
+@app.post("/api/place_tp_sl")
+def api_place_tp_sl():
+    """Trigger TP/SL placement (same logic as place_tp_sl.py)."""
+    try:
+        from stock_indicator.place_tp_sl import main as _tp_sl_main
+
+        import io
+        import contextlib
+
+        buf = io.StringIO()
+        handler = logging.StreamHandler(buf)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        tp_sl_logger = logging.getLogger("stock_indicator.place_tp_sl")
+        tp_sl_logger.addHandler(handler)
+        tp_sl_logger.setLevel(logging.INFO)
+
+        try:
+            _tp_sl_main()
+        finally:
+            tp_sl_logger.removeHandler(handler)
+
+        return {"ok": True, "log": buf.getvalue()}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -518,7 +489,7 @@ HTML_PAGE = """<!DOCTYPE html>
 </head>
 <body>
 
-<h1>Stock Indicator <span style="color: var(--text2); font-weight: normal">Dashboard</span></h1>
+<h1>Stock Indicator <span style="color: var(--text2); font-weight: normal">Dashboard</span> <span style="font-size:0.5em; color:var(--text2); font-weight:normal">since 2026-04-21</span></h1>
 <div id="status">Loading...</div>
 
 <div class="grid">
@@ -548,6 +519,7 @@ HTML_PAGE = """<!DOCTYPE html>
       <button class="btn btn-preview" onclick="previewOrders()">Preview Orders</button>
       <button class="btn btn-confirm" id="confirm-btn" onclick="executeOrders()" disabled>Confirm &amp; Send</button>
       <button class="btn btn-cancel" id="cancel-btn" onclick="cancelOrders()" style="display:none">Cancel</button>
+      <button class="btn" style="background:var(--orange); color:var(--bg); margin-left:16px" onclick="placeTPSL()">Place TP/SL</button>
     </div>
   </div>
 
@@ -626,7 +598,7 @@ function render(state, futu) {
     const a = futu.account;
     html += stat('Total Assets', 'HK$' + (a.total_assets||0).toLocaleString(undefined,{minimumFractionDigits:2}));
     html += stat('US Cash', 'US$' + (a.us_cash||0).toLocaleString(undefined,{minimumFractionDigits:2}));
-    html += stat('Market Value', 'US$' + (a.market_val||0).toLocaleString(undefined,{minimumFractionDigits:2}));
+    html += stat('Market Value', 'HK$' + (a.market_val||0).toLocaleString(undefined,{minimumFractionDigits:2}));
     html += stat('Buying Power', 'HK$' + (a.power||0).toLocaleString(undefined,{minimumFractionDigits:2}));
   } else {
     html += stat('Status', 'Futu OpenD not connected', 'negative');
@@ -783,16 +755,16 @@ async function previewOrders() {
     html += ' | Signal: ' + (data.signal_date||'—');
     html += '</div>';
 
-    html += '<div class="order-row order-header"><span>Side</span><span>Symbol</span><span>Qty</span><span>Price</span><span>TP</span><span>SL</span></div>';
+    html += '<div class="order-row order-header"><span>Side</span><span>Symbol</span><span>Qty</span><span>Type</span><span>Ref Price</span><span></span></div>';
     for (const o of data.orders) {
       const sideClass = o.side === 'BUY' ? 'positive' : 'negative';
       html += `<div class="order-row">
         <span class="${sideClass}"><strong>${o.side}</strong></span>
         <span><strong>${o.symbol}</strong></span>
         <span>${o.qty}</span>
-        <span>$${o.price ? o.price.toFixed(2) : '—'}</span>
-        <span class="positive">${o.tp_price ? '$'+o.tp_price.toFixed(2) : '—'}</span>
-        <span class="negative">${o.sl_price ? '$'+o.sl_price.toFixed(2) : '—'}</span>
+        <span>MARKET</span>
+        <span style="color:var(--text2)">${o.ref_price ? '$'+o.ref_price.toFixed(2) : '—'}</span>
+        <span></span>
       </div>`;
     }
     $('#orders-content').innerHTML = html;
@@ -850,6 +822,28 @@ function cancelOrders() {
   $('#orders-content').innerHTML = '<div style="color:var(--text2)">Cancelled</div>';
   $('#confirm-btn').disabled = true;
   $('#cancel-btn').style.display = 'none';
+}
+
+async function placeTPSL() {
+  if (!confirm('Place TP/SL orders for current positions?')) return;
+  const btn = document.querySelector('[onclick="placeTPSL()"]');
+  btn.disabled = true;
+  btn.textContent = 'Placing...';
+  try {
+    const res = await fetch('/api/place_tp_sl', {method: 'POST'});
+    const data = await res.json();
+    if (data.ok) {
+      const lines = data.log.trim().split('\\n').map(l => `<div>${l}</div>`).join('');
+      $('#orders-content').innerHTML = '<div style="margin-bottom:8px"><strong>TP/SL Result:</strong></div>' + lines;
+    } else {
+      $('#orders-content').innerHTML = `<div class="negative">Error: ${data.error}</div>`;
+    }
+    setTimeout(load, 2000);
+  } catch (e) {
+    $('#orders-content').innerHTML = `<div class="negative">Error: ${e.message}</div>`;
+  }
+  btn.disabled = false;
+  btn.textContent = 'Place TP/SL';
 }
 
 load();
