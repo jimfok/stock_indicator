@@ -304,3 +304,50 @@ def ftd(price_data_frame: pandas.DataFrame, buy_mark_day: int, tolerance: float 
     )
 
     return state_series.tail(buy_mark_day).any()
+
+
+def bsv(
+    high_series: pandas.Series,
+    low_series: pandas.Series,
+    close_series: pandas.Series,
+    volume_series: pandas.Series,
+    balance_threshold: float = 0.1,
+) -> pandas.DataFrame:
+    """Buy/Sell Volume balance indicator.
+
+    Measures where the close sits within the high-low range.
+    When buy and sell power are roughly equal (close near midpoint),
+    the bar's volume is flagged — indicating balanced, directionless flow.
+
+    Parameters
+    ----------
+    high_series, low_series, close_series, volume_series : pandas.Series
+        Standard OHLCV columns.
+    balance_threshold : float, default 0.1
+        Maximum allowed |buy_ratio - sell_ratio| to flag a bar as balanced.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns: buy_power_ratio, sell_power_ratio, footprint_flag.
+        footprint_flag = volume where balanced, 0 otherwise.
+    """
+    buy_power = close_series - low_series
+    sell_power = high_series - close_series
+    total_power = buy_power + sell_power  # = high - low
+
+    buy_ratio = buy_power / total_power
+    sell_ratio = sell_power / total_power
+
+    # Doji bars (H == L) → total_power == 0 → NaN ratios → not flagged
+    balanced = (buy_ratio - sell_ratio).abs() < balance_threshold
+    footprint_flag = volume_series.where(balanced, 0.0)
+
+    return pandas.DataFrame(
+        {
+            "buy_power_ratio": buy_ratio,
+            "sell_power_ratio": sell_ratio,
+            "footprint_flag": footprint_flag,
+        },
+        index=close_series.index,
+    )

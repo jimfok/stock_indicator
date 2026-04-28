@@ -592,6 +592,9 @@ class AdaptiveTPSLConfig:
     # current entry date (not same-day closes). This lets TP% be computed
     # on entry signal night (T), so TP orders can be placed at T+1 open.
     delayed_rolling_update: bool = False
+    # When True, SL is tightened to break-even (entry price) once unrealized
+    # profit reaches the rolling mean profit (MP).
+    breakeven_at_mp: bool = False
 
 
 @dataclass
@@ -620,6 +623,7 @@ def _replay_trade_with_adaptive_tp_sl(
     sl_pct: float,
     minimum_holding_bars: int = 0,
     minimum_holding_bars_tp: int | None = None,
+    breakeven_trigger_pct: float = 0.0,
 ) -> Trade:
     """Replay a raw trade using adaptive TP/SL levels.
 
@@ -630,6 +634,9 @@ def _replay_trade_with_adaptive_tp_sl(
     When *minimum_holding_bars_tp* is provided it overrides
     *minimum_holding_bars* for TP checks only, allowing TP to trigger
     earlier than SL.
+
+    When *breakeven_trigger_pct* > 0, once the bar high reaches that level
+    the SL is tightened to break-even (entry price).
     """
     if trade.bar_excursions is None or not trade.bar_excursions:
         return trade
@@ -637,17 +644,23 @@ def _replay_trade_with_adaptive_tp_sl(
         minimum_holding_bars_tp if minimum_holding_bars_tp is not None
         else minimum_holding_bars
     )
+    active_sl_pct = sl_pct
     for bar_index, (bar_date, bar_high_pct, bar_low_pct) in enumerate(
         trade.bar_excursions
     ):
         holding = bar_index + 1
+        # Upgrade SL to break-even once profit reaches trigger level
+        if (
+            breakeven_trigger_pct > 0
+            and bar_high_pct >= breakeven_trigger_pct
+        ):
+            active_sl_pct = 0.0  # break-even = entry price
         # Check SL (respects minimum_holding_bars)
         if (
             holding >= minimum_holding_bars
-            and sl_pct > 0
-            and bar_low_pct <= -sl_pct
+            and bar_low_pct <= -active_sl_pct
         ):
-            adjusted_exit_price = trade.entry_price * (1 - sl_pct)
+            adjusted_exit_price = trade.entry_price * (1 - active_sl_pct)
             adjusted_profit = adjusted_exit_price - trade.entry_price
             return replace(
                 trade,
@@ -969,12 +982,14 @@ def run_complex_simulation(
                 # Compute adaptive TP/SL from rolling stats.
                 tp_pct = adaptive_tp_sl.min_tp
                 sl_pct = adaptive_tp_sl.min_sl
+                rolling_mp = 0.0
                 if len(adaptive_closed_profits) >= adaptive_tp_sl.min_samples:
                     profits = [
                         p for p in adaptive_closed_profits if p > 0
                     ]
                     if len(profits) >= 3:
                         mp = sum(profits) / len(profits)
+                        rolling_mp = mp
                         if len(profits) >= 2:
                             sp = stdev(profits)
                         else:
@@ -991,6 +1006,9 @@ def run_complex_simulation(
                 if adaptive_tp_sl.fixed_sl is not None:
                     sl_pct = min(sl_pct, adaptive_tp_sl.fixed_sl)
 
+                # Break-even trigger: rolling MP (before sigma adjustment).
+                be_trigger = rolling_mp if adaptive_tp_sl.breakeven_at_mp else 0.0
+
                 # Replay trade with adaptive levels.
                 effective_min_hold = (
                     0 if adaptive_tp_sl.override_min_hold
@@ -1002,6 +1020,7 @@ def run_complex_simulation(
                 adjusted = _replay_trade_with_adaptive_tp_sl(
                     trade, tp_pct, sl_pct, effective_min_hold,
                     minimum_holding_bars_tp=effective_min_hold_tp,
+                    breakeven_trigger_pct=be_trigger,
                 )
                 adaptive_trade_map[trade_identifier] = adjusted
                 adaptive_original_trade[id(adjusted)] = trade
