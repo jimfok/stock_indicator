@@ -708,6 +708,7 @@ def run_complex_simulation(
     multi_bucket_mode: bool = False,
     confirmation_sma_angle_range: tuple[float, float] | None = None,
     adaptive_tp_sl: AdaptiveTPSLConfig | None = None,
+    max_same_symbol: int = 1,
 ) -> ComplexSimulationMetrics:
     """Evaluate multiple strategy sets under a shared configuration.
 
@@ -807,6 +808,10 @@ def run_complex_simulation(
     open_position_counts_by_set: Dict[str, int] = {label: 0 for label in set_definitions}
     open_trade_keys: Dict[Tuple[str, int], str] = {}
     accepted_trade_keys: set[Tuple[str, int]] = set()
+    # Track open positions per symbol for max_same_symbol enforcement.
+    open_symbol_counts: Dict[str, int] = {}
+    # Map trade_id -> symbol for decrementing on close.
+    open_trade_symbols: Dict[int, str] = {}
     # Event tuple layout:
     #   (date, event_type, bucket_priority, entry_priority, insertion_counter,
     #    label, trade)
@@ -927,6 +932,12 @@ def run_complex_simulation(
                         0, open_position_counts_by_set[close_label] - 1
                     )
                     same_day_close_count += 1
+                    # Decrement same-symbol counter.
+                    closed_sym = open_trade_symbols.pop(orig_trade_id, None)
+                    if closed_sym and closed_sym in open_symbol_counts:
+                        open_symbol_counts[closed_sym] = max(
+                            0, open_symbol_counts[closed_sym] - 1
+                        )
                     # Update rolling stats using the RAW (original) trade's
                     # result, not the adaptive-adjusted one.  This ensures
                     # the rolling window reflects true signal quality, not
@@ -996,6 +1007,12 @@ def run_complex_simulation(
                 elif open_position_counts_by_set[label] >= position_limits_by_set[label]:
                     continue
 
+                # Check max_same_symbol limit.
+                if max_same_symbol < 999:
+                    trade_sym = artifacts_by_set[label].trade_symbol_lookup.get(trade, "")
+                    if open_symbol_counts.get(trade_sym, 0) >= max_same_symbol:
+                        continue
+
                 # Compute adaptive TP/SL from rolling stats.
                 tp_pct = adaptive_tp_sl.min_tp
                 sl_pct = adaptive_tp_sl.min_sl
@@ -1045,6 +1062,11 @@ def run_complex_simulation(
                 accepted_trade_keys.add(trade_key)
                 open_trade_keys[trade_key] = label
                 open_position_counts_by_set[label] += 1
+                # Track same-symbol count.
+                if max_same_symbol < 999:
+                    entry_sym = artifacts_by_set[label].trade_symbol_lookup.get(trade, "")
+                    open_symbol_counts[entry_sym] = open_symbol_counts.get(entry_sym, 0) + 1
+                    open_trade_symbols[trade_identifier] = entry_sym
                 accepted_trades_by_set[label].append(adjusted)
 
                 # Schedule close event.

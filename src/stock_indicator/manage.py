@@ -1570,6 +1570,7 @@ class StockShell(cmd.Cmd):
                 multi_bucket_mode=True,
                 confirmation_sma_angle_range=confirmation_sma_angle_range,
                 adaptive_tp_sl=adaptive_tp_sl_config,
+                max_same_symbol=int(config_document.get("max_same_symbol", 1)),
             )
         except ValueError as error:
             self.stdout.write(f"{error}\n")

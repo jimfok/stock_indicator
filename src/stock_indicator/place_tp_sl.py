@@ -170,8 +170,10 @@ def main() -> None:
             if not create_time:
                 continue
             fill_date = create_time[:10]  # "2026-04-22"
-            # Keep earliest date per code
-            if code not in entry_dates or fill_date < entry_dates[code]:
+            # Keep latest date per code — current position corresponds to
+            # the most recent BUY, not the earliest (which may be a
+            # previously closed trade).
+            if code not in entry_dates or fill_date > entry_dates[code]:
                 entry_dates[code] = fill_date
 
     # Also check active orders for today's fills not yet in history
@@ -190,7 +192,7 @@ def main() -> None:
             if not create_time:
                 continue
             fill_date = create_time[:10]
-            if code not in entry_dates or fill_date < entry_dates[code]:
+            if code not in entry_dates or fill_date > entry_dates[code]:
                 entry_dates[code] = fill_date
 
     today_str = date.today().isoformat()
