@@ -890,6 +890,11 @@ def run_complex_simulation(
         # Convert sorted entry events into a deque for efficient popping.
         entry_events = deque(events)
         events = []  # free memory
+        # Track same-day close releases so entries cannot use slots freed
+        # on the same date (no lookahead — you can't know at entry time
+        # whether a TP/SL will trigger later that day).
+        same_day_close_count = 0
+        last_close_date: pandas.Timestamp | None = None
 
         while entry_events or adaptive_close_heap:
             # Determine next event: either from entry_events or close_heap.
@@ -911,12 +916,17 @@ def run_complex_simulation(
                 close_date, _cnt, close_label, orig_trade_id = heapq.heappop(
                     adaptive_close_heap
                 )
+                # Track same-day releases for lookahead prevention.
+                if last_close_date != close_date:
+                    same_day_close_count = 0
+                    last_close_date = close_date
                 close_key = (close_label, orig_trade_id)
                 if close_key in open_trade_keys:
                     open_trade_keys.pop(close_key, None)
                     open_position_counts_by_set[close_label] = max(
                         0, open_position_counts_by_set[close_label] - 1
                     )
+                    same_day_close_count += 1
                     # Update rolling stats using the RAW (original) trade's
                     # result, not the adaptive-adjusted one.  This ensures
                     # the rolling window reflects true signal quality, not
@@ -960,11 +970,18 @@ def run_complex_simulation(
                         else:
                             remaining.append((closed_date, closed_pct))
                     pending_rolling_updates[:] = remaining
+                # Reset same-day close counter when we move to a new date.
+                if last_close_date is not None and event_date > last_close_date:
+                    same_day_close_count = 0
                 trade_identifier = id(trade)
                 trade_key = (label, trade_identifier)
                 if trade_key in accepted_trade_keys:
                     continue
-                current_open_total = len(open_trade_keys)
+                # Slot check: add back same-day closes to prevent lookahead.
+                # Entries cannot use slots freed by closes on the same date
+                # because you don't know at entry time whether TP/SL will
+                # trigger later that day.
+                current_open_total = len(open_trade_keys) + same_day_close_count
                 if current_open_total >= maximum_position_count:
                     continue
                 if (
