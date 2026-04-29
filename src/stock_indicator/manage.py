@@ -1538,6 +1538,7 @@ class StockShell(cmd.Cmd):
                     override_min_hold_tp_only=bool(raw_adaptive.get("override_min_hold_tp_only", False)),
                     min_hold_tp=int(raw_adaptive.get("min_hold_tp", 0)),
                     delayed_rolling_update=bool(raw_adaptive.get("delayed_rolling_update", False)),
+                    breakeven_at_mp=bool(raw_adaptive.get("breakeven_at_mp", False)),
                 )
             else:
                 # Boolean true -> use defaults.
@@ -1569,6 +1570,7 @@ class StockShell(cmd.Cmd):
                 multi_bucket_mode=True,
                 confirmation_sma_angle_range=confirmation_sma_angle_range,
                 adaptive_tp_sl=adaptive_tp_sl_config,
+                max_same_symbol=int(config_document.get("max_same_symbol", 1)),
             )
         except ValueError as error:
             self.stdout.write(f"{error}\n")
